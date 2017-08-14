@@ -19,15 +19,6 @@ import (
 	"testing"
 )
 
-// runAndWait invokes sandboxfs with the given arguments and waits for termination.
-func runAndWait(wantExitStatus int, arg ...string) (string, string, error) {
-	state, err := run(arg...)
-	if err != nil {
-		return "", "", err
-	}
-	return wait(state, wantExitStatus)
-}
-
 func TestCli_Help(t *testing.T) {
 	generalHelp := `Usage: sandboxfs [flags...] subcommand ...
 Subcommands:
