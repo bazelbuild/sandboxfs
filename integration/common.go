@@ -19,6 +19,7 @@ package integration
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -104,8 +105,12 @@ func runAndWait(wantExitStatus int, arg ...string) (string, string, error) {
 // ready for serving.  The cookie parameter specifies the relative path of a file within the mount
 // point that must exist in order to consider the file system to be up and running.
 //
+// The stdout and stderr of the sandboxfs process are redirected to the objects given to the
+// function.  Any of these objects can be set to nil, which causes the corresponding output to be
+// discarded.
+//
 // Returns a handle on the spawned sandboxfs process.
-func startBackground(cookie string, args ...string) (*exec.Cmd, error) {
+func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...string) (*exec.Cmd, error) {
 	bin, err := sandboxfsBinary()
 	if err != nil {
 		return nil, fmt.Errorf("cannot find sandboxfs binary: %v", err)
@@ -117,6 +122,8 @@ func startBackground(cookie string, args ...string) (*exec.Cmd, error) {
 	mountPoint := args[len(args)-1]
 
 	cmd := exec.Command(bin, args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, args, err)
 	}
@@ -159,12 +166,26 @@ type mountState struct {
 	cmd *exec.Cmd
 }
 
-// mountSetup initializes a test that wants to run sandboxfs in the background.
+// mountSetup initializes a test that wants to run sandboxfs in the background and does not care
+// about what sandboxfs may print to stdout and stderr.
+//
+// This is essentially the same as mountSetupWithOutputs but with stdout and stderr set to ignore
+// any output.  See the documentation for this other function for further details.
+func mountSetup(t *testing.T, args ...string) *mountState {
+	return mountSetupWithOutputs(t, nil, nil, args...)
+}
+
+// mountSetupWithOutputs initializes a test that wants to run sandboxfs in the background and wants
+// to inspect the contents of stdout and stderr.
 //
 // args contains the list of arguments to pass to the sandboxfs *without* the mount point: the
 // mount point is derived from a temporary directory created here and returned in the mountPoint
 // field of the mountState structure.  Similarly, the arguments can use %ROOT% to reference the
 // temporary directory created here in which they can place files to be exposed in the sandbox.
+//
+// The stdout and stderr of the sandboxfs process are redirected to the objects given to the
+// function.  Any of these objects can be set to nil, which causes the corresponding output to be
+// discarded.
 //
 // This helper function receives a testing.T object because test setup for sandboxfs is complex and
 // we want to keep the test cases themselves as concise as possible.  Any failures within this
@@ -172,7 +193,7 @@ type mountState struct {
 //
 // Callers must defer execution of mountState.teardown() immediately on return to ensure the
 // background process and the mount point are cleaned up on test completion.
-func mountSetup(t *testing.T, args ...string) *mountState {
+func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, args ...string) *mountState {
 	success := false
 
 	tempDir, err := ioutil.TempDir("", "test")
@@ -197,7 +218,7 @@ func mountSetup(t *testing.T, args ...string) *mountState {
 	realArgs = append(realArgs, mountPoint)
 
 	writeFileOrFatal(t, filepath.Join(root, ".cookie"), 0400, "")
-	cmd, err := startBackground(".cookie", realArgs...)
+	cmd, err := startBackground(".cookie", stdout, stderr, realArgs...)
 	if err != nil {
 		t.Fatalf("failed to start sandboxfs: %v", err)
 	}
@@ -220,21 +241,29 @@ func mountSetup(t *testing.T, args ...string) *mountState {
 // different though: because tearDown is scheduled to run with "defer", we require a mechanism to
 // report test failures if any cleanup action fails, so getting access to the testing.T object as an
 // argument is the simplest way of doing so.
+//
+// If tests wish to control the shutdown of the sandboxfs process, they can do so, but then they
+// must set s.cmd to nil to tell tearDown to not clean up the process a second time.
 func (s *mountState) tearDown(t *testing.T) {
-	// Calling fuse.Unmount on the mount point causes the running sandboxfs process to stop
-	// serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2) system call:
-	// this can be run as an unprivileged user, so we needn't check for root privileges.
-	if err := fuse.Unmount(s.mountPoint); err != nil {
-		t.Errorf("failed to unmount sandboxfs instance during teardown: %v", err)
-	}
+	if s.cmd != nil {
+		// Calling fuse.Unmount on the mount point causes the running sandboxfs process to
+		// stop serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2)
+		// system call: this can be run as an unprivileged user, so we needn't check for
+		// root privileges.
+		if err := fuse.Unmount(s.mountPoint); err != nil {
+			t.Errorf("failed to unmount sandboxfs instance during teardown: %v", err)
+		}
 
-	timer := time.AfterFunc(shutdownDeadlineSeconds*time.Second, func() {
-		s.cmd.Process.Kill()
-	})
-	err := s.cmd.Wait()
-	timer.Stop()
-	if err != nil {
-		t.Errorf("sandboxfs did not exit successfully during teardown: %v", err)
+		timer := time.AfterFunc(shutdownDeadlineSeconds*time.Second, func() {
+			s.cmd.Process.Kill()
+		})
+		err := s.cmd.Wait()
+		timer.Stop()
+		if err != nil {
+			t.Errorf("sandboxfs did not exit successfully during teardown: %v", err)
+		}
+
+		s.cmd = nil
 	}
 
 	if err := os.RemoveAll(s.tempDir); err != nil {
