@@ -101,19 +101,33 @@ func runAndWait(wantExitStatus int, arg ...string) (string, string, error) {
 	return wait(state, wantExitStatus)
 }
 
+// waitForFile waits until a given file exists with a timeout of deadlineSeconds.  Returns true if
+// the file was found before the timer expired, or false otherwise.
+func waitForFile(cookie string, deadlineSeconds int) bool {
+	for tries := 0; tries < deadlineSeconds; tries++ {
+		_, err := os.Lstat(cookie)
+		if err == nil {
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+	return false
+}
+
 // startBackground spawns sandboxfs with the given arguments and waits for the file system to be
 // ready for serving.  The cookie parameter specifies the relative path of a file within the mount
-// point that must exist in order to consider the file system to be up and running.
+// point that must exist in order to consider the file system to be up and running; the cookie may
+// be empty if such waiting is not desired (e.g. when running sandboxfs in dynamic mode).
 //
 // The stdout and stderr of the sandboxfs process are redirected to the objects given to the
 // function.  Any of these objects can be set to nil, which causes the corresponding output to be
 // discarded.
 //
-// Returns a handle on the spawned sandboxfs process.
-func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...string) (*exec.Cmd, error) {
+// Returns a handle on the spawned sandboxfs process and a pipe to send data to its stdin.
+func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...string) (*exec.Cmd, io.WriteCloser, error) {
 	bin, err := sandboxfsBinary()
 	if err != nil {
-		return nil, fmt.Errorf("cannot find sandboxfs binary: %v", err)
+		return nil, nil, fmt.Errorf("cannot find sandboxfs binary: %v", err)
 	}
 
 	// The sandboxfs command line syntax requires the mount point to appear at the end and we
@@ -122,28 +136,32 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...
 	mountPoint := args[len(args)-1]
 
 	cmd := exec.Command(bin, args...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create stdin pipe: %v", err)
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, args, err)
+		return nil, nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, args, err)
 	}
-	cookiePath := filepath.Join(mountPoint, cookie)
-	for tries := 0; tries < startupDeadlineSeconds; tries++ {
-		_, err := os.Stat(cookiePath)
-		if err == nil {
-			// Found the cookie file; sandboxfs is up and running!
-			return cmd, nil
+
+	if cookie != "" {
+		cookiePath := filepath.Join(mountPoint, cookie)
+		if !waitForFile(cookiePath, startupDeadlineSeconds) {
+			// Give up.  sandboxfs did't come up, so kill the process and clean up.
+			// There is not much we can do here if we encounter errors (e.g. we don't
+			// even know if the mount point was initialized, so the unmount call may or
+			// may not fail) so just try to clean up as much as possible.
+			stdin.Close()
+			cmd.Process.Kill()
+			cmd.Wait()
+			fuse.Unmount(mountPoint)
+			return nil, nil, fmt.Errorf("file system failed to come up: %s not found", cookiePath)
 		}
-		time.Sleep(time.Second)
 	}
-	// Give up.  sandboxfs did't come up, so kill the process and clean up.  There is not much
-	// we can do here if we encounter errors (e.g. we don't even know if the mount point was
-	// initialized, so the unmount call may or may not fail) so just try to clean up as much as
-	// possible.
-	cmd.Process.Kill()
-	cmd.Wait()
-	fuse.Unmount(mountPoint)
-	return nil, fmt.Errorf("file system failed to come up: %s not found", cookiePath)
+
+	return cmd, stdin, nil
 }
 
 // mountState holds runtime information for tests that execute sandboxfs in the background and
@@ -164,6 +182,21 @@ type mountState struct {
 	// Handle for the running sandboxfs instance.  Can be used by tests to get access to the
 	// input and output of the process.
 	cmd *exec.Cmd
+
+	// Pipe connected to sandboxfs's stdin.  Most tests don't need to communicate with the
+	// sandboxfs process via stdin, so it's fine to just ignore this.
+	stdin io.WriteCloser
+}
+
+// isDynamic returns true if the arguments to run sandboxfs cause the instance to be configured in
+// dynamic mode.
+func isDynamic(args ...string) bool {
+	for _, arg := range args {
+		if arg == "dynamic" {
+			return true
+		}
+	}
+	return false
 }
 
 // mountSetup initializes a test that wants to run sandboxfs in the background and does not care
@@ -217,8 +250,25 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 	}
 	realArgs = append(realArgs, mountPoint)
 
-	writeFileOrFatal(t, filepath.Join(root, ".cookie"), 0400, "")
-	cmd, err := startBackground(".cookie", stdout, stderr, realArgs...)
+	var cmd *exec.Cmd
+	var stdin io.WriteCloser
+	if isDynamic(args...) {
+		// "dynamic" mode starts without any mappings so we cannot wait for the file system
+		// to come up using a cookie file: instead, the caller is responsible for pushing an
+		// initial configuration to sandboxfs and then waiting for confirmation.
+		//
+		// TODO(jmmv): This is an heuristic, and, as such, is imprecise and annoying because
+		// it obscures what's happening in the tests.  It'd be nice to inject whether the
+		// invocation is dynamic or not when calling the mountSetup* functions, but that
+		// would obscure all other callers for no good reason.  The better alternative is to
+		// reconsider whether we need a dynamic mode at all: it is probably a good idea to
+		// consolidate the static/dynamic duality and allow any sandboxfs to accept
+		// reconfiguration (which would, in turn, make all of our code much simpler).
+		cmd, stdin, err = startBackground("", stdout, stderr, realArgs...)
+	} else {
+		writeFileOrFatal(t, filepath.Join(root, ".cookie"), 0400, "")
+		cmd, stdin, err = startBackground(".cookie", stdout, stderr, realArgs...)
+	}
 	if err != nil {
 		t.Fatalf("failed to start sandboxfs: %v", err)
 	}
@@ -231,6 +281,7 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 		root:       root,
 		mountPoint: mountPoint,
 		cmd:        cmd,
+		stdin:      stdin,
 	}
 	return state
 }
@@ -246,6 +297,10 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 // must set s.cmd to nil to tell tearDown to not clean up the process a second time.
 func (s *mountState) tearDown(t *testing.T) {
 	if s.cmd != nil {
+		if err := s.stdin.Close(); err != nil {
+			t.Errorf("failed to close sandboxfs's stdin pipe: %v", err)
+		}
+
 		// Calling fuse.Unmount on the mount point causes the running sandboxfs process to
 		// stop serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2)
 		// system call: this can be run as an unprivileged user, so we needn't check for
