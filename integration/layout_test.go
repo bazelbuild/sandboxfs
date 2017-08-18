@@ -38,10 +38,10 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("want stdout to be empty, got %s", stdout)
+		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
 	if !matchesRegexp(bogusWantStderr, stderr) {
-		t.Errorf("want stderr to match %s, got %s", bogusWantStderr, stderr)
+		t.Errorf("got %s; want stderr to match %s", stderr, bogusWantStderr)
 	}
 }
 
@@ -62,10 +62,10 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("want stdout to be empty, got %s", stdout)
+		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
 	if !matchesRegexp(wantStderr, stderr) {
-		t.Errorf("want stderr to match %s, got %s", wantStderr, stderr)
+		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
@@ -83,10 +83,10 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("want stdout to be empty, got %s", stdout)
+		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
 	if !matchesRegexp(wantStderr, stderr) {
-		t.Errorf("want stderr to match %s, got %s", wantStderr, stderr)
+		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
@@ -107,9 +107,9 @@ func TestLayout_FileMappedOnVirtualDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("want stdout to be empty, got %s", stdout)
+		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
 	if !matchesRegexp(wantStderr, stderr) {
-		t.Errorf("want stderr to match %s, got %s", wantStderr, stderr)
+		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }

@@ -146,10 +146,10 @@ func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("want stdout to be empty; got %s", stdout)
+		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
 	if !matchesRegexp(wantStderr, stderr) {
-		t.Errorf("no error details found in stderr")
+		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 

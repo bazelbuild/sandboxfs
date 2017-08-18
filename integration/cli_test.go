@@ -71,10 +71,10 @@ Flags:
 				t.Fatal(err)
 			}
 			if d.wantStdout != stdout {
-				t.Errorf("want stdout to match %s; got %s", d.wantStdout, stdout)
+				t.Errorf("got %s; want stdout to match %s", stdout, d.wantStdout)
 			}
 			if len(stderr) > 0 {
-				t.Errorf("want stderr to be empty; got %s", stderr)
+				t.Errorf("got %s; want stderr to be empty", stderr)
 			}
 		})
 	}
@@ -122,10 +122,10 @@ func TestCli_Syntax(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
-				t.Errorf("want stdout to be empty; got %s", stdout)
+				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
 			if !matchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("no error details found in stderr")
+				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 			if d.wantHelpNote {
 				if !matchesRegexp("pass -help flag for details", stderr) {
@@ -161,10 +161,10 @@ func TestCli_StaticMappingsSyntax(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
-				t.Errorf("want stdout to be empty; got %s", stdout)
+				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
 			if d.wantStderr != stderr {
-				t.Errorf("want stderr to match %s; got %s", d.wantStderr, stderr)
+				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 		})
 	}

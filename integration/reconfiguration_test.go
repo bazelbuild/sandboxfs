@@ -44,7 +44,7 @@ func reconfigure(input io.Writer, output *bufio.Scanner, config string) error {
 		return fmt.Errorf("failed to send new configuration to sandboxfs: %v", err)
 	}
 	if n != len(config) {
-		return fmt.Errorf("failed to send full configuration to sandboxfs: want %s bytes, got %s bytes", len(config), n)
+		return fmt.Errorf("failed to send full configuration to sandboxfs: got %d bytes, want %d bytes", n, len(config))
 	}
 
 	if !output.Scan() {
@@ -55,7 +55,7 @@ func reconfigure(input io.Writer, output *bufio.Scanner, config string) error {
 	}
 	doneMarker := "Done"
 	if output.Text() != doneMarker {
-		return fmt.Errorf("sandboxfs did not ack configuration: want %s, got %s", doneMarker, output.Text())
+		return fmt.Errorf("sandboxfs did not ack configuration: got %s, want %s", output.Text(), doneMarker)
 	}
 	return nil
 }

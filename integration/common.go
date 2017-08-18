@@ -81,12 +81,12 @@ func wait(state *runState, wantExitStatus int) (string, string, error) {
 	err := state.cmd.Wait()
 	if wantExitStatus == 0 {
 		if err != nil {
-			return state.out.String(), state.err.String(), fmt.Errorf("want sandboxfs to exit with status 0; got %v", err)
+			return state.out.String(), state.err.String(), fmt.Errorf("got %v; want sandboxfs to exit with status 0", err)
 		}
 	} else {
 		status := err.(*exec.ExitError).ProcessState.Sys().(syscall.WaitStatus)
 		if wantExitStatus != status.ExitStatus() {
-			return state.out.String(), state.err.String(), fmt.Errorf("want sandboxfs to exit with status %d, got %v", wantExitStatus, status.ExitStatus())
+			return state.out.String(), state.err.String(), fmt.Errorf("got %v; want sandboxfs to exit with status %d", status.ExitStatus(), wantExitStatus)
 		}
 	}
 	return state.out.String(), state.err.String(), nil
@@ -389,7 +389,7 @@ func dirEquals(path1 string, path2 string) error {
 		}
 	}
 	if !reflect.DeepEqual(names[0], names[1]) {
-		return fmt.Errorf("contents of directory %s do not match %s; want %v, got %v", path1, path2, names[0], names[1])
+		return fmt.Errorf("contents of directory %s do not match %s; got %v, want %v", path1, path2, names[1], names[0])
 	}
 	return nil
 }
