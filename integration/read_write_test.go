@@ -58,6 +58,21 @@ func TestReadWrite_RewriteFile(t *testing.T) {
 	}
 }
 
+func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
+	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	writeFileOrFatal(t, filepath.Join(state.mountPoint, "file"), 0644, "very long contents")
+	writeFileOrFatal(t, filepath.Join(state.mountPoint, "file"), 0644, "short")
+	// TODO(jmmv): There is a bug somewhere that is causing short writes over a long file to
+	// not discard old data, or ignoring the truncate file request (which ioutil.WriteFile is
+	// issuing).  Track and fix.
+	bogusContents := "shortlong contents"
+	if err := fileEquals(filepath.Join(state.mountPoint, "file"), bogusContents); err != nil {
+		t.Error(err)
+	}
+}
+
 // equivalentStats compares two os.FileInfo objects and returns nil if they represent the same
 // file; otherwise returns a descriptive error including the differences between the two.
 // This equivalency is to be used during file move tess, to check if a file was actually moved

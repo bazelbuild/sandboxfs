@@ -93,6 +93,10 @@ func wait(state *runState, wantExitStatus int) (string, string, error) {
 }
 
 // runAndWait invokes sandboxfs with the given arguments and waits for termination.
+//
+// TODO(jmmv): We should extend this function to also take what the expectation are on stdout and
+// stderr to remove a lot of boilerplate from the tests... but we should probably wait until Go's
+// 1.9 t.Helper() feature is available so that we can actually report failures/errors from here.
 func runAndWait(wantExitStatus int, arg ...string) (string, string, error) {
 	state, err := run(arg...)
 	if err != nil {
@@ -199,6 +203,30 @@ func isDynamic(args ...string) bool {
 	return false
 }
 
+// createDirsRequiredByMappings inspects the flags that configure sandboxfs to extract the paths to
+// the targetes of the mappings, and creates those paths.
+func createDirsRequiredByMappings(root string, args ...string) error {
+	for _, arg := range args {
+		if !matchesRegexp("mapping=.*:"+root+"/", arg) {
+			continue // Not a mapping.
+		}
+		fields := strings.Split(arg, ":")
+		if len(fields) != 2 {
+			// If we encounter more than two fields on a mapping flag, we have hit a bug
+			// in our tests and this bug must be fixed: propagating an error makes no
+			// sense.  In other words: this function applies heuristics to determine
+			// which flags represent mappings and extracts values from those... and if
+			// we fail to do this properly, the calling tests won't work at all.
+			panic(fmt.Sprintf("recognized a mapping but found more fields than expected: %v", fields))
+		}
+		dir := fields[1]
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to mkdir %s: %v", dir, err)
+		}
+	}
+	return nil
+}
+
 // mountSetup initializes a test that wants to run sandboxfs in the background and does not care
 // about what sandboxfs may print to stdout and stderr.
 //
@@ -249,6 +277,10 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 		realArgs = append(realArgs, strings.Replace(arg, "%ROOT%", root, -1))
 	}
 	realArgs = append(realArgs, mountPoint)
+
+	if err := createDirsRequiredByMappings(root, realArgs...); err != nil {
+		t.Fatalf("failed to create directories required by mappings: %v", err)
+	}
 
 	var cmd *exec.Cmd
 	var stdin io.WriteCloser
