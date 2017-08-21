@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/bazelbuild/sandboxfs/sandbox"
+	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 // jsonConfig converts a collection of sandbox mappings to the JSON structure expected by sandboxfs.

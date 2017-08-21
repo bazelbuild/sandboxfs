@@ -29,10 +29,10 @@ import (
 	"syscall"
 	"time"
 
-	"log"
-	"bazil.org/fuse/fs"
 	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
 	"golang.org/x/sys/unix"
+	"log"
 )
 
 // lastInodeNumber is a counter that contains the last allotted inode number.

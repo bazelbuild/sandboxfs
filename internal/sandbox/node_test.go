@@ -19,8 +19,8 @@ import (
 	"os"
 	"testing"
 
-	"golang.org/x/net/context"
 	"bazil.org/fuse"
+	"golang.org/x/net/context"
 )
 
 func nodeSetup(t *testing.T) string {

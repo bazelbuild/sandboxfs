@@ -20,11 +20,11 @@ import (
 	"sync"
 	"syscall"
 
-	"log"
-	"golang.org/x/net/context"
-	"bazil.org/fuse/fs"
 	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
+	"golang.org/x/net/context"
 	"golang.org/x/sys/unix"
+	"log"
 )
 
 // Dir is a Node that represents a directory in the underlying filesystem.

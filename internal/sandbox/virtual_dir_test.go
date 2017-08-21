@@ -20,8 +20,8 @@ import (
 	"syscall"
 	"testing"
 
-	"golang.org/x/net/context"
 	"bazil.org/fuse"
+	"golang.org/x/net/context"
 )
 
 func TestVirtualDir_Attr(t *testing.T) {

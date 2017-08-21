@@ -19,9 +19,9 @@ import (
 	"os"
 	"syscall"
 
-	"golang.org/x/net/context"
-	"bazil.org/fuse/fs"
 	"bazil.org/fuse"
+	"bazil.org/fuse/fs"
+	"golang.org/x/net/context"
 )
 
 // VirtualDir is a node type that represents a virtual directory in the file

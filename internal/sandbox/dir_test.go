@@ -23,8 +23,8 @@ import (
 	"syscall"
 	"testing"
 
-	"golang.org/x/net/context"
 	"bazil.org/fuse"
+	"golang.org/x/net/context"
 )
 
 var OpenRequestDir = &fuse.OpenRequest{

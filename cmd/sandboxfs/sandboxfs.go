@@ -25,11 +25,11 @@ import (
 	"syscall"
 	"time"
 
+	"bazil.org/fuse"
 	"flag"
 	"log"
-	"bazil.org/fuse"
 
-	"github.com/bazelbuild/sandboxfs/sandbox"
+	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 // MappingTargetPair stores a single mapping of the form mapping->target.
