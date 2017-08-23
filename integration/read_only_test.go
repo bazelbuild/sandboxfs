@@ -154,3 +154,6 @@ func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 }
 
 // TODO(jmmv): Must have tests to ensure that read-only mappings are, well, read only.
+
+// TODO(jmmv): Must have tests to verify that files are valid mapping targets, which is what we
+// promise users in the documentation.

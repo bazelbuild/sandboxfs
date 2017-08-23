@@ -27,6 +27,12 @@ frustration later on.
 All submissions, including submissions by project members, require review.
 We use Github pull requests for this purpose.
 
+Be aware that the copy of sandboxfs in GitHub is not *yet* primary: all
+changes submitted via GitHub bugs or pull requests will be manually applied
+to the Google-internal tree, reviewed there, and then reexported to GitHub
+(which means your commit IDs will change, but attribution should not).  Our
+goal is to make GitHub the primary copy, but we are not there yet!
+
 ## The small print
 
 Contributions made by corporations are covered by a different agreement than
