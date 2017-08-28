@@ -16,8 +16,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,9 +28,6 @@ import (
 	"time"
 
 	"bazil.org/fuse"
-	"flag"
-	"log"
-
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
@@ -134,18 +133,18 @@ func dynamicCommand(dynamic *flag.FlagSet) error {
 	}
 	if v := dynamic.Lookup("input").Value; v.String() != "-" {
 		file, err := os.Open(v.String())
-		defer file.Close()
 		if err != nil {
 			return fmt.Errorf("Unable to open file %q for reading: %v", v.String(), err)
 		}
+		defer file.Close()
 		dynamicConf.Input = file
 	}
 	if v := dynamic.Lookup("output").Value; v.String() != "-" {
 		file, err := os.Create(v.String())
-		defer file.Close()
 		if err != nil {
 			return fmt.Errorf("Unable to open file %q for writing: %v", v.String(), err)
 		}
+		defer file.Close()
 		dynamicConf.Output = file
 	}
 	return serve(dynamic.Arg(0), dynamicConf, nil)
@@ -166,10 +165,10 @@ func serve(mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandb
 		fuse.LocalVolume(),
 		fuse.VolumeName(flag.Lookup("volume_name").Value.String()),
 	)
-	defer c.Close()
 	if err != nil {
 		return fmt.Errorf("Unable to mount: %v", err)
 	}
+	defer c.Close()
 
 	err = sandbox.Serve(c, sfs, dynamicConf)
 	if err != nil {
