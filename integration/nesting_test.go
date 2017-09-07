@@ -60,28 +60,6 @@ func TestNesting_ReadWriteWithinReadOnly(t *testing.T) {
 	}
 }
 
-func TestNesting_SameTarget(t *testing.T) {
-	state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_write_mapping=/dir1:%ROOT%/same", "-read_write_mapping=/dir2/dir3/dir4:%ROOT%/same")
-	defer state.tearDown(t)
-
-	writeFileOrFatal(t, filepath.Join(state.mountPoint, "dir1/file"), 0644, "old contents")
-	writeFileOrFatal(t, filepath.Join(state.mountPoint, "dir2/dir3/dir4/file"), 0644, "new contents")
-
-	externalDir := filepath.Join(state.root, "same")
-	if err := fileEquals(filepath.Join(externalDir, "file"), "new contents"); err != nil {
-		t.Error(err)
-	}
-	for _, dir := range []string{"/dir1", "/dir2/dir3/dir4"} {
-		internalDir := filepath.Join(state.mountPoint, dir)
-		if err := dirEquals(externalDir, internalDir); err != nil {
-			t.Error(err)
-		}
-		if err := fileEquals(filepath.Join(internalDir, "file"), "new contents"); err != nil {
-			t.Error(err)
-		}
-	}
-}
-
 func TestNesting_PreserveSymlinks(t *testing.T) {
 	state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/dir1/dir2:%ROOT%")
 	defer state.tearDown(t)
