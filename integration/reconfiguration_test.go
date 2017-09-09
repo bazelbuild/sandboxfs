@@ -163,6 +163,42 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 	doReconfigurationTest(t, state, input, output)
 }
 
+func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test")
+	if err != nil {
+		t.Fatalf("failed to create temporary directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	mountPoint, err := ioutil.TempDir("", "mountPoint")
+	if err != nil {
+		t.Fatalf("failed to create temporary directory: %v", err)
+	}
+	defer os.RemoveAll(mountPoint)
+
+	inFifo := filepath.Join(tempDir, "input")
+	inFile, err := os.OpenFile(inFifo, os.O_CREATE, 0666)
+	if err != nil {
+		t.Fatalf("Creating %q failed with error: %v", inFifo, err)
+	}
+	inFile.Close()
+
+	outFifo := filepath.Join(tempDir, "non-existent/output")
+	wantStderr := fmt.Sprintf("Unable to open file \"%s\" for writing: open %s: no such file or directory",
+		outFifo, outFifo)
+
+	stdout, stderr, err := runAndWait(1, "dynamic", "--input="+inFifo, "--output="+outFifo, mountPoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stdout) > 0 {
+		t.Errorf("got %s; want stdout to be empty", stdout)
+	}
+	if !matchesRegexp(wantStderr, stderr) {
+		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+	}
+}
+
 // TODO(jmmv): Need to have tests for when the configuration is invalid (malformed JSON,
 // inconsistent mappings, etc.).  No need for these to be very detailed given that the validations
 // are already tested in "static" mode, but we must ensure that such validation paths are also
