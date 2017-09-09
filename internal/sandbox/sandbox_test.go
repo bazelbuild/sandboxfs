@@ -20,10 +20,10 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"syscall"
 	"testing"
 
 	"bazil.org/fuse"
+	"golang.org/x/sys/unix"
 )
 
 func setup(t *testing.T) string {
@@ -71,7 +71,7 @@ func TestSandbox_TimespecToTime(t *testing.T) {
 		{1000, 1000},
 	}
 	for _, data := range testData {
-		ts := syscall.Timespec{Sec: data.sec, Nsec: data.nanosec}
+		ts := unix.Timespec{Sec: data.sec, Nsec: data.nanosec}
 		if time := timespecToTime(ts); time.Unix() != data.sec || time.Nanosecond() != int(data.nanosec) {
 			t.Errorf("timespecToTime failed: got (%v, %v), want (%v, %v)", time.Unix(), time.Nanosecond(), data.sec, data.nanosec)
 		}
@@ -84,8 +84,8 @@ func TestSandbox_FuseErrno(t *testing.T) {
 		t.Error("Chmod passed, even though error was expected")
 	}
 	err = fuseErrno(err)
-	if e, ok := err.(fuse.Errno); !ok || e != fuse.Errno(syscall.ENOENT) {
-		t.Errorf("Returned error was %T(%v), want fuse.Errno(syscall.ENOENT)", err, err)
+	if e, ok := err.(fuse.Errno); !ok || e != fuse.Errno(unix.ENOENT) {
+		t.Errorf("Returned error was %T(%v), want fuse.Errno(unix.ENOENT)", err, err)
 	}
 
 	_, err = os.Readlink("/")
@@ -96,7 +96,7 @@ func TestSandbox_FuseErrno(t *testing.T) {
 		t.Errorf("Returned error was of type %T, want fuse.Errno", fuseErrno(err))
 	}
 
-	err = syscall.Chdir("")
+	err = unix.Chdir("")
 	if err == nil {
 		t.Error("Chdir passed, even though error was expected")
 	}

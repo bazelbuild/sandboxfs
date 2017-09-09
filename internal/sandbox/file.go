@@ -17,11 +17,11 @@ package sandbox
 import (
 	"io"
 	"os"
-	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 )
 
 // File corresponds to files in an in-memory representation of the filesystem
@@ -83,7 +83,7 @@ func (o *OpenFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 // filesystem.
 func (o *OpenFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
 	if !o.file.writable {
-		return fuseErrno(syscall.EPERM)
+		return fuseErrno(unix.EPERM)
 	}
 
 	n, err := o.nativeFile.WriteAt(req.Data, req.Offset)

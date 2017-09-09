@@ -20,11 +20,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"syscall"
 	"testing"
 
 	"bazil.org/fuse"
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 )
 
 var OpenRequestDir = &fuse.OpenRequest{
@@ -261,8 +261,8 @@ func TestDir_Mkdir_ReadOnly_Error(t *testing.T) {
 	d := newDir(src, DevInoPair{}, false)
 	mkdirReq := fuse.MkdirRequest{Name: "newDir"}
 
-	if _, err := d.Mkdir(context.Background(), &mkdirReq); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Mkdir on a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
+	if _, err := d.Mkdir(context.Background(), &mkdirReq); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Mkdir on a read-only directory gave error %T(%v), want fuseErrno(unix.EPERM)", err, err)
 	}
 	if _, err := os.Stat(filepath.Join(d.underlyingPath, mkdirReq.Name)); !os.IsNotExist(err) {
 		t.Errorf("Stat got error: %v, want file not found", err)
@@ -283,7 +283,7 @@ func TestDir_Mkdir_ReadWrite_Error(t *testing.T) {
 		Mode: os.ModeDir | 0755,
 	}
 	_, err := d.Mkdir(context.Background(), &req)
-	if e, ok := err.(fuse.Errno); !ok || !os.IsExist(syscall.Errno(e)) {
+	if e, ok := err.(fuse.Errno); !ok || !os.IsExist(unix.Errno(e)) {
 		t.Errorf("Mkdir returned error: %v, want fuse.Errno(os.IsExist(err))", err)
 	}
 }
@@ -324,8 +324,8 @@ func TestDir_Mknod_ReadOnly_Error(t *testing.T) {
 	d := newDir(src, DevInoPair{}, false)
 	mknodReq := fuse.MknodRequest{Name: "newNode"}
 
-	if _, err := d.Mknod(context.Background(), &mknodReq); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Mknod on a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
+	if _, err := d.Mknod(context.Background(), &mknodReq); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Mknod on a read-only directory gave error %T(%v), want fuseErrno(unix.EPERM)", err, err)
 	}
 	if _, err := os.Stat(filepath.Join(d.underlyingPath, mknodReq.Name)); !os.IsNotExist(err) {
 		t.Errorf("Stat got error: %v, want file not found", err)
@@ -343,11 +343,11 @@ func TestDir_Mknod_ReadWrite_Error(t *testing.T) {
 
 	req := fuse.MknodRequest{
 		Name: "newNode",
-		Mode: syscall.S_IFIFO | 0644,
+		Mode: unix.S_IFIFO | 0644,
 	}
 
 	_, err := d.Mknod(context.Background(), &req)
-	if e, ok := err.(fuse.Errno); !ok || !os.IsExist(syscall.Errno(e)) {
+	if e, ok := err.(fuse.Errno); !ok || !os.IsExist(unix.Errno(e)) {
 		t.Errorf("Mknod returned error: %v, want fuse.Errno(os.IsExist(err))", err)
 	}
 }
@@ -360,7 +360,7 @@ func TestDir_Mknod_ReadWrite_Ok(t *testing.T) {
 	const perm = 0644
 	req := fuse.MknodRequest{
 		Name: "newNode",
-		Mode: syscall.S_IFIFO | perm,
+		Mode: unix.S_IFIFO | perm,
 	}
 
 	n, err := d.Mknod(context.Background(), &req)
@@ -388,8 +388,8 @@ func TestDir_Create_ReadOnly_Error(t *testing.T) {
 	createReq := fuse.CreateRequest{Name: "newFile"}
 	createResp := fuse.CreateResponse{}
 
-	if _, _, err := d.Create(context.Background(), &createReq, &createResp); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Create on a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
+	if _, _, err := d.Create(context.Background(), &createReq, &createResp); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Create on a read-only directory gave error %T(%v), want fuseErrno(unix.EPERM)", err, err)
 	}
 	if _, err := os.Stat(filepath.Join(d.underlyingPath, createReq.Name)); !os.IsNotExist(err) {
 		t.Errorf("Stat got error: %v, want file not found", err)
@@ -457,8 +457,8 @@ func TestDir_Symlink_ReadOnly_Error(t *testing.T) {
 	d := newDir(src, DevInoPair{}, false)
 	symlinkReq := fuse.SymlinkRequest{NewName: "newNode", Target: "."}
 
-	if _, err := d.Symlink(context.Background(), &symlinkReq); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Symlink on a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
+	if _, err := d.Symlink(context.Background(), &symlinkReq); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Symlink on a read-only directory gave error %T(%v), want fuseErrno(unix.EPERM)", err, err)
 	}
 	if _, err := os.Stat(filepath.Join(d.underlyingPath, symlinkReq.NewName)); !os.IsNotExist(err) {
 		t.Errorf("Stat got error: %v, want file not found", err)
@@ -475,8 +475,8 @@ func TestDir_Symlink_ReadWrite_Error(t *testing.T) {
 	d := newDir(src, DevInoPair{}, true)
 	symlinkReq := fuse.SymlinkRequest{NewName: "newNode", Target: "."}
 
-	if _, err := d.Symlink(context.Background(), &symlinkReq); err != fuseErrno(syscall.EACCES) {
-		t.Errorf("Symlink gave error %T(%v), want fuseErrno(syscall.EACCES)", err, err)
+	if _, err := d.Symlink(context.Background(), &symlinkReq); err != fuseErrno(unix.EACCES) {
+		t.Errorf("Symlink gave error %T(%v), want fuseErrno(unix.EACCES)", err, err)
 	}
 }
 
@@ -514,7 +514,7 @@ func TestDir_Rename_ReadOnly_Error(t *testing.T) {
 	renameReq := fuse.RenameRequest{OldName: "a", NewName: "b"}
 
 	err := d.Rename(context.Background(), &renameReq, d)
-	if e, ok := err.(fuse.Errno); !ok || !os.IsNotExist(syscall.Errno(e)) {
+	if e, ok := err.(fuse.Errno); !ok || !os.IsNotExist(unix.Errno(e)) {
 		t.Errorf("Rename from a read-only directory gave error %T(%v), want fuseErrno(os.IsNotExist(err))", err, err)
 	}
 }
@@ -529,8 +529,8 @@ func TestDir_Rename_ReadWrite_Error(t *testing.T) {
 	}
 	renameReq := fuse.RenameRequest{OldName: "a", NewName: "b"}
 
-	if err := d.Rename(context.Background(), &renameReq, d); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Rename from a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
+	if err := d.Rename(context.Background(), &renameReq, d); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Rename from a read-only directory gave error %T(%v), want fuseErrno(unix.EPERM)", err, err)
 	}
 }
 
@@ -591,8 +591,8 @@ func TestDir_Remove_ReadOnly_Error(t *testing.T) {
 	}
 	removeReq := fuse.RemoveRequest{Name: "c"}
 
-	if err := d.Remove(context.Background(), &removeReq); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Remove from a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
+	if err := d.Remove(context.Background(), &removeReq); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Remove from a read-only directory gave error %T(%v), want fuseErrno(unix.EPERM)", err, err)
 	}
 	if _, err := os.Stat(filepath.Join(d.underlyingPath, removeReq.Name)); err != nil {
 		t.Errorf("Stat got error: %v, want nil", err)
@@ -612,8 +612,8 @@ func TestDir_Remove_ReadWrite_Ok(t *testing.T) {
 	if err := d.Remove(context.Background(), &req); err != nil {
 		t.Errorf("Remove call gave error %T(%v), want nil", err, err)
 	}
-	if _, err := os.Stat(filepath.Join(d.UnderlyingPath(), req.Name)); fuseErrno(err) != fuse.Errno(syscall.ENOENT) {
-		t.Errorf("Stat on removed file gave err: %v, want: %v", err, syscall.ENOENT)
+	if _, err := os.Stat(filepath.Join(d.UnderlyingPath(), req.Name)); fuseErrno(err) != fuse.Errno(unix.ENOENT) {
+		t.Errorf("Stat on removed file gave err: %v, want: %v", err, unix.ENOENT)
 	}
 }
 

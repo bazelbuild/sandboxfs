@@ -22,10 +22,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
+	"golang.org/x/sys/unix"
 )
 
 // jsonConfig converts a collection of sandbox mappings to the JSON structure expected by sandboxfs.
@@ -136,12 +136,12 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	inFifo := filepath.Join(tempDir, "input")
-	if err := syscall.Mkfifo(inFifo, 0600); err != nil {
+	if err := unix.Mkfifo(inFifo, 0600); err != nil {
 		t.Fatalf("failed to create %s fifo: %v", inFifo, err)
 	}
 
 	outFifo := filepath.Join(tempDir, "output")
-	if err := syscall.Mkfifo(outFifo, 0600); err != nil {
+	if err := unix.Mkfifo(outFifo, 0600); err != nil {
 		t.Fatalf("failed to create %s fifo: %v", outFifo, err)
 	}
 

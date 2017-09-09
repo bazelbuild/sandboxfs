@@ -17,10 +17,10 @@ package sandbox
 import (
 	"io/ioutil"
 	"os"
-	"syscall"
 	"testing"
 
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 )
 
 func symlinkSetup(t *testing.T) string {
@@ -66,7 +66,7 @@ func TestSymlink_Readlink_Error(t *testing.T) {
 
 	d := newSymlink(src+"/A/B", DevInoPair{})
 	_, err := d.Readlink(context.Background(), nil)
-	if err != fuseErrno(syscall.EINVAL) {
-		t.Errorf("Readlink returned error %v, expected %v:", err, fuseErrno(syscall.EINVAL))
+	if err != fuseErrno(unix.EINVAL) {
+		t.Errorf("Readlink returned error %v, expected %v:", err, fuseErrno(unix.EINVAL))
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,7 +33,6 @@ import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/sys/unix"
-	"log"
 )
 
 // lastInodeNumber is a counter that contains the last allotted inode number.
@@ -198,7 +198,7 @@ func (f *FS) SetRoot(root *Root) {
 	f.root = root
 }
 
-// timespecToTime converts syscall.Timespec to time.Time.
+// timespecToTime converts unix.Timespec to time.Time.
 func timespecToTime(ts syscall.Timespec) time.Time {
 	return time.Unix(int64(ts.Sec), int64(ts.Nsec))
 }
@@ -236,15 +236,15 @@ func fuseErrno(e error) error {
 	}
 	switch e {
 	case os.ErrInvalid:
-		return fuse.Errno(syscall.EINVAL)
+		return fuse.Errno(unix.EINVAL)
 	case os.ErrPermission:
-		return fuse.Errno(syscall.EPERM)
+		return fuse.Errno(unix.EPERM)
 	case os.ErrExist:
-		return fuse.Errno(syscall.EEXIST)
+		return fuse.Errno(unix.EEXIST)
 	case os.ErrNotExist:
-		return fuse.Errno(syscall.ENOENT)
+		return fuse.Errno(unix.ENOENT)
 	case os.ErrClosed:
-		return fuse.Errno(syscall.EBADF)
+		return fuse.Errno(unix.EBADF)
 	}
 	return e
 }

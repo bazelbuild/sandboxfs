@@ -17,11 +17,11 @@ package sandbox
 import (
 	"os"
 	"sort"
-	"syscall"
 	"testing"
 
 	"bazil.org/fuse"
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 )
 
 func TestVirtualDir_Attr(t *testing.T) {
@@ -39,8 +39,8 @@ func TestVirtualDir_Attr(t *testing.T) {
 func TestVirtualDir_Lookup(t *testing.T) {
 	dir := newVirtualDir()
 	node, err := dir.Lookup(context.Background(), "A")
-	if err != fuseErrno(syscall.ENOENT) {
-		t.Errorf("Lookup on empty node returned error: nil, want: syscall.ENOENT")
+	if err != fuseErrno(unix.ENOENT) {
+		t.Errorf("Lookup on empty node returned error: nil, want: unix.ENOENT")
 	}
 	if node != nil {
 		t.Errorf("Lookup on empty node returned node: %v, want: nil", node)
