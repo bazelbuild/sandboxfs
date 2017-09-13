@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd August 21, 2017
+.Dd September 13, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -231,3 +231,16 @@ package was originally developed by
 and
 .An Julio Merino
 .Aq jmmv@google.com .
+.Sh BUGS
+The following are known limitations of
+.Nm :
+.Bl -bullet
+.It
+On macOS, mapping the same external file or directory under two different
+locations within the mount point results in undefined behavior.
+Writes may not be reflected at both mapped locations at the same time, which
+can lead to data corruption.
+This is true even for read-only mappings because each separate view within
+the mount point may have cached different contents, returning different data
+than what's truly on disk.
+.El
