@@ -15,8 +15,8 @@
 
 set -e -u
 
-go install github.com/bazelbuild/sandboxfs/cmd/sandboxfs
+go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
 go test -v -timeout 120s github.com/bazelbuild/sandboxfs/internal/sandbox
-SANDBOXFS="${GOPATH}/bin/sandboxfs" \
+SANDBOXFS="$(pwd)/sandboxfs" \
     go test -v -timeout 120s github.com/bazelbuild/sandboxfs/integration
