@@ -170,32 +170,41 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	mountPoint, err := ioutil.TempDir("", "mountPoint")
-	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
-	}
-	defer os.RemoveAll(mountPoint)
+	nonExistentFile := filepath.Join(tempDir, "non-existent/fifo")
 
-	inFifo := filepath.Join(tempDir, "input")
-	inFile, err := os.OpenFile(inFifo, os.O_CREATE, 0666)
-	if err != nil {
-		t.Fatalf("Creating %q failed with error: %v", inFifo, err)
+	tests := []struct {
+		flag       string
+		wantStderr string
+	}{
+		{
+			"--input=" + nonExistentFile,
+			fmt.Sprintf("Unable to open file \"%s\" for reading: "+
+				"open %s: no such file or directory",
+				nonExistentFile, nonExistentFile),
+		},
+		{
+			"--output=" + nonExistentFile,
+			fmt.Sprintf("Unable to open file \"%s\" for writing: "+
+				"open %s: no such file or directory",
+				nonExistentFile, nonExistentFile),
+		},
 	}
-	inFile.Close()
 
-	outFifo := filepath.Join(tempDir, "non-existent/output")
-	wantStderr := fmt.Sprintf("Unable to open file \"%s\" for writing: open %s: no such file or directory",
-		outFifo, outFifo)
+	mnt := filepath.Join(tempDir, "mountPoint")
+	mkdirAllOrFatal(t, mnt, 0755)
+	defer os.RemoveAll(mnt)
 
-	stdout, stderr, err := runAndWait(1, "dynamic", "--input="+inFifo, "--output="+outFifo, mountPoint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(stdout) > 0 {
-		t.Errorf("got %s; want stdout to be empty", stdout)
-	}
-	if !matchesRegexp(wantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+	for _, test := range tests {
+		stdout, stderr, err := runAndWait(1, "dynamic", test.flag, mnt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(stdout) > 0 {
+			t.Errorf("got %s; want stdout to be empty", stdout)
+		}
+		if !matchesRegexp(test.wantStderr, stderr) {
+			t.Errorf("got %s; want stderr to match %s", stderr, test.wantStderr)
+		}
 	}
 }
 
