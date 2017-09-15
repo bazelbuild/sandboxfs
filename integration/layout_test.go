@@ -28,20 +28,18 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// TODO(jmmv): sandboxfs currently crashes on a missing mount point, and this is bad.
-	// Must exit cleanly with a proper error message.
-	bogusExitCode := 2
-	bogusWantStderr := "panic"
+	mountPoint := filepath.Join(tempDir, "non-existent")
+	wantStderr := "Unable to mount: mountpoint does not exist: " + mountPoint + "\n"
 
-	stdout, stderr, err := runAndWait(bogusExitCode, "static", "--read_only_mapping=/:"+tempDir, filepath.Join(tempDir, "non-existent"))
+	stdout, stderr, err := runAndWait(1, "static", "--read_only_mapping=/:"+tempDir, mountPoint)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
 		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
-	if !matchesRegexp(bogusWantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, bogusWantStderr)
+	if !matchesRegexp(wantStderr, stderr) {
+		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
