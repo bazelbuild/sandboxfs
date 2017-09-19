@@ -134,18 +134,18 @@ func dynamicCommand(dynamic *flag.FlagSet) error {
 	}
 	if v := dynamic.Lookup("input").Value; v.String() != "-" {
 		file, err := os.Open(v.String())
-		defer file.Close()
 		if err != nil {
 			return fmt.Errorf("Unable to open file %q for reading: %v", v.String(), err)
 		}
+		defer file.Close()
 		dynamicConf.Input = file
 	}
 	if v := dynamic.Lookup("output").Value; v.String() != "-" {
 		file, err := os.Create(v.String())
-		defer file.Close()
 		if err != nil {
 			return fmt.Errorf("Unable to open file %q for writing: %v", v.String(), err)
 		}
+		defer file.Close()
 		dynamicConf.Output = file
 	}
 	return serve(dynamic.Arg(0), dynamicConf, nil)
@@ -157,6 +157,22 @@ func serve(mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandb
 		return fmt.Errorf("Unable to init sandbox: %v", err)
 	}
 
+	// OSXFUSE unconditionally creates the mount point if it does not exist while Linux's FUSE
+	// errors out on this condition. Linux is behaving correctly here, but to unify the behavior
+	// between the two cases (and, especially, to ensure that the error message that we print is
+	// consistent), explicitly test for the mount point's existence.
+	//
+	// Note that this is knowingly racy. If the mount point is created after this call but before
+	// the actual mount operation happens, we'll be subject to OS-specific behavior. We cannot do
+	// do better, and this is not a big deal anyway.
+	//
+	// TODO(jmmv): Fix OSXFUSE to not create the mount point. If that's undesirable upstream, an
+	// alternative would be to add a "-o nocreate_mount" option to mount_osxfuse and then use that
+	// in the fuse.Mount call below.
+	if _, err := os.Lstat(mountPoint); os.IsNotExist(err) {
+		return fmt.Errorf("Unable to mount: %s does not exist", mountPoint)
+	}
+
 	caughtSignal := make(chan os.Signal, 1)
 	go unmountOnSignal(mountPoint, caughtSignal)
 	c, err := fuse.Mount(
@@ -166,10 +182,10 @@ func serve(mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandb
 		fuse.LocalVolume(),
 		fuse.VolumeName(flag.Lookup("volume_name").Value.String()),
 	)
-	defer c.Close()
 	if err != nil {
 		return fmt.Errorf("Unable to mount: %v", err)
 	}
+	defer c.Close()
 
 	err = sandbox.Serve(c, sfs, dynamicConf)
 	if err != nil {
