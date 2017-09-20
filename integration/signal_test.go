@@ -17,14 +17,14 @@ package integration
 import (
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
 	"bazil.org/fuse"
+	"golang.org/x/sys/unix"
 )
 
 func TestSignal_UnmountWhenCaught(t *testing.T) {
-	for _, signal := range []os.Signal{syscall.SIGHUP, os.Interrupt, syscall.SIGTERM} {
+	for _, signal := range []os.Signal{unix.SIGHUP, os.Interrupt, unix.SIGTERM} {
 		t.Run(signal.String(), func(t *testing.T) {
 			state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 			defer state.tearDown(t)

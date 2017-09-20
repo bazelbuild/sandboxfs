@@ -17,12 +17,12 @@ package sandbox
 import (
 	"io/ioutil"
 	"os"
-	"syscall"
 	"testing"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 )
 
 var OpenRequestFile = &fuse.OpenRequest{
@@ -115,8 +115,8 @@ func TestFile_Write_Error(t *testing.T) {
 	}
 	writeResp := &fuse.WriteResponse{}
 
-	if err := h.(*OpenFile).Write(context.Background(), writeReq, writeResp); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Read-only file write failed with error: %T(%v), want: fuse.Errno(syscall.EPERM)", err, err)
+	if err := h.(*OpenFile).Write(context.Background(), writeReq, writeResp); err != fuseErrno(unix.EPERM) {
+		t.Errorf("Read-only file write failed with error: %T(%v), want: fuse.Errno(unix.EPERM)", err, err)
 	}
 	if text, err := ioutil.ReadFile(src + "/a"); err != nil || string(text) != content {
 		t.Errorf("ReadFile got (%q, %v), expected (%q, nil)", string(text), err, content)

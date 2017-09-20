@@ -17,11 +17,11 @@ package sandbox
 import (
 	"fmt"
 	"os"
-	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 )
 
 // VirtualDir is a node type that represents a virtual directory in the file
@@ -76,7 +76,7 @@ func (v *VirtualDir) Open(context.Context, *fuse.OpenRequest, *fuse.OpenResponse
 // Access checks for permissions on a given node in the file system.
 func (v *VirtualDir) Access(_ context.Context, req *fuse.AccessRequest) error {
 	if req.Mask&2 != 0 { // W_OK permission == 2
-		return fuseErrno(syscall.EACCES)
+		return fuseErrno(unix.EACCES)
 	}
 	return nil
 }
@@ -173,7 +173,7 @@ func (v *VirtualDir) lookup(name string) (fs.Node, error) {
 	if child, ok := v.virtualDirs[name]; ok {
 		return child, nil
 	}
-	return nil, fuseErrno(syscall.ENOENT)
+	return nil, fuseErrno(unix.ENOENT)
 }
 
 // invalidateRecursively clears the kernel cache corresponding to this node,

@@ -27,11 +27,11 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"bazil.org/fuse"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -84,7 +84,7 @@ func wait(state *runState, wantExitStatus int) (string, string, error) {
 			return state.out.String(), state.err.String(), fmt.Errorf("got %v; want sandboxfs to exit with status 0", err)
 		}
 	} else {
-		status := err.(*exec.ExitError).ProcessState.Sys().(syscall.WaitStatus)
+		status := err.(*exec.ExitError).ProcessState.Sys().(unix.WaitStatus)
 		if wantExitStatus != status.ExitStatus() {
 			return state.out.String(), state.err.String(), fmt.Errorf("got %v; want sandboxfs to exit with status %d", status.ExitStatus(), wantExitStatus)
 		}

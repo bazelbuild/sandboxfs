@@ -15,16 +15,15 @@
 package sandbox
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
 	"golang.org/x/sys/unix"
-	"log"
 )
 
 // Dir is a Node that represents a directory in the underlying filesystem.
@@ -194,7 +193,7 @@ func (o *OpenDir) Release(_ context.Context, req *fuse.ReleaseRequest) error {
 // Mkdir creates a new directory in the underlying file system.
 func (d *Dir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
 	if !d.writable {
-		return nil, fuseErrno(syscall.EPERM)
+		return nil, fuseErrno(unix.EPERM)
 	}
 
 	path := filepath.Join(d.underlyingPath, req.Name)
@@ -215,7 +214,7 @@ func (d *Dir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error
 // directory.
 func (d *Dir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error) {
 	if !d.writable {
-		return nil, fuseErrno(syscall.EPERM)
+		return nil, fuseErrno(unix.EPERM)
 	}
 
 	path := filepath.Join(d.underlyingPath, req.Name)
@@ -240,7 +239,7 @@ func (d *Dir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error
 // Create creates a file in the underlying directory.
 func (d *Dir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
 	if !d.writable {
-		return nil, nil, fuseErrno(syscall.EPERM)
+		return nil, nil, fuseErrno(unix.EPERM)
 	}
 	path := filepath.Join(d.underlyingPath, req.Name)
 	openedFile, err := os.OpenFile(
@@ -261,7 +260,7 @@ func (d *Dir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.Cr
 	file, ok := f.(*File)
 	if !ok {
 		// The file has been deleted (or replaced) between OpenFile and Lookup calls.
-		return nil, nil, fuseErrno(syscall.EIO)
+		return nil, nil, fuseErrno(unix.EIO)
 	}
 	return f, &OpenFile{openedFile, file}, fuseErrno(err)
 }
@@ -269,7 +268,7 @@ func (d *Dir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.Cr
 // Symlink creates a symlink in the underlying directory.
 func (d *Dir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, error) {
 	if !d.writable {
-		return nil, fuseErrno(syscall.EPERM)
+		return nil, fuseErrno(unix.EPERM)
 	}
 
 	path := filepath.Join(d.underlyingPath, req.NewName)
@@ -290,19 +289,19 @@ func (d *Dir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, e
 // Rename renames a node or moves it to a different path.
 func (d *Dir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
 	if !d.writable {
-		return fuseErrno(syscall.EPERM)
+		return fuseErrno(unix.EPERM)
 	}
 
 	nd, ok := newDir.(*Dir)
 	if !ok {
 		if _, ok := newDir.(*VirtualDir); ok {
-			return fuseErrno(syscall.EPERM)
+			return fuseErrno(unix.EPERM)
 		}
-		return fuseErrno(syscall.ENOTDIR)
+		return fuseErrno(unix.ENOTDIR)
 	}
 
 	if !nd.writable {
-		return fuseErrno(syscall.EPERM)
+		return fuseErrno(unix.EPERM)
 	}
 
 	err := os.Rename(filepath.Join(d.underlyingPath, req.OldName), filepath.Join(nd.underlyingPath, req.NewName))
@@ -337,7 +336,7 @@ func (d *Dir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Nod
 // Remove unlinks a node from the underlying directory.
 func (d *Dir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	if !d.writable {
-		return fuseErrno(syscall.EPERM)
+		return fuseErrno(unix.EPERM)
 	}
 
 	return fuseErrno(os.Remove(filepath.Join(d.underlyingPath, req.Name)))
