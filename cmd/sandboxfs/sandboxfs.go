@@ -107,7 +107,7 @@ func (f *mappingFlag) Get() interface{} {
 	return *f
 }
 
-func staticCommand(static *flag.FlagSet) error {
+func staticCommand(settings ProfileSettings, static *flag.FlagSet) error {
 	roMappings := static.Lookup("read_only_mapping").Value.(*mappingFlag)
 	rwMappings := static.Lookup("read_write_mapping").Value.(*mappingFlag)
 	if v := static.Lookup("help").Value; v.String() == "true" {
@@ -118,10 +118,10 @@ func staticCommand(static *flag.FlagSet) error {
 	if static.NArg() != 1 {
 		return fmt.Errorf("Invalid number of arguments; pass -help flag for details")
 	}
-	return serve(static.Arg(0), nil, combineToSpec(*roMappings, *rwMappings))
+	return serve(settings, static.Arg(0), nil, combineToSpec(*roMappings, *rwMappings))
 }
 
-func dynamicCommand(dynamic *flag.FlagSet) error {
+func dynamicCommand(settings ProfileSettings, dynamic *flag.FlagSet) error {
 	dynamicConf := &sandbox.DynamicConf{Input: os.Stdin, Output: os.Stdout}
 	if v := dynamic.Lookup("help").Value; v.String() == "true" {
 		fmt.Fprintf(os.Stdout, "Usage: %s dynamic MOUNT-POINT\n", filepath.Base(os.Args[0]))
@@ -147,14 +147,20 @@ func dynamicCommand(dynamic *flag.FlagSet) error {
 		defer file.Close()
 		dynamicConf.Output = file
 	}
-	return serve(dynamic.Arg(0), dynamicConf, nil)
+	return serve(settings, dynamic.Arg(0), dynamicConf, nil)
 }
 
-func serve(mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
+func serve(settings ProfileSettings, mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
 	sfs, err := sandbox.Init(mappings)
 	if err != nil {
 		return fmt.Errorf("Unable to init sandbox: %v", err)
 	}
+
+	profileContext, err := StartProfiling(settings)
+	if err != nil {
+		return err
+	}
+	defer profileContext.Close()
 
 	// OSXFUSE unconditionally creates the mount point if it does not exist while Linux's FUSE
 	// errors out on this condition. Linux is behaving correctly here, but to unify the behavior
@@ -210,8 +216,11 @@ func serve(mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandb
 func main() {
 	var readOnlyMappings, readWriteMappings mappingFlag
 	flag.Usage = func() {} // Suppress default output.
+	cpuProfile := flag.String("cpu_profile", "", "write a CPU profile to the given file on exit")
 	debug := flag.Bool("debug", false, "log details about FUSE requests and responses to stderr")
 	help := flag.Bool("help", false, "print the usage information and exit")
+	listenAddress := flag.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
+	memProfile := flag.String("mem_profile", "", "write a memory profile to the given file on exit")
 	flag.String("volume_name", "sandbox", "name for the sandboxfs volume")
 
 	static := flag.NewFlagSet("static", flag.ExitOnError)
@@ -239,6 +248,12 @@ Flags:
 		os.Exit(0)
 	}
 
+	settings, err := NewProfileSettings(*cpuProfile, *memProfile, *listenAddress)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid profiling settings: %v\n", err)
+		os.Exit(1)
+	}
+
 	if *debug {
 		fuse.Debug = func(msg interface{}) { fmt.Fprintln(os.Stderr, msg) }
 	}
@@ -248,14 +263,13 @@ Flags:
 		os.Exit(1)
 	}
 
-	var err error
 	switch flag.Arg(0) {
 	case "static":
 		static.Parse(flag.Args()[1:])
-		err = staticCommand(static)
+		err = staticCommand(settings, static)
 	case "dynamic":
 		dynamic.Parse(flag.Args()[1:])
-		err = dynamicCommand(dynamic)
+		err = dynamicCommand(settings, dynamic)
 	default:
 		fmt.Fprintf(os.Stderr, "Invalid command; pass -help flag for details\n")
 		os.Exit(1)

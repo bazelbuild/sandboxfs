@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd September 13, 2017
+.Dd September 20, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -19,8 +19,11 @@
 .Nd A virtual file system for sandboxing
 .Sh SYNOPSIS
 .Nm
+.Op Fl -cpu_profile Ar file
 .Op Fl -debug
+.Op Fl -listen_address Ar host:port
 .Op Fl -help
+.Op Fl -mem_profile Ar file
 .Op Fl -volume_name Ar volume_name
 dynamic
 .Op Fl -help
@@ -51,11 +54,39 @@ variety of platforms.
 .Pp
 The following general flags are recognized for all commands:
 .Bl -tag -width XXXX
+.It Fl -cpu_profile Ar file
+Enables CPU profiling and writes a profile to the given
+.Ar file
+on exit.
+.Pp
+This option is incompatible with
+.Fl -listen_address
+because only one profiling mechanism can be enabled at once.
 .It Fl -debug
-Logs details about all FUSE operations received and responsed to by the FUSE
+Logs details about all FUSE operations received and responded to by the FUSE
 process to stderr.
+.It Fl -listen_address Ar host:port
+Starts an HTTP server listening on
+.Ar host:port .
+The HTTP server exposes the Go pprof endpoints at
+.Pa /debug/pprof/ .
+If you want to allocate an arbitrary unused port, pass 0 as the port number.
+.Pp
+This option is incompatible with
+.Fl -cpu_profile
+and
+.Fl -mem_profile
+because only one profiling mechanism can be enabled at once.
 .It Fl -help
 Prints global help details and exits.
+.It Fl -mem_profile Ar file
+Enables memory profiling and writes a profile to the given
+.Ar file
+on exit.
+.Pp
+This option is incompatible with
+.Fl -listen_address
+because only one profiling mechanism can be enabled at once.
 .It Fl -volume_name Ar volume_name
 Specifies the name of the mounted volume, which is used by some operating
 systems (such as macOS) to display a volume label in the system UI.

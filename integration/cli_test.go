@@ -25,10 +25,16 @@ Subcommands:
   static   statically configured sandbox using command line flags.
   dynamic  dynamically configured sandbox using stdin.
 Flags:
+  -cpu_profile string
+    	write a CPU profile to the given file on exit
   -debug
     	log details about FUSE requests and responses to stderr
   -help
     	print the usage information and exit
+  -listen_address string
+    	enable HTTP server on the given address and expose pprof data
+  -mem_profile string
+    	write a memory profile to the given file on exit
   -volume_name string
     	name for the sandboxfs volume (default "sandbox")
 `
