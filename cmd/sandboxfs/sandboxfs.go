@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"bazil.org/fuse"
 	"flag"
@@ -197,26 +196,12 @@ func serve(mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandb
 		return fmt.Errorf("Mount error: %v", err)
 	}
 
-	// If we reach this point, the FUSE serve loop has terminated either
-	// because the user unmounted the file system, in which case we have to
-	// exit cleanly; or we have received a signal, in which case we have to
-	// redeliver it to ourselves to terminate with the correct exit status.
+	// If we reach this point, the FUSE serve loop has terminated because the user unmounted the
+	// file system or because we received a signal. In both cases we need to exit, but we treat
+	// signal receipts as an error just so that the user can tell that the exit was not clean.
 	select {
 	case signal := <-caughtSignal:
-		// Note that the signal handler unblocked the Serve call by unmounting
-		// the file system, which means that it's now safe to kill the daemon
-		// without leaking the mount point.
-		// TODO(pallavag): This causes the defers (closing files for instance)
-		// to never execute. It may be okay to remove this signal re-delivering
-		// and just exit cleanly on caught signals.
-		p, err := os.FindProcess(os.Getpid())
-		if err != nil {
-			return fmt.Errorf("Unable to retrieve process: %v", err)
-		}
-		p.Signal(signal)
-		for {
-			time.Sleep(1 * time.Second) // Wait for signal to be received.
-		}
+		return fmt.Errorf("caught signal: %v", signal.String())
 	default:
 	}
 	return nil

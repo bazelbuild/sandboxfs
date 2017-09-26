@@ -15,6 +15,8 @@
 package integration
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -26,7 +28,9 @@ import (
 func TestSignal_UnmountWhenCaught(t *testing.T) {
 	for _, signal := range []os.Signal{syscall.SIGHUP, os.Interrupt, syscall.SIGTERM} {
 		t.Run(signal.String(), func(t *testing.T) {
-			state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+			stderr := new(bytes.Buffer)
+
+			state := mountSetupWithOutputs(t, nil, stderr, "static", "-read_only_mapping=/:%ROOT%")
 			defer state.tearDown(t)
 
 			writeFileOrFatal(t, filepath.Join(state.root, "a"), 0644, "")
@@ -42,6 +46,9 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 			}
 			if state.cmd.ProcessState.Success() {
 				t.Fatalf("exit status of sandboxfs returned success, want an error")
+			}
+			if !matchesRegexp(fmt.Sprintf("caught signal.*%v", signal.String()), stderr.String()) {
+				t.Errorf("termination error message does not mention signal name; got %v", stderr)
 			}
 
 			if err := fuse.Unmount(state.mountPoint); err == nil {
