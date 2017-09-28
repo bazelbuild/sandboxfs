@@ -107,50 +107,75 @@ func (f *mappingFlag) Get() interface{} {
 	return *f
 }
 
-func staticCommand(settings ProfileSettings, static *flag.FlagSet) error {
-	roMappings := static.Lookup("read_only_mapping").Value.(*mappingFlag)
-	rwMappings := static.Lookup("read_write_mapping").Value.(*mappingFlag)
-	if v := static.Lookup("help").Value; v.String() == "true" {
+// staticCommand implements the "static" command.
+func staticCommand(args []string, volumeName string, settings ProfileSettings) error {
+	flags := flag.NewFlagSet("static", flag.ExitOnError)
+	help := flags.Bool("help", false, "print the usage information and exit")
+	var readOnlyMappings mappingFlag
+	flags.Var(&readOnlyMappings, "read_only_mapping", "read-only mapping of the form MAPPING:TARGET")
+	var readWriteMappings mappingFlag
+	flags.Var(&readWriteMappings, "read_write_mapping", "read/write mapping of the form MAPPING:TARGET")
+
+	flags.Usage = func() {} // Suppress default output.
+	flags.Parse(args)
+
+	if *help {
 		fmt.Fprintf(os.Stdout, "Usage: %s static [flags...] MOUNT-POINT\n", filepath.Base(os.Args[0]))
-		usage(os.Stdout, static)
+		usage(os.Stdout, flags)
 		return nil
 	}
-	if static.NArg() != 1 {
+
+	if flags.NArg() != 1 {
 		return fmt.Errorf("Invalid number of arguments; pass -help flag for details")
 	}
-	return serve(settings, static.Arg(0), nil, combineToSpec(*roMappings, *rwMappings))
+	mountPoint := flags.Arg(0)
+
+	return serve(settings, mountPoint, volumeName, nil, combineToSpec(readOnlyMappings, readWriteMappings))
 }
 
-func dynamicCommand(settings ProfileSettings, dynamic *flag.FlagSet) error {
-	dynamicConf := &sandbox.DynamicConf{Input: os.Stdin, Output: os.Stdout}
-	if v := dynamic.Lookup("help").Value; v.String() == "true" {
+// dynamicCommand implements the "dynamic" command.
+func dynamicCommand(args []string, volumeName string, settings ProfileSettings) error {
+	flags := flag.NewFlagSet("dynamic", flag.ExitOnError)
+	help := flags.Bool("help", false, "print the usage information and exit")
+	input := flags.String("input", "-", "where to read the configuration data from (- for stdin)")
+	output := flags.String("output", "-", "where to write the status of reconfiguration to (- for stdout)")
+
+	flags.Usage = func() {} // Suppress default output.
+	flags.Parse(args)
+
+	if *help {
 		fmt.Fprintf(os.Stdout, "Usage: %s dynamic MOUNT-POINT\n", filepath.Base(os.Args[0]))
-		usage(os.Stdout, dynamic)
+		usage(os.Stdout, flags)
 		return nil
 	}
-	if dynamic.NArg() != 1 {
+
+	if flags.NArg() != 1 {
 		return fmt.Errorf("Invalid number of arguments; pass -help flag for details")
 	}
-	if v := dynamic.Lookup("input").Value; v.String() != "-" {
-		file, err := os.Open(v.String())
+	mountPoint := flags.Arg(0)
+
+	dynamicConf := &sandbox.DynamicConf{Input: os.Stdin, Output: os.Stdout}
+	if *input != "-" {
+		file, err := os.Open(*input)
 		if err != nil {
-			return fmt.Errorf("Unable to open file %q for reading: %v", v.String(), err)
+			return fmt.Errorf("Unable to open file %q for reading: %v", *input, err)
 		}
 		defer file.Close()
 		dynamicConf.Input = file
 	}
-	if v := dynamic.Lookup("output").Value; v.String() != "-" {
-		file, err := os.Create(v.String())
+	if *output != "-" {
+		file, err := os.Create(*output)
 		if err != nil {
-			return fmt.Errorf("Unable to open file %q for writing: %v", v.String(), err)
+			return fmt.Errorf("Unable to open file %q for writing: %v", *output, err)
 		}
 		defer file.Close()
 		dynamicConf.Output = file
 	}
-	return serve(settings, dynamic.Arg(0), dynamicConf, nil)
+
+	return serve(settings, mountPoint, volumeName, dynamicConf, nil)
 }
 
-func serve(settings ProfileSettings, mountPoint string, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
+func serve(settings ProfileSettings, mountPoint string, volumeName string, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
 	sfs, err := sandbox.Init(mappings)
 	if err != nil {
 		return fmt.Errorf("Unable to init sandbox: %v", err)
@@ -185,7 +210,7 @@ func serve(settings ProfileSettings, mountPoint string, dynamicConf *sandbox.Dyn
 		fuse.FSName("sandboxfs"),
 		fuse.Subtype("sandboxfs"),
 		fuse.LocalVolume(),
-		fuse.VolumeName(flag.Lookup("volume_name").Value.String()),
+		fuse.VolumeName(volumeName),
 	)
 	if err != nil {
 		return fmt.Errorf("Unable to mount: %v", err)
@@ -214,27 +239,14 @@ func serve(settings ProfileSettings, mountPoint string, dynamicConf *sandbox.Dyn
 }
 
 func main() {
-	var readOnlyMappings, readWriteMappings mappingFlag
-	flag.Usage = func() {} // Suppress default output.
 	cpuProfile := flag.String("cpu_profile", "", "write a CPU profile to the given file on exit")
 	debug := flag.Bool("debug", false, "log details about FUSE requests and responses to stderr")
 	help := flag.Bool("help", false, "print the usage information and exit")
 	listenAddress := flag.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
 	memProfile := flag.String("mem_profile", "", "write a memory profile to the given file on exit")
-	flag.String("volume_name", "sandbox", "name for the sandboxfs volume")
+	volumeName := flag.String("volume_name", "sandbox", "name for the sandboxfs volume")
 
-	static := flag.NewFlagSet("static", flag.ExitOnError)
-	static.Usage = func() {}
-	static.Var(&readOnlyMappings, "read_only_mapping", "read-only mapping of the form MAPPING:TARGET")
-	static.Var(&readWriteMappings, "read_write_mapping", "read/write mapping of the form MAPPING:TARGET")
-	static.Bool("help", false, "print the usage information and exit")
-
-	dynamic := flag.NewFlagSet("dynamic", flag.ExitOnError)
-	dynamic.Bool("help", false, "print the usage information and exit")
-	dynamic.String("input", "-", "where to read the configuration data from (- for stdin)")
-	dynamic.String("output", "-", "where to write the status of reconfiguration to (- for stdout)")
-	dynamic.Usage = func() {}
-
+	flag.Usage = func() {} // Suppress default output.
 	flag.Parse()
 
 	if *help {
@@ -262,14 +274,14 @@ Flags:
 		fmt.Fprintf(os.Stderr, "Invalid number of arguments; pass -help flag for details\n")
 		os.Exit(1)
 	}
+	command := flag.Arg(0)
+	args := flag.Args()[1:]
 
-	switch flag.Arg(0) {
+	switch command {
 	case "static":
-		static.Parse(flag.Args()[1:])
-		err = staticCommand(settings, static)
+		err = staticCommand(args, *volumeName, settings)
 	case "dynamic":
-		dynamic.Parse(flag.Args()[1:])
-		err = dynamicCommand(settings, dynamic)
+		err = dynamicCommand(args, *volumeName, settings)
 	default:
 		fmt.Fprintf(os.Stderr, "Invalid command; pass -help flag for details\n")
 		os.Exit(1)
