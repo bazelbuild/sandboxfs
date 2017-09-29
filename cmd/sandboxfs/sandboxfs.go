@@ -57,18 +57,51 @@ func combineToSpec(roMappings, rwMappings []MappingTargetPair) []sandbox.Mapping
 	return mapped
 }
 
-// unmountOnSignal captures termination signals and unmounts the filesystem.
-// This allows the main program to exit the FUSE serving loop cleanly and avoids
-// leaking a mount point without the backing FUSE server.
-func unmountOnSignal(mountPoint string, caught chan<- os.Signal) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	caught <- <-c // Wait for signal.
-	signal.Reset()
-	err := fuse.Unmount(mountPoint)
-	if err != nil {
-		log.Printf("Unmounting filesystem failed with error: %v", err)
-	}
+// handleSignals installs signal handlers to ensure the file system is unmounted.
+//
+// The signal handler is responsible for unmounting the file system, which in turn causes the
+// FUSE serve loop to either never start or to finish execution if it was already running.
+//
+// But this is tricky business because of a potential race: if the signal handler is installed
+// and a signal arrives *before* the mount point has been configured, the unmounting will not
+// succeed, which means we will enter the server loop and lose the signal. Conversely, if we
+// did this backwards, we could receive a signal after the mount point has been configured but
+// before we install the signal handler, which means we'd terminate but leak the mount point.
+//
+// To solve this, we must install the signal handler first, but we must not take action on
+// signals until after we know that the mount point has been set up. This is what the mountPoint
+// channel is for: the caller must inject the mount point into this handler only after the mount
+// operation has succeeded, or an empty string if the mount operation failed.
+//
+// The caller can know if a signal was the cause of the FUSE serve loop termination by inspecting
+// the contents of the caughtSignal output channel.
+//
+// NOTE: This would be much easier if we could just mask signals while we prepare the mount point in
+// the caller and then process them once we are ready. Unfortunately, signal.Ignore() does not only
+// mask signals: it discards them as well! The x/sys/unix package is supposed to gain signal
+// handling at some point so maybe we'll be able to revisit this in the future? Who knows.
+func handleSignals(mountPoint <-chan string, caughtSignal chan<- os.Signal) {
+	handler := make(chan os.Signal, 1)
+	signal.Notify(handler, syscall.SIGHUP, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		caughtSignal <- <-handler // Wait for the signal.
+
+		// Wait until the main process has had a chance to issue the mount(2) system call.
+		// It doesn't matter if such call succeeded or not: we must wait anyway before
+		// attempting to do any cleanup.
+		mnt := <-mountPoint
+
+		if mnt != "" {
+			// Now the real deal: the main process did actually get to issue a
+			// successful mount(2) system call. Make the mount point vanish so that the
+			// FUSE serve loop terminates or prevent it from starting.
+			err := fuse.Unmount(mnt)
+			if err != nil {
+				log.Printf("unmounting filesystem failed with error: %v", err)
+			}
+		}
+	}()
 }
 
 func usage(output io.Writer, f *flag.FlagSet) {
@@ -202,8 +235,10 @@ func serve(settings ProfileSettings, mountPoint string, volumeName string, dynam
 		return fmt.Errorf("Unable to mount: %s does not exist", mountPoint)
 	}
 
+	mountOk := make(chan string, 1)
 	caughtSignal := make(chan os.Signal, 1)
-	go unmountOnSignal(mountPoint, caughtSignal)
+	handleSignals(mountOk, caughtSignal)
+
 	c, err := fuse.Mount(
 		mountPoint,
 		fuse.FSName("sandboxfs"),
@@ -212,9 +247,24 @@ func serve(settings ProfileSettings, mountPoint string, volumeName string, dynam
 		fuse.VolumeName(volumeName),
 	)
 	if err != nil {
+		mountOk <- "" // Neutralize signal handler.
+
+		// Even if fuse.Mount failed, we can still hit the case where the mount point was
+		// registered with the kernel. Try to unmount it here as a best-effort operation.
+		// (I.e. we can't tell upfront if the mount point was registered so we have to
+		// unconditionally try to unmount it and hope it gets cleaned up.)
+		//
+		// This was observed to happen on Linux: mounting a FUSE file system requires
+		// spawning the fusermount program aside from telling the kernel about the mount
+		// point. It can happen that a signal arrives at "the wrong time" within the
+		// fuse.Mount call above and we get an error here even when the mount point is left
+		// behind. This is likely a bug in the fuse.Mount logic.
+		fuse.Unmount(mountPoint)
+
 		return fmt.Errorf("Unable to mount: %v", err)
 	}
 	defer c.Close()
+	mountOk <- mountPoint // Tell signal handler that the mount point requires cleanup.
 
 	err = sandbox.Serve(c, sfs, dynamicConf)
 	if err != nil {
