@@ -16,8 +16,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,9 +27,6 @@ import (
 	"syscall"
 
 	"bazil.org/fuse"
-	"flag"
-	"log"
-
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 

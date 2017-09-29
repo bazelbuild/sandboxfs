@@ -15,6 +15,7 @@
 package sandbox
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -24,7 +25,6 @@ import (
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
 	"golang.org/x/sys/unix"
-	"log"
 )
 
 // Dir is a Node that represents a directory in the underlying filesystem.

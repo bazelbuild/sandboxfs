@@ -38,6 +38,7 @@ Flags:
   -volume_name string
     	name for the sandboxfs volume (default "sandbox")
 `
+
 	// TODO(jmmv): This help message should have the same structure as the general one.  E.g. it
 	// should include details about general flags and the "Usage:" line should match the
 	// structure of the general one.
@@ -49,6 +50,7 @@ Flags:
   -output string
     	where to write the status of reconfiguration to (- for stdout) (default "-")
 `
+
 	// TODO(jmmv): This help message should have the same structure as the general one.  E.g. it
 	// should include details about general flags and the "Usage:" line should match the
 	// structure of the general one.
@@ -60,6 +62,7 @@ Flags:
   -read_write_mapping value
     	read/write mapping of the form MAPPING:TARGET
 `
+
 	data := []struct {
 		name string
 
