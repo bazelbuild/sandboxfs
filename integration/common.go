@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"bazil.org/fuse"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -190,6 +191,9 @@ type mountState struct {
 	// Pipe connected to sandboxfs's stdin.  Most tests don't need to communicate with the
 	// sandboxfs process via stdin, so it's fine to just ignore this.
 	stdin io.WriteCloser
+
+	// Process umask to restore when the test completes.
+	oldMask int
 }
 
 // isDynamic returns true if the arguments to run sandboxfs cause the instance to be configured in
@@ -305,6 +309,10 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 		t.Fatalf("failed to start sandboxfs: %v", err)
 	}
 
+	// Reset the test's umask to zero.  This allows tests to not care about how the umask
+	// affects files, which can introduce subtle bugs in the tests themselves.
+	oldMask := unix.Umask(0)
+
 	// All operations that can fail are now done.  Setting success=true prevents any deferred
 	// cleanup routines from running, so any code below this line must not be able to fail.
 	success = true
@@ -314,6 +322,7 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 		mountPoint: mountPoint,
 		cmd:        cmd,
 		stdin:      stdin,
+		oldMask:    oldMask,
 	}
 	return state
 }
@@ -328,6 +337,8 @@ func mountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 // If tests wish to control the shutdown of the sandboxfs process, they can do so, but then they
 // must set s.cmd to nil to tell tearDown to not clean up the process a second time.
 func (s *mountState) tearDown(t *testing.T) {
+	unix.Umask(s.oldMask)
+
 	if s.cmd != nil {
 		if err := s.stdin.Close(); err != nil {
 			t.Errorf("failed to close sandboxfs's stdin pipe: %v", err)

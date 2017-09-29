@@ -257,3 +257,32 @@ func logCacheInvalidationError(e error, info ...interface{}) {
 	info = append(info, ": ", e)
 	log.Print(info...)
 }
+
+// UnixMode translates a Go os.FileMode to a Unix mode.
+func UnixMode(fileMode os.FileMode) uint32 {
+	perm := uint32(fileMode & os.ModePerm)
+
+	var unixType uint32
+	switch fileMode & os.ModeType {
+	case 0:
+		unixType = unix.S_IFREG
+	case os.ModeDir:
+		unixType = unix.S_IFDIR
+	case os.ModeSymlink:
+		unixType = unix.S_IFLNK
+	case os.ModeNamedPipe:
+		unixType = unix.S_IFIFO
+	case os.ModeSocket:
+		unixType = unix.S_IFSOCK
+	case os.ModeDevice:
+		if fileMode&os.ModeCharDevice != 0 {
+			unixType = unix.S_IFCHR
+		} else {
+			unixType = unix.S_IFBLK
+		}
+	default:
+		panic(fmt.Sprintf("handling of file mode %v not implemented", fileMode))
+	}
+
+	return perm | unixType
+}

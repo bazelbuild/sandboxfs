@@ -1,4 +1,4 @@
-#! /bin/sh
+#! /bin/bash
 # Copyright 2017 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not
@@ -13,10 +13,18 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-set -e -u
+set -e -u -x
 
 go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
 go test -v -timeout 120s github.com/bazelbuild/sandboxfs/internal/sandbox
 SANDBOXFS="$(pwd)/sandboxfs" \
+    go test -v -timeout 120s github.com/bazelbuild/sandboxfs/integration
+
+rootenv=()
+rootenv+=(PATH="${PATH}")
+rootenv+=(SANDBOXFS="$(pwd)/sandboxfs")
+[ "${GOPATH-unset}" = unset ] || rootenv+=(GOPATH="${GOPATH}")
+[ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
+sudo -H "${rootenv[@]}" -s \
     go test -v -timeout 120s github.com/bazelbuild/sandboxfs/integration

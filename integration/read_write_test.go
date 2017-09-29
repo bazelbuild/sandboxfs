@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"testing"
 )
@@ -156,4 +157,111 @@ func TestReadWrite_MoveFile(t *testing.T) {
 	oldInnerPath := filepath.Join(state.mountPoint, "dir1/dir2/old-name")
 	newInnerPath := filepath.Join(state.mountPoint, "dir2/dir3/dir4/new-name")
 	doRenameTest(t, oldOuterPath, newOuterPath, oldInnerPath, newInnerPath)
+}
+
+func TestReadWrite_Mknod(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skipf("requires root privileges to create arbitrary nodes")
+	}
+
+	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	// checkNode ensures that a given file is of the specified type and, if the type indicates
+	// that the file is a device, that the device number matches.  This check is done on both
+	// the underlying file system and within the mount point.
+	checkNode := func(relPath string, wantMode os.FileMode, wantDev uint64) error {
+		for _, dir := range []string{state.root, state.mountPoint} {
+			path := filepath.Join(dir, relPath)
+			fileInfo, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("failed to stat %s: %v", path, err)
+			}
+			stat := fileInfo.Sys().(*syscall.Stat_t)
+
+			if fileInfo.Mode() != wantMode {
+				return fmt.Errorf("got mode %v for %s, want %v", fileInfo.Mode(), path, wantMode)
+			}
+			if (wantMode&os.ModeType)&os.ModeDevice != 0 {
+				if uint64(stat.Rdev) != wantDev { // stat.Rdev size and sign are platform-specific.
+					return fmt.Errorf("got dev %v for %s, want %v", stat.Rdev, path, wantDev)
+				}
+			}
+		}
+		return nil
+	}
+
+	// findOS checks if the current OS appears in a list of acceptable OSes.
+	findOS := func(oses []string) bool {
+		for _, os := range oses {
+			if os == runtime.GOOS {
+				return true
+			}
+		}
+		return false
+	}
+
+	allOSes := []string{"darwin", "linux"}
+	if !findOS(allOSes) {
+		t.Fatalf("don't know how this test behaves in this platform")
+	}
+
+	data := []struct {
+		name string
+
+		filename  string
+		perm      uint32
+		mknodType uint32
+		dev       int
+		statType  os.FileMode
+
+		// The behavior of mknod(2) is operating-system specific.  On Linux, we can create
+		// regular files with this call, and attempting to create a directory results in the
+		// wrong node being created.  On macOS, attempting to create either of these fails.
+		//
+		// Instead of ignoring these cases as invalid, test specifically for the behavior we
+		// know should happen by "whitelisting" the systems on which each test is valid.
+		// This way, we verify that sandboxfs is properly delegating these calls to the
+		// underlying system.
+		wantOS []string
+	}{
+		{"RegularFile", "file", 0644, syscall.S_IFREG, 0, 0, []string{"linux"}},
+		{"Directory", "dir", 0755, syscall.S_IFDIR, 0, os.ModeDir, []string{}},
+		{"BlockDevice", "blkdev", 0400, syscall.S_IFBLK, 1234, os.ModeDevice, allOSes},
+		{"CharDevice", "chrdev", 0400, syscall.S_IFCHR, 5678, os.ModeDevice | os.ModeCharDevice, allOSes},
+		{"NamedPipe", "fifo", 0640, syscall.S_IFIFO, 0, os.ModeNamedPipe, allOSes},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := filepath.Join(state.mountPoint, d.filename)
+
+			shouldHaveFailed := false
+
+			err := syscall.Mknod(path, d.perm|d.mknodType, d.dev)
+			if findOS(d.wantOS) {
+				if err != nil {
+					t.Fatalf("failed to mknod %s: %v", path, err)
+				}
+			} else {
+				if err == nil {
+					shouldHaveFailed = true
+				}
+			}
+
+			err = checkNode(d.filename, (os.FileMode(d.perm)&os.ModePerm)|d.statType, uint64(d.dev))
+			if findOS(d.wantOS) {
+				if err != nil {
+					t.Error(err)
+				}
+			} else {
+				if err == nil {
+					shouldHaveFailed = true
+				}
+			}
+
+			if shouldHaveFailed {
+				t.Fatalf("test was expected to fail on this platform due to behavioral differences in mknod(2) but succeeded")
+			}
+		})
+	}
 }

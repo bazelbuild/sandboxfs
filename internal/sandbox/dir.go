@@ -221,8 +221,8 @@ func (d *Dir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error
 	path := filepath.Join(d.underlyingPath, req.Name)
 	err := unix.Mknod(
 		path,
-		uint32(req.Mode&^req.Umask), // os.FileMode(same as uint32) -> uint32 (safe)
-		int(req.Rdev),               // uint32->int (safe)
+		UnixMode(req.Mode)&^uint32(req.Umask), // os.FileMode(same as uint32) -> uint32 (safe)
+		int(req.Rdev),                         // uint32->int (safe)
 	)
 	if err != nil {
 		return nil, fuseErrno(err)

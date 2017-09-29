@@ -317,69 +317,6 @@ func TestDir_Mkdir_ReadWrite_Ok(t *testing.T) {
 	}
 }
 
-func TestDir_Mknod_ReadOnly_Error(t *testing.T) {
-	src := dirSetup(t)
-	defer dirTeardown(src, t)
-
-	d := newDir(src, DevInoPair{}, false)
-	mknodReq := fuse.MknodRequest{Name: "newNode"}
-
-	if _, err := d.Mknod(context.Background(), &mknodReq); err != fuseErrno(syscall.EPERM) {
-		t.Errorf("Mknod on a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
-	}
-	if _, err := os.Stat(filepath.Join(d.underlyingPath, mknodReq.Name)); !os.IsNotExist(err) {
-		t.Errorf("Stat got error: %v, want file not found", err)
-	}
-}
-
-func TestDir_Mknod_ReadWrite_Error(t *testing.T) {
-	src := dirSetup(t)
-	defer dirTeardown(src, t)
-
-	d := newDir(src, DevInoPair{}, true)
-	if err := os.MkdirAll(src+"/newNode", 0755); err != nil {
-		t.Fatal("MkdirAll failed with error: ", err)
-	}
-
-	req := fuse.MknodRequest{
-		Name: "newNode",
-		Mode: syscall.S_IFIFO | 0644,
-	}
-
-	_, err := d.Mknod(context.Background(), &req)
-	if e, ok := err.(fuse.Errno); !ok || !os.IsExist(syscall.Errno(e)) {
-		t.Errorf("Mknod returned error: %v, want fuse.Errno(os.IsExist(err))", err)
-	}
-}
-
-func TestDir_Mknod_ReadWrite_Ok(t *testing.T) {
-	src := dirSetup(t)
-	defer dirTeardown(src, t)
-
-	d := newDir(src, DevInoPair{}, true)
-	const perm = 0644
-	req := fuse.MknodRequest{
-		Name: "newNode",
-		Mode: syscall.S_IFIFO | perm,
-	}
-
-	n, err := d.Mknod(context.Background(), &req)
-	if err != nil {
-		t.Errorf("Mknod failed with error: %v", err)
-	}
-
-	if want := filepath.Join(d.underlyingPath, req.Name); n.(Node).UnderlyingPath() != want {
-		t.Errorf("Underlying directory path for created node: %q, want %q", n.(Node).UnderlyingPath(), want)
-	}
-	stat, err := os.Stat(n.(Node).UnderlyingPath())
-	if err != nil {
-		t.Errorf("Underlying filesystem gave error for new node: %v, want nil", err)
-	}
-	if got := stat.Mode() & os.ModePerm; got != perm {
-		t.Errorf("Got node permissions: %v, want: %v", got, perm)
-	}
-}
-
 func TestDir_Create_ReadOnly_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
