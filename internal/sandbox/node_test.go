@@ -38,12 +38,12 @@ func nodeTeardown(src string, t *testing.T) {
 }
 
 func TestBaseNode_Inode(t *testing.T) {
-	k := newBaseNode("/", DevInoPair{})
+	k := newBaseNode("/", DevInoPair{}, false)
 	firstInode := k.inode
 	if k.inode <= 0 {
 		t.Errorf("Assigned Inode number to new directory: %v, want %v", "<=0", ">0")
 	}
-	k = newBaseNode("/", DevInoPair{})
+	k = newBaseNode("/", DevInoPair{}, false)
 	if k.inode <= firstInode {
 		t.Errorf("Second assigned inode number didn't increase: %v <= %v, want >", k.inode, firstInode)
 	}
@@ -61,7 +61,7 @@ func TestBaseNode_Attr(t *testing.T) {
 		t.Fatal("Mkdir failed with error: ", err)
 	}
 
-	node := newBaseNode(src+"/B", DevInoPair{})
+	node := newBaseNode(src+"/B", DevInoPair{}, false)
 	var a fuse.Attr
 	if err := node.Attr(context.Background(), &a); err != nil {
 		t.Error("Attr failed with error: ", err)
@@ -73,7 +73,7 @@ func TestBaseNode_Attr(t *testing.T) {
 		t.Errorf("Directory 'B' has incorrect permissions: %#o, want %#o", got, 0755)
 	}
 
-	node = newBaseNode(src+"/a", DevInoPair{})
+	node = newBaseNode(src+"/a", DevInoPair{}, false)
 	if err := node.Attr(context.Background(), &a); err != nil {
 		t.Error("Attr failed with error: ", err)
 	}

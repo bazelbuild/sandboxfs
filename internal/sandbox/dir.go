@@ -51,8 +51,6 @@ type Dir struct {
 	mappedChildren map[string]Node
 	baseChildren   map[string]Node
 	virtualDirs    map[string]*VirtualDir
-
-	writable bool
 }
 
 // OpenDir is a handle returned when a directory is opened.
@@ -66,11 +64,10 @@ var _ fs.Handle = (*OpenDir)(nil)
 // newDir initializes a new directory node with the proper inode number.
 func newDir(path string, id DevInoPair, writable bool) *Dir {
 	return &Dir{
-		BaseNode:       newBaseNode(path, id),
+		BaseNode:       newBaseNode(path, id, writable),
 		mappedChildren: make(map[string]Node),
 		baseChildren:   make(map[string]Node),
 		virtualDirs:    make(map[string]*VirtualDir),
-		writable:       writable,
 	}
 }
 
@@ -79,11 +76,10 @@ func newDir(path string, id DevInoPair, writable bool) *Dir {
 func newDirFromExisting(mappedChildren map[string]Node,
 	virtualDirs map[string]*VirtualDir, path string, id DevInoPair, writable bool) *Dir {
 	return &Dir{
-		BaseNode:       newBaseNode(path, id),
+		BaseNode:       newBaseNode(path, id, writable),
 		mappedChildren: mappedChildren,
 		baseChildren:   make(map[string]Node),
 		virtualDirs:    virtualDirs,
-		writable:       writable,
 	}
 }
 
@@ -99,11 +95,8 @@ func (d *Dir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.OpenResp
 
 // Setattr updates the directory metadata.
 func (d *Dir) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
-	if !d.writable {
-		return fuseErrno(syscall.EPERM)
-	}
-
-	return d.BaseNode.Setattr(ctx, req)
+	_, err := d.BaseNode.Setattr(ctx, req)
+	return err
 }
 
 // lookup looks for a particular node in all the children of d.
@@ -202,8 +195,8 @@ func (o *OpenDir) Release(_ context.Context, req *fuse.ReleaseRequest) error {
 
 // Mkdir creates a new directory in the underlying file system.
 func (d *Dir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
-	if !d.writable {
-		return nil, fuseErrno(syscall.EPERM)
+	if err := d.BaseNode.WantToWrite(); err != nil {
+		return nil, err
 	}
 
 	path := filepath.Join(d.underlyingPath, req.Name)
@@ -223,8 +216,8 @@ func (d *Dir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error
 // Mknod creates a new node (file, device, pipe etc) in the underlying
 // directory.
 func (d *Dir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error) {
-	if !d.writable {
-		return nil, fuseErrno(syscall.EPERM)
+	if err := d.BaseNode.WantToWrite(); err != nil {
+		return nil, err
 	}
 
 	path := filepath.Join(d.underlyingPath, req.Name)
@@ -248,9 +241,10 @@ func (d *Dir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error
 
 // Create creates a file in the underlying directory.
 func (d *Dir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
-	if !d.writable {
-		return nil, nil, fuseErrno(syscall.EPERM)
+	if err := d.BaseNode.WantToWrite(); err != nil {
+		return nil, nil, err
 	}
+
 	path := filepath.Join(d.underlyingPath, req.Name)
 	openedFile, err := os.OpenFile(
 		path,
@@ -277,8 +271,8 @@ func (d *Dir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.Cr
 
 // Symlink creates a symlink in the underlying directory.
 func (d *Dir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, error) {
-	if !d.writable {
-		return nil, fuseErrno(syscall.EPERM)
+	if err := d.BaseNode.WantToWrite(); err != nil {
+		return nil, err
 	}
 
 	path := filepath.Join(d.underlyingPath, req.NewName)
@@ -298,8 +292,8 @@ func (d *Dir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, e
 
 // Rename renames a node or moves it to a different path.
 func (d *Dir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
-	if !d.writable {
-		return fuseErrno(syscall.EPERM)
+	if err := d.BaseNode.WantToWrite(); err != nil {
+		return err
 	}
 
 	nd, ok := newDir.(*Dir)
@@ -310,8 +304,8 @@ func (d *Dir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Nod
 		return fuseErrno(syscall.ENOTDIR)
 	}
 
-	if !nd.writable {
-		return fuseErrno(syscall.EPERM)
+	if err := nd.BaseNode.WantToWrite(); err != nil {
+		return err
 	}
 
 	err := os.Rename(filepath.Join(d.underlyingPath, req.OldName), filepath.Join(nd.underlyingPath, req.NewName))
@@ -345,8 +339,8 @@ func (d *Dir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Nod
 
 // Remove unlinks a node from the underlying directory.
 func (d *Dir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
-	if !d.writable {
-		return fuseErrno(syscall.EPERM)
+	if err := d.BaseNode.WantToWrite(); err != nil {
+		return err
 	}
 
 	return fuseErrno(os.Remove(filepath.Join(d.underlyingPath, req.Name)))
@@ -380,7 +374,7 @@ func (d *Dir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 		// We need to check if the node is still same type as before, since we
 		// don't want to create a new node (and hence a new indode number) if it is.
 		if !baseOK || baseChild.UnderlyingID() != id {
-			baseChild = childForNodeType(d.underlyingPath, name, id, fileInfo.Mode(), d.writable)
+			baseChild = childForNodeType(d.underlyingPath, name, id, fileInfo.Mode(), d.BaseNode.writable)
 		}
 	} else {
 		// Control reaches here if there's an entry in virtualDirs, as well as
@@ -391,7 +385,7 @@ func (d *Dir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 			return nil
 		}
 		if !baseOK || baseChild.UnderlyingID() != id {
-			baseChild = virtualChild.EquivalentDir(filepath.Join(d.underlyingPath, name), id, d.writable)
+			baseChild = virtualChild.EquivalentDir(filepath.Join(d.underlyingPath, name), id, d.BaseNode.writable)
 		}
 	}
 	return baseChild

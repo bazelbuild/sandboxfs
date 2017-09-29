@@ -16,7 +16,6 @@ package sandbox
 
 import (
 	"os"
-	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -27,14 +26,12 @@ import (
 // filesystem tree.
 type Symlink struct {
 	BaseNode
-	writable bool
 }
 
 // newSymlink initializes a new Symlink node with the proper inode number.
 func newSymlink(path string, id DevInoPair, writable bool) *Symlink {
 	return &Symlink{
-		BaseNode: newBaseNode(path, id),
-		writable: writable,
+		BaseNode: newBaseNode(path, id, writable),
 	}
 }
 
@@ -46,11 +43,8 @@ func (s *Symlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (string
 
 // Setattr updates the symlink metadata.
 func (s *Symlink) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
-	if !s.writable {
-		return fuseErrno(syscall.EPERM)
-	}
-
-	return s.BaseNode.Setattr(ctx, req)
+	_, err := s.BaseNode.Setattr(ctx, req)
+	return err
 }
 
 // Dirent returns the directory entry corresponding to the symlink.

@@ -31,8 +31,7 @@ type BaseNode struct {
 	inode          uint64
 	underlyingPath string
 	underlyingID   DevInoPair
-	// TODO(jmmv): All possible BaseNode types have a writable property.  Move it here so that
-	// Setattr can check for it without needing special-cases in the various implementations.
+	writable       bool
 }
 
 // Node defines the properties common to every node in the filesystem tree.
@@ -76,11 +75,12 @@ func fileInfoToID(info os.FileInfo) DevInoPair {
 }
 
 // newBaseNode initializes a new BaseNode with a new inode number.
-func newBaseNode(path string, id DevInoPair) BaseNode {
+func newBaseNode(path string, id DevInoPair, writable bool) BaseNode {
 	return BaseNode{
 		inode:          nextInodeNumber(),
 		underlyingPath: path,
 		underlyingID:   id,
+		writable:       writable,
 	}
 }
 
@@ -98,7 +98,21 @@ func (n *BaseNode) Attr(_ context.Context, a *fuse.Attr) error {
 // Setattr updates the file metadata. While this is also used by the kernel to communicate file size
 // changes, there is no concept of a size in the base node. As a result, the caller is responsible
 // for handling the size.
-func (n *BaseNode) Setattr(_ context.Context, req *fuse.SetattrRequest) error {
+//
+// This function returns two values: the first is a boolean indicating whether the caller should
+// continue trying to apply any attribute changes, and the second carries the first error
+// encountered when doing such changes. (A consequence is that if the first value is false, then
+// the error must be set, but if the first value is true, the error may not be set.)
+//
+// Given how Setattr is used to apply one or more attribute changes to a node, it is impossible to
+// report all encountered errors back to the kernel. As a result, we just capture the first error
+// and return that, ignoring the rest. The caller should do the same when the boolean return value
+// is true.
+func (n *BaseNode) Setattr(_ context.Context, req *fuse.SetattrRequest) (bool, error) {
+	if err := n.WantToWrite(); err != nil {
+		return false, err
+	}
+
 	var finalError error
 	setError := func(err error) {
 		if finalError == nil {
@@ -130,7 +144,7 @@ func (n *BaseNode) Setattr(_ context.Context, req *fuse.SetattrRequest) error {
 		}
 	}
 
-	return fuseErrno(finalError)
+	return true, fuseErrno(finalError)
 }
 
 // Access checks for permissions on a given node in the file system.
@@ -157,6 +171,16 @@ func newNodeForFileInfo(fileInfo os.FileInfo, path string, id DevInoPair, writab
 // Inode returns the node's inode number.
 func (n *BaseNode) Inode() uint64 {
 	return n.inode
+}
+
+// WantToWrite returns nil if the node is writable or the error to report back to the kernel
+// otherwise. All operations on nodes that want to modify the state of the file system should call
+// this function to ensure all error conditions are consistent.
+func (n *BaseNode) WantToWrite() error {
+	if !n.writable {
+		return fuseErrno(syscall.EPERM)
+	}
+	return nil
 }
 
 // SetUnderlyingPath changes the underlying path value to passed path.

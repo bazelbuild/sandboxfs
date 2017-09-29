@@ -17,7 +17,6 @@ package sandbox
 import (
 	"io"
 	"os"
-	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -28,7 +27,6 @@ import (
 // tree.
 type File struct {
 	BaseNode
-	writable bool
 }
 
 // OpenFile is a handle returned when a file is opened.
@@ -42,8 +40,7 @@ var _ fs.Handle = (*OpenFile)(nil)
 // newFile initializes a new File node with the proper inode number.
 func newFile(path string, id DevInoPair, writable bool) *File {
 	return &File{
-		BaseNode: newBaseNode(path, id),
-		writable: writable,
+		BaseNode: newBaseNode(path, id, writable),
 	}
 }
 
@@ -59,11 +56,10 @@ func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenR
 
 // Setattr updates the file metadata and is also used to communicate file size changes.
 func (f *File) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
-	if !f.writable {
-		return fuseErrno(syscall.EPERM)
+	ok, finalError := f.BaseNode.Setattr(ctx, req)
+	if !ok {
+		return finalError
 	}
-
-	finalError := f.BaseNode.Setattr(ctx, req)
 
 	if req.Valid.Size() {
 		if err := os.Truncate(f.underlyingPath, int64(req.Size)); err != nil {
@@ -101,8 +97,8 @@ func (o *OpenFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 // Write sends the write requests to the corresponding file in the underlying
 // filesystem.
 func (o *OpenFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
-	if !o.file.writable {
-		return fuseErrno(syscall.EPERM)
+	if err := o.file.WantToWrite(); err != nil {
+		return err
 	}
 
 	n, err := o.nativeFile.WriteAt(req.Data, req.Offset)
