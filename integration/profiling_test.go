@@ -110,21 +110,22 @@ func TestProfiling_BadConfiguration(t *testing.T) {
 	data := []struct {
 		name string
 
-		args       []string
-		wantStderr string
+		args         []string
+		wantExitCode int
+		wantStderr   string
 	}{
-		{"BadCpuFile", []string{"--cpu_profile=/tmp"}, "failed to create CPU profile /tmp: .*"},
-		{"BadMemFile", []string{"--mem_profile=/tmp"}, "failed to create memory profile /tmp: .*"},
+		{"BadCpuFile", []string{"--cpu_profile=/tmp"}, 1, "failed to create CPU profile /tmp: .*"},
+		{"BadMemFile", []string{"--mem_profile=/tmp"}, 1, "failed to create memory profile /tmp: .*"},
 
-		{"BadListenAddress", []string{"--listen_address=foo:bar"}, "failed to start HTTP server: .*"},
+		{"BadListenAddress", []string{"--listen_address=foo:bar"}, 1, "failed to start HTTP server: .*"},
 
-		{"CpuAndListenAddress", []string{"--cpu_profile=foo", "--listen_address=host:1234"}, incompatibleSettings},
-		{"MemAndListenAddress", []string{"--mem_profile=foo", "--listen_address=host:1234"}, incompatibleSettings},
-		{"CpuAndMemAndListenAddress", []string{"--cpu_profile=foo", "--listen_address=host:1234", "--mem_profile=bar"}, incompatibleSettings},
+		{"CpuAndListenAddress", []string{"--cpu_profile=foo", "--listen_address=host:1234"}, 2, incompatibleSettings},
+		{"MemAndListenAddress", []string{"--mem_profile=foo", "--listen_address=host:1234"}, 2, incompatibleSettings},
+		{"CpuAndMemAndListenAddress", []string{"--cpu_profile=foo", "--listen_address=host:1234", "--mem_profile=bar"}, 2, incompatibleSettings},
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(1, append(d.args, "static", "/non-existent")...)
+			stdout, stderr, err := runAndWait(d.wantExitCode, append(d.args, "static", "/non-existent")...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -133,6 +134,11 @@ func TestProfiling_BadConfiguration(t *testing.T) {
 			}
 			if !matchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
+			}
+			if d.wantExitCode == 2 {
+				if !matchesRegexp("--help", stderr) {
+					t.Errorf("got %s; want --help mention in stderr", stderr)
+				}
 			}
 		})
 	}

@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -29,6 +30,24 @@ import (
 	"bazil.org/fuse"
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
+
+// usageError represents an error caused by the user invoking the command with an invalid syntax
+// (bad number of arguments, bad flag names, bad flag values, etc.).
+type usageError struct {
+	message string
+}
+
+// Error returns the formatted usage error message.
+func (e *usageError) Error() string {
+	return e.message
+}
+
+// newUsageError constructs a new usageError given a format string and positional arguments.
+func newUsageError(format string, arg ...interface{}) error {
+	return &usageError{
+		message: fmt.Sprintf(format, arg...),
+	}
+}
 
 // MappingTargetPair stores a single mapping of the form mapping->target.
 type MappingTargetPair struct {
@@ -139,17 +158,30 @@ func (f *mappingFlag) Get() interface{} {
 	return *f
 }
 
+// newFlagSet creates a flag set with common settings for all commands.
+func newFlagSet(name string) *flag.FlagSet {
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+
+	// We want full control over error messages to report them consistently from main, so
+	// silence all default output for the flag set.
+	flags.SetOutput(ioutil.Discard)
+	flags.Usage = func() {}
+
+	return flags
+}
+
 // staticCommand implements the "static" command.
 func staticCommand(args []string, volumeName string, settings ProfileSettings) error {
-	flags := flag.NewFlagSet("static", flag.ExitOnError)
+	flags := newFlagSet("static")
 	help := flags.Bool("help", false, "print the usage information and exit")
 	var readOnlyMappings mappingFlag
 	flags.Var(&readOnlyMappings, "read_only_mapping", "read-only mapping of the form MAPPING:TARGET")
 	var readWriteMappings mappingFlag
 	flags.Var(&readWriteMappings, "read_write_mapping", "read/write mapping of the form MAPPING:TARGET")
 
-	flags.Usage = func() {} // Suppress default output.
-	flags.Parse(args)
+	if err := flags.Parse(args); err != nil {
+		return newUsageError("%v", err)
+	}
 
 	if *help {
 		fmt.Fprintf(os.Stdout, "Usage: %s static [flags...] MOUNT-POINT\n", filepath.Base(os.Args[0]))
@@ -158,7 +190,7 @@ func staticCommand(args []string, volumeName string, settings ProfileSettings) e
 	}
 
 	if flags.NArg() != 1 {
-		return fmt.Errorf("Invalid number of arguments; pass -help flag for details")
+		return newUsageError("Invalid number of arguments")
 	}
 	mountPoint := flags.Arg(0)
 
@@ -167,13 +199,14 @@ func staticCommand(args []string, volumeName string, settings ProfileSettings) e
 
 // dynamicCommand implements the "dynamic" command.
 func dynamicCommand(args []string, volumeName string, settings ProfileSettings) error {
-	flags := flag.NewFlagSet("dynamic", flag.ExitOnError)
+	flags := newFlagSet("dynamic")
 	help := flags.Bool("help", false, "print the usage information and exit")
 	input := flags.String("input", "-", "where to read the configuration data from (- for stdin)")
 	output := flags.String("output", "-", "where to write the status of reconfiguration to (- for stdout)")
 
-	flags.Usage = func() {} // Suppress default output.
-	flags.Parse(args)
+	if err := flags.Parse(args); err != nil {
+		return newUsageError("%v", err)
+	}
 
 	if *help {
 		fmt.Fprintf(os.Stdout, "Usage: %s dynamic MOUNT-POINT\n", filepath.Base(os.Args[0]))
@@ -182,7 +215,7 @@ func dynamicCommand(args []string, volumeName string, settings ProfileSettings) 
 	}
 
 	if flags.NArg() != 1 {
-		return fmt.Errorf("Invalid number of arguments; pass -help flag for details")
+		return newUsageError("Invalid number of arguments")
 	}
 	mountPoint := flags.Arg(0)
 
@@ -287,16 +320,20 @@ func serve(settings ProfileSettings, mountPoint string, volumeName string, dynam
 	return nil
 }
 
-func main() {
-	cpuProfile := flag.String("cpu_profile", "", "write a CPU profile to the given file on exit")
-	debug := flag.Bool("debug", false, "log details about FUSE requests and responses to stderr")
-	help := flag.Bool("help", false, "print the usage information and exit")
-	listenAddress := flag.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
-	memProfile := flag.String("mem_profile", "", "write a memory profile to the given file on exit")
-	volumeName := flag.String("volume_name", "sandbox", "name for the sandboxfs volume")
+// safeMain is a version of main that does not exit on its own. Instead, it returns an error type
+// so that the real main function can format all errors consistently across all commands.
+func safeMain(progname string, args []string) error {
+	flags := newFlagSet(progname)
+	cpuProfile := flags.String("cpu_profile", "", "write a CPU profile to the given file on exit")
+	debug := flags.Bool("debug", false, "log details about FUSE requests and responses to stderr")
+	help := flags.Bool("help", false, "print the usage information and exit")
+	listenAddress := flags.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
+	memProfile := flags.String("mem_profile", "", "write a memory profile to the given file on exit")
+	volumeName := flags.String("volume_name", "sandbox", "name for the sandboxfs volume")
 
-	flag.Usage = func() {} // Suppress default output.
-	flag.Parse()
+	if err := flags.Parse(args); err != nil {
+		return newUsageError("%v", err)
+	}
 
 	if *help {
 		fmt.Fprintf(os.Stdout, `Usage: %s [flags...] subcommand ...
@@ -304,39 +341,50 @@ Subcommands:
   static   statically configured sandbox using command line flags.
   dynamic  dynamically configured sandbox using stdin.
 Flags:
-`, filepath.Base(os.Args[0]))
-		usage(os.Stdout, flag.CommandLine)
-		os.Exit(0)
+`, progname)
+		usage(os.Stdout, flags)
+		return nil
 	}
 
 	settings, err := NewProfileSettings(*cpuProfile, *memProfile, *listenAddress)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid profiling settings: %v\n", err)
-		os.Exit(1)
+		return newUsageError("Invalid profiling settings: %v", err)
 	}
 
 	if *debug {
 		fuse.Debug = func(msg interface{}) { fmt.Fprintln(os.Stderr, msg) }
 	}
 
-	if flag.NArg() < 1 {
-		fmt.Fprintf(os.Stderr, "Invalid number of arguments; pass -help flag for details\n")
-		os.Exit(1)
+	if flags.NArg() < 1 {
+		return newUsageError("Invalid number of arguments")
 	}
-	command := flag.Arg(0)
-	args := flag.Args()[1:]
+	command := flags.Arg(0)
+	commandArgs := flags.Args()[1:]
 
 	switch command {
 	case "static":
-		err = staticCommand(args, *volumeName, settings)
+		err = staticCommand(commandArgs, *volumeName, settings)
 	case "dynamic":
-		err = dynamicCommand(args, *volumeName, settings)
+		err = dynamicCommand(commandArgs, *volumeName, settings)
 	default:
-		fmt.Fprintf(os.Stderr, "Invalid command; pass -help flag for details\n")
-		os.Exit(1)
+		err = newUsageError("Invalid command")
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	return err
+}
+
+func main() {
+	progname := filepath.Base(os.Args[0])
+	args := os.Args[1:]
+
+	if err := safeMain(progname, args); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+
+		switch err.(type) {
+		case *usageError:
+			fmt.Fprintf(os.Stderr, "Type '%s --help' for details\n", progname)
+			os.Exit(2)
+		default:
+			os.Exit(1)
+		}
 	}
 }

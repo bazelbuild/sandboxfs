@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd September 20, 2017
+.Dd September 28, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -220,11 +220,9 @@ but configures a read/write mapping.
 .El
 .Sh EXIT STATUS
 .Nm
-exits with 0 if the instance was both mounted and unmounted cleanly.
-.\" TODO(jmmv): Clarify distinction between 1 and 2 when we have cleaned up the
-.\" code to always return 2 on syntax errors.  See corresponding TODOs in
-.\" cli_test.go.
-Otherwise, exits with a non-zero (unspecified) error code.
+exits with 0 if the file system was both mounted and unmounted cleanly; 1 on a
+controlled error condition encountered during the execution of a command; or 2
+on a usage error.
 .Pp
 Additionally, due to the nature of signal handling in Go (which is the language
 in which

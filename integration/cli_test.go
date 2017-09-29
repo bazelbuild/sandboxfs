@@ -95,38 +95,31 @@ func TestCli_Syntax(t *testing.T) {
 
 		args       []string
 		wantStderr string
-
-		// TODO(jmmv): All invalid syntax errors (the ones validated in this test case)
-		// should behave in the same manner: they should all show the same "help note" and
-		// they should all return the same exit code.  Make them all consistent and remove
-		// these test settings.
-		wantExitStatus int
-		wantHelpNote   bool
 	}{
-		{"InvalidFlag", []string{"--foo"}, "not defined.*-foo", 2, false},
-		{"NoArguments", []string{}, "Invalid number of arguments", 1, true},
-		{"InvalidCommand", []string{"foo"}, "Invalid command", 1, true},
+		{"InvalidFlag", []string{"--foo"}, "not defined.*-foo"},
+		{"NoArguments", []string{}, "Invalid number of arguments"},
+		{"InvalidCommand", []string{"foo"}, "Invalid command"},
 
-		{"DynamicNoArguments", []string{"dynamic"}, "Invalid number of arguments", 1, true},
-		{"DynamicInvalidFlag", []string{"dynamic", "--bar"}, "not defined.*-bar", 2, false},
-		{"DynamicTooManyArguments", []string{"dynamic", "a", "b"}, "Invalid number of arguments", 1, true},
+		{"DynamicNoArguments", []string{"dynamic"}, "Invalid number of arguments"},
+		{"DynamicInvalidFlag", []string{"dynamic", "--bar"}, "not defined.*-bar"},
+		{"DynamicTooManyArguments", []string{"dynamic", "a", "b"}, "Invalid number of arguments"},
 
-		{"StaticNoArguments", []string{"static"}, "Invalid number of arguments", 1, true},
-		{"StaticInvalidFlag", []string{"static", "--baz"}, "not defined.*-baz", 2, false},
-		{"StaticTooManyArguments", []string{"static", "a", "b"}, "Invalid number of arguments", 1, true},
+		{"StaticNoArguments", []string{"static"}, "Invalid number of arguments"},
+		{"StaticInvalidFlag", []string{"static", "--baz"}, "not defined.*-baz"},
+		{"StaticTooManyArguments", []string{"static", "a", "b"}, "Invalid number of arguments"},
 
-		{"InvalidFlagWinsOverHelp", []string{"--invalid_flag", "--help"}, "not defined.*-invalid_flag", 2, false},
-		{"InvalidCommandWinsOverHelp", []string{"foo", "--help"}, "Invalid command", 1, true},
-		{"DynamicInvalidFlagWinsOverHelp", []string{"dynamic", "--invalid_flag", "--help"}, "not defined.*-invalid_flag", 2, false},
-		{"StaticInvalidFlagWinsOverHelp", []string{"static", "--invalid_flag", "--help"}, "not defined.*-invalid_flag", 2, false},
+		{"InvalidFlagWinsOverHelp", []string{"--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
+		{"InvalidCommandWinsOverHelp", []string{"foo", "--help"}, "Invalid command"},
+		{"DynamicInvalidFlagWinsOverHelp", []string{"dynamic", "--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
+		{"StaticInvalidFlagWinsOverHelp", []string{"static", "--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
 		// TODO(jmmv): For consistency with all previous tests, an invalid number of
 		// arguments should win over --help, but it currently does not.  Fix or turn help
-		// into a command of its own for consistency.  {"InvalidArgumentsWinOverHelp",
-		// []string{"--help", "foo"}, "number of arguments"},
+		// into a command of its own for consistency.
+		// {"InvalidArgumentsWinOverHelp", []string{"--help", "foo"}, "number of arguments"},
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(d.wantExitStatus, d.args...)
+			stdout, stderr, err := runAndWait(2, d.args...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -136,14 +129,8 @@ func TestCli_Syntax(t *testing.T) {
 			if !matchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
-			if d.wantHelpNote {
-				if !matchesRegexp("pass -help flag for details", stderr) {
-					t.Errorf("no help note found in stderr")
-				}
-			} else {
-				if matchesRegexp("pass -help flag for details", stderr) {
-					t.Errorf("help note found in stderr")
-				}
+			if !matchesRegexp("--help", stderr) {
+				t.Errorf("got %s; want --help mention in stderr", stderr)
 			}
 		})
 	}
@@ -172,8 +159,11 @@ func TestCli_StaticMappingsSyntax(t *testing.T) {
 			if len(stdout) > 0 {
 				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
-			if d.wantStderr != stderr {
+			if !matchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
+			}
+			if !matchesRegexp("--help", stderr) {
+				t.Errorf("got %s; want --help mention in stderr", stderr)
 			}
 		})
 	}
