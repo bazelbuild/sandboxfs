@@ -31,6 +31,8 @@ type BaseNode struct {
 	inode          uint64
 	underlyingPath string
 	underlyingID   DevInoPair
+	// TODO(jmmv): All possible BaseNode types have a writable property.  Move it here so that
+	// Setattr can check for it without needing special-cases in the various implementations.
 }
 
 // Node defines the properties common to every node in the filesystem tree.
@@ -93,6 +95,44 @@ func (n *BaseNode) Attr(_ context.Context, a *fuse.Attr) error {
 	return nil
 }
 
+// Setattr updates the file metadata. While this is also used by the kernel to communicate file size
+// changes, there is no concept of a size in the base node. As a result, the caller is responsible
+// for handling the size.
+func (n *BaseNode) Setattr(_ context.Context, req *fuse.SetattrRequest) error {
+	var finalError error
+	setError := func(err error) {
+		if finalError == nil {
+			finalError = err
+		}
+	}
+
+	if req.Valid.Mode() {
+		if err := os.Chmod(n.underlyingPath, req.Mode&os.ModePerm); err != nil {
+			setError(err)
+		}
+	}
+
+	if req.Valid.Uid() || req.Valid.Gid() {
+		if !(req.Valid.Uid() && req.Valid.Gid()) {
+			panic("don't know how to handle setting only Uid or Gid")
+		}
+		if err := os.Lchown(n.underlyingPath, int(req.Uid), int(req.Gid)); err != nil {
+			setError(err)
+		}
+	}
+
+	if req.Valid.Atime() || req.Valid.Mtime() {
+		if !(req.Valid.Atime() && req.Valid.Mtime()) {
+			panic("don't know how to handle setting only atime or mtime")
+		}
+		if err := os.Chtimes(n.underlyingPath, req.Atime, req.Mtime); err != nil {
+			setError(err)
+		}
+	}
+
+	return fuseErrno(finalError)
+}
+
 // Access checks for permissions on a given node in the file system.
 func (n *BaseNode) Access(_ context.Context, req *fuse.AccessRequest) error {
 	return fuseErrno(unix.Access(n.underlyingPath, req.Mask))
@@ -108,7 +148,7 @@ func newNodeForFileInfo(fileInfo os.FileInfo, path string, id DevInoPair, writab
 	case os.ModeDir:
 		return newDir(path, id, writable)
 	case os.ModeSymlink:
-		return newSymlink(path, id)
+		return newSymlink(path, id, writable)
 	default:
 		return newFile(path, id, writable)
 	}
@@ -143,8 +183,8 @@ func fillAttrInfo(a *fuse.Attr, f os.FileInfo) {
 
 	a.Mtime = f.ModTime()
 	s := f.Sys().(*syscall.Stat_t)
-	a.Atime = atime(s)
-	a.Ctime = ctime(s)
+	a.Atime = Atime(s)
+	a.Ctime = Ctime(s)
 	a.Uid = s.Uid
 	a.Gid = s.Gid
 

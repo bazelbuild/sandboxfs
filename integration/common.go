@@ -377,7 +377,19 @@ func mkdirAllOrFatal(t *testing.T, path string, perm os.FileMode) {
 	}
 }
 
-// mkdirAllOrFatal wraps ioutil.WriteFile and immediately fails the test case on failure.
+// symlinkOrFatal wraps os.Symlink and immediately fails the test case on failure.
+// This is purely syntactic sugar to keep test setup short and concise.
+//
+// Note that, compared to the other *OrFatal operations, this one does not take file permissions
+// into account because Linux does not have an lchmod(2) system call, nor Go offers a mechanism to
+// call it on the systems that support it.
+func symlinkOrFatal(t *testing.T, target string, path string) {
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatalf("failed to create symlink %s: %v", path, err)
+	}
+}
+
+// writeFileOrFatal wraps ioutil.WriteFile and immediately fails the test case on failure.
 // This is purely syntactic sugar to keep test setup short and concise.
 func writeFileOrFatal(t *testing.T, path string, perm os.FileMode, contents string) {
 	if err := ioutil.WriteFile(path, []byte(contents), perm); err != nil {

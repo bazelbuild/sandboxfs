@@ -21,6 +21,9 @@ import (
 	"runtime"
 	"syscall"
 	"testing"
+	"time"
+
+	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 // The tests in this file verify the read/write mapping.  In principle, they should ensure that the
@@ -65,11 +68,23 @@ func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
 
 	writeFileOrFatal(t, filepath.Join(state.mountPoint, "file"), 0644, "very long contents")
 	writeFileOrFatal(t, filepath.Join(state.mountPoint, "file"), 0644, "short")
-	// TODO(jmmv): There is a bug somewhere that is causing short writes over a long file to
-	// not discard old data, or ignoring the truncate file request (which ioutil.WriteFile is
-	// issuing).  Track and fix.
-	bogusContents := "shortlong contents"
-	if err := fileEquals(filepath.Join(state.mountPoint, "file"), bogusContents); err != nil {
+	if err := fileEquals(filepath.Join(state.mountPoint, "file"), "short"); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestReadWrite_Truncate(t *testing.T) {
+	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	writeFileOrFatal(t, filepath.Join(state.mountPoint, "file"), 0644, "very long contents")
+
+	wantContent := "very"
+	if err := os.Truncate(filepath.Join(state.mountPoint, "file"), int64(len(wantContent))); err != nil {
+		t.Fatalf("truncate failed: %v", err)
+	}
+
+	if err := fileEquals(filepath.Join(state.mountPoint, "file"), wantContent); err != nil {
 		t.Error(err)
 	}
 }
@@ -265,3 +280,266 @@ func TestReadWrite_Mknod(t *testing.T) {
 		})
 	}
 }
+
+func TestReadWrite_Chmod(t *testing.T) {
+	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	// checkPerm ensures that the given file has the given permissions on the underlying file
+	// system and within the mount point.
+	checkPerm := func(relPath string, wantPerm os.FileMode) error {
+		for _, dir := range []string{state.root, state.mountPoint} {
+			path := filepath.Join(dir, relPath)
+
+			fileInfo, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("failed to stat %s: %v", path, err)
+			}
+			perm := fileInfo.Mode() & os.ModePerm
+			if perm != wantPerm {
+				return fmt.Errorf("got permissions %v for %s, want %v", perm, path, wantPerm)
+			}
+		}
+		return nil
+	}
+
+	t.Run("Dir", func(t *testing.T) {
+		mkdirAllOrFatal(t, filepath.Join(state.root, "dir"), 0755)
+
+		path := filepath.Join(state.mountPoint, "dir")
+		if err := os.Chmod(path, 0500); err != nil {
+			t.Fatalf("failed to chmod %s: %v", path, err)
+		}
+		if err := checkPerm("dir", 0500); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("File", func(t *testing.T) {
+		writeFileOrFatal(t, filepath.Join(state.root, "file"), 0644, "new content")
+
+		path := filepath.Join(state.mountPoint, "file")
+		if err := os.Chmod(path, 0440); err != nil {
+			t.Fatalf("failed to chmod %s: %v", path, err)
+		}
+		if err := checkPerm("file", 0440); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("DanglingSymlink", func(t *testing.T) {
+		symlinkOrFatal(t, "missing", filepath.Join(state.root, "dangling-symlink"))
+
+		path := filepath.Join(state.mountPoint, "dangling-symlink")
+		if err := os.Chmod(path, 0555); err == nil {
+			t.Errorf("want chmod to fail on dangling link, got success")
+		}
+	})
+
+	t.Run("GoodSymlink", func(t *testing.T) {
+		writeFileOrFatal(t, filepath.Join(state.root, "target"), 0644, "")
+		symlinkOrFatal(t, "target", filepath.Join(state.root, "good-symlink"))
+
+		path := filepath.Join(state.mountPoint, "good-symlink")
+		linkFileInfo, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("failed to stat %s: %v", path, err)
+		}
+
+		if err := os.Chmod(path, 0200); err != nil {
+			t.Fatalf("failed to chmod %s: %v", path, err)
+		}
+
+		if err := checkPerm("good-symlink", linkFileInfo.Mode()&os.ModePerm); err != nil {
+			t.Error(err)
+		}
+		if err := checkPerm("target", 0200); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+func TestReadWrite_Chown(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skipf("requires root privileges to change test file ownership")
+	}
+
+	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	// checkOwners ensures that the given file is owned by the given user and group on the
+	// underlying file system and within the mount point.
+	checkOwners := func(relPath string, wantUID uint32, wantGID uint32) error {
+		for _, dir := range []string{state.root, state.mountPoint} {
+			path := filepath.Join(dir, relPath)
+
+			fileInfo, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("failed to stat %s: %v", path, err)
+			}
+			stat := fileInfo.Sys().(*syscall.Stat_t)
+
+			if stat.Uid != wantUID {
+				return fmt.Errorf("got uid %v for %s, want %v", stat.Uid, path, wantUID)
+			}
+			if stat.Gid != wantGID {
+				return fmt.Errorf("got gid %v for %s, want %v", stat.Gid, path, wantGID)
+			}
+		}
+		return nil
+	}
+
+	mkdirAllOrFatal(t, filepath.Join(state.root, "dir"), 0755)
+	writeFileOrFatal(t, filepath.Join(state.root, "file"), 0644, "new content")
+	symlinkOrFatal(t, "missing", filepath.Join(state.root, "dangling-symlink"))
+	writeFileOrFatal(t, filepath.Join(state.root, "target"), 0644, "")
+	symlinkOrFatal(t, "target", filepath.Join(state.root, "good-symlink"))
+
+	targetFileInfo, err := os.Lstat(filepath.Join(state.root, "target"))
+	if err != nil {
+		t.Fatalf("failed to stat %s: %v", filepath.Join(state.root), err)
+	}
+	targetStat := targetFileInfo.Sys().(*syscall.Stat_t)
+
+	data := []struct {
+		name string
+
+		filename string
+		wantUID  int
+		wantGID  int
+	}{
+		{"Dir", "dir", 1, 2},
+		{"File", "file", 3, 4},
+		{"DanglingSymlink", "dangling-symlink", 5, 6},
+		{"GoodSymlink", "good-symlink", 7, 8},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := filepath.Join(state.mountPoint, d.filename)
+			if err := os.Lchown(path, d.wantUID, d.wantGID); err != nil {
+				t.Fatalf("failed to chown %s: %v", path, err)
+			}
+			if err := checkOwners(d.filename, uint32(d.wantUID), uint32(d.wantGID)); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+
+	if err := checkOwners("target", targetStat.Uid, targetStat.Gid); err != nil {
+		t.Errorf("ownership of symlink target was modified but shouldn't have been: %v", err)
+	}
+}
+
+func TestReadWrite_Chtimes(t *testing.T) {
+	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	// checkTimes ensures that the given file has the desired timing information on the
+	// underlying file system and within the mount point.
+	//
+	// wantAtime may be zero if the atime check should be skipped.  wantMtime is always checked
+	// for equality.  wantMinCtime indicates the minimum ctime that the file should have, as
+	// that's the most we can check for (because ctime cannot be explicitly set).
+	checkTimes := func(relPath string, wantAtime time.Time, wantMtime time.Time, wantMinCtime time.Time) error {
+		for _, dir := range []string{state.root, state.mountPoint} {
+			path := filepath.Join(dir, relPath)
+
+			fileInfo, err := os.Lstat(path)
+			if err != nil {
+				return fmt.Errorf("failed to stat %s: %v", path, err)
+			}
+			stat := fileInfo.Sys().(*syscall.Stat_t)
+
+			if !fileInfo.ModTime().Equal(wantMtime) {
+				return fmt.Errorf("got mtime %v for %s, want %v", fileInfo.ModTime(), path, wantMtime)
+			}
+			if !wantAtime.Equal(time.Unix(0, 0)) && !sandbox.Atime(stat).Equal(wantAtime) {
+				return fmt.Errorf("got atime %v for %s, want %v", sandbox.Atime(stat), path, wantAtime)
+			}
+			if sandbox.Ctime(stat).Before(wantMinCtime) {
+				return fmt.Errorf("got ctime %v for %s, want <= %v", sandbox.Ctime(stat), path, wantMinCtime)
+			}
+		}
+		return nil
+	}
+
+	// chtimes is a wrapper over os.Chtimes that updates the given file with the desired atime
+	// and mtime, but also computes a lower bound for the ctime of the touched file.  This lower
+	// bound is returned and can later be fed to checkTimes.
+	chtimes := func(path string, atime time.Time, mtime time.Time) (time.Time, error) {
+		// We have no control on ctime updates so let some time pass before we modify our
+		// test file.  This way, we can ensure that the ctime was set to, at least, the
+		// current updated time.  All file systems should have a minimum of second-level
+		// granularity (I'm looking at you HFS+), so sleeping for a whole second should be
+		// sufficient to get this right.  (Sleeps can pause for longer than specified, but
+		// that's perfectly fine.)
+		minCtime := time.Now()
+		time.Sleep(1 * time.Second)
+
+		if err := os.Chtimes(path, atime, mtime); err != nil {
+			return time.Unix(0, 0), fmt.Errorf("failed to chtimes %s: %v", path, err)
+		}
+		return minCtime, nil
+	}
+
+	someAtime := time.Date(2009, 5, 25, 9, 0, 0, 0, time.UTC)
+	someMtime := time.Date(1984, 8, 10, 19, 15, 0, 0, time.UTC)
+
+	t.Run("Dir", func(t *testing.T) {
+		mkdirAllOrFatal(t, filepath.Join(state.root, "dir"), 0755)
+
+		wantMinCtime, err := chtimes(filepath.Join(state.mountPoint, "dir"), someAtime, someMtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkTimes("dir", someAtime, someMtime, wantMinCtime); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("File", func(t *testing.T) {
+		writeFileOrFatal(t, filepath.Join(state.root, "file"), 0644, "new content")
+
+		wantMinCtime, err := chtimes(filepath.Join(state.mountPoint, "file"), someAtime, someMtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkTimes("file", someAtime, someMtime, wantMinCtime); err != nil {
+			t.Error(err)
+		}
+	})
+
+	t.Run("DanglingSymlink", func(t *testing.T) {
+		symlinkOrFatal(t, "missing", filepath.Join(state.root, "dangling-symlink"))
+
+		if _, err := chtimes("dangling-symlink", time.Unix(0, 0), time.Unix(0, 0)); err == nil {
+			t.Errorf("want chtimes to fail on dangling link, got success")
+		}
+	})
+
+	t.Run("GoodSymlink", func(t *testing.T) {
+		writeFileOrFatal(t, filepath.Join(state.root, "target"), 0644, "")
+		symlinkOrFatal(t, "target", filepath.Join(state.root, "good-symlink"))
+		path := filepath.Join(state.mountPoint, "good-symlink")
+
+		linkFileInfo, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("failed to stat %s: %v", path, err)
+		}
+		linkStat := linkFileInfo.Sys().(*syscall.Stat_t)
+
+		wantMinCtime, err := chtimes(path, someAtime, someMtime)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if err := checkTimes("good-symlink", time.Unix(0, 0), linkFileInfo.ModTime(), sandbox.Ctime(linkStat)); err != nil {
+			t.Error(err)
+		}
+		if err := checkTimes("target", someAtime, someMtime, wantMinCtime); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+// TODO(jmmv): Implement and test hard links.

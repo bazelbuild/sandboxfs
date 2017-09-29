@@ -47,7 +47,7 @@ func TestSymlink_Readlink(t *testing.T) {
 		t.Fatal("Symlink failed with error: ", err)
 	}
 
-	d := newSymlink(src+"/B/e", DevInoPair{})
+	d := newSymlink(src+"/B/e", DevInoPair{}, false)
 	path, err := d.Readlink(context.Background(), nil)
 	if err != nil {
 		t.Error("Readlink failed with error:", err)
@@ -64,7 +64,7 @@ func TestSymlink_Readlink_Error(t *testing.T) {
 		t.Fatal("setup failed with error: ", err)
 	}
 
-	d := newSymlink(src+"/A/B", DevInoPair{})
+	d := newSymlink(src+"/A/B", DevInoPair{}, false)
 	_, err := d.Readlink(context.Background(), nil)
 	if err != fuseErrno(syscall.EINVAL) {
 		t.Errorf("Readlink returned error %v, expected %v:", err, fuseErrno(syscall.EINVAL))

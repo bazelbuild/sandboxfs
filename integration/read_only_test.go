@@ -19,7 +19,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
+
+	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 func TestReadOnly_DirectoryStructure(t *testing.T) {
@@ -150,6 +153,57 @@ func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 	}
 	if !matchesRegexp(wantStderr, stderr) {
 		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+	}
+}
+
+func TestReadOnly_Attributes(t *testing.T) {
+	state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+	defer state.tearDown(t)
+
+	mkdirAllOrFatal(t, filepath.Join(state.root, "dir"), 0755)
+	writeFileOrFatal(t, filepath.Join(state.root, "file"), 0644, "new content")
+	symlinkOrFatal(t, "missing", filepath.Join(state.root, "symlink"))
+
+	for _, name := range []string{"dir", "file", "symlink"} {
+		outerPath := filepath.Join(state.root, name)
+		outerFileInfo, err := os.Lstat(outerPath)
+		if err != nil {
+			t.Fatalf("failed to stat %s: %v", outerPath, err)
+		}
+		outerStat := outerFileInfo.Sys().(*syscall.Stat_t)
+
+		innerPath := filepath.Join(state.mountPoint, name)
+		innerFileInfo, err := os.Lstat(innerPath)
+		if err != nil {
+			t.Fatalf("failed to stat %s: %v", innerPath, err)
+		}
+		innerStat := innerFileInfo.Sys().(*syscall.Stat_t)
+
+		if innerFileInfo.Mode() != outerFileInfo.Mode() {
+			t.Errorf("got mode %v for %s, want %v", innerFileInfo.Mode(), innerPath, outerFileInfo.Mode())
+		}
+
+		if sandbox.Atime(innerStat) != sandbox.Atime(outerStat) {
+			t.Errorf("got atime %v for %s, want %v", sandbox.Atime(innerStat), innerPath, sandbox.Atime(outerStat))
+		}
+		if innerFileInfo.ModTime() != outerFileInfo.ModTime() {
+			t.Errorf("got mtime %v for %s, want %v", innerFileInfo.ModTime(), innerPath, outerFileInfo.ModTime())
+		}
+		if sandbox.Ctime(innerStat) != sandbox.Ctime(outerStat) {
+			t.Errorf("got ctime %v for %s, want %v", sandbox.Ctime(innerStat), innerPath, sandbox.Ctime(outerStat))
+		}
+
+		if innerStat.Nlink != outerStat.Nlink {
+			t.Errorf("got nlink %v for %s, want %v", innerStat.Nlink, innerPath, outerStat.Nlink)
+		}
+
+		if innerStat.Rdev != outerStat.Rdev {
+			t.Errorf("got rdev %v for %s, want %v", innerStat.Rdev, innerPath, outerStat.Rdev)
+		}
+
+		if innerStat.Blksize != outerStat.Blksize {
+			t.Errorf("got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, outerStat.Blksize)
+		}
 	}
 }
 

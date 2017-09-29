@@ -97,6 +97,15 @@ func (d *Dir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.OpenResp
 	return &OpenDir{openedDir, d}, nil
 }
 
+// Setattr updates the directory metadata.
+func (d *Dir) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
+	if !d.writable {
+		return fuseErrno(syscall.EPERM)
+	}
+
+	return d.BaseNode.Setattr(ctx, req)
+}
+
 // lookup looks for a particular node in all the children of d.
 // NOTE: lookup assumes that the caller function does not hold lock mu on Dir.
 func (d *Dir) lookup(name string) (fs.Node, error) {
@@ -349,7 +358,7 @@ func childForNodeType(underlyingPath, name string, id DevInoPair, mode os.FileMo
 	case os.ModeDir:
 		return newDir(filepath.Join(underlyingPath, name), id, writable)
 	case os.ModeSymlink:
-		return newSymlink(filepath.Join(underlyingPath, name), id)
+		return newSymlink(filepath.Join(underlyingPath, name), id, writable)
 	default:
 		// Everything else behaves like a regular file because there are no
 		// FUSE-specific operations to be implemented for them.

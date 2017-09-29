@@ -19,10 +19,12 @@ import (
 	"time"
 )
 
-func atime(s *syscall.Stat_t) time.Time {
+// Atime obtains the access time from a system-specific stat structure.
+func Atime(s *syscall.Stat_t) time.Time {
 	return timespecToTime(s.Atimespec)
 }
 
-func ctime(s *syscall.Stat_t) time.Time {
+// Ctime obtains the inode change time from a system-specific stat structure.
+func Ctime(s *syscall.Stat_t) time.Time {
 	return timespecToTime(s.Ctimespec)
 }
