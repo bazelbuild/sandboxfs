@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/bazelbuild/sandboxfs/integration/utils"
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
@@ -65,52 +66,52 @@ func reconfigure(input io.Writer, output *bufio.Scanner, config string) error {
 // configuration to sandboxfs, checking if the configuration was accepted properly, and then
 // reconfiguring the file system in an "incompatible" manner to ensure the old file system contents
 // are invalidated and the new ones are put in place.
-func doReconfigurationTest(t *testing.T, state *mountState, input io.Writer, outputReader io.Reader) {
+func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Writer, outputReader io.Reader) {
 	output := bufio.NewScanner(outputReader)
 
-	mkdirAllOrFatal(t, filepath.Join(state.root, "a/a"), 0755)
+	utils.MustMkdirAll(t, filepath.Join(state.Root, "a/a"), 0755)
 	config := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/ro", Target: filepath.Join(state.root, "a/a"), Writable: false},
-		sandbox.MappingSpec{Mapping: "/", Target: state.root, Writable: true},
-		sandbox.MappingSpec{Mapping: "/ro/rw", Target: state.root, Writable: true},
+		sandbox.MappingSpec{Mapping: "/ro", Target: filepath.Join(state.Root, "a/a"), Writable: false},
+		sandbox.MappingSpec{Mapping: "/", Target: state.Root, Writable: true},
+		sandbox.MappingSpec{Mapping: "/ro/rw", Target: state.Root, Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(state.mountPoint, "ro/hello"), 0755); err == nil {
+	if err := os.MkdirAll(filepath.Join(state.MountPoint, "ro/hello"), 0755); err == nil {
 		t.Errorf("mkdir succeeded in read-only mapping")
 	}
-	if err := os.MkdirAll(filepath.Join(state.mountPoint, "ro/rw/hello"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(state.MountPoint, "ro/rw/hello"), 0755); err != nil {
 		t.Errorf("mkdir failed in nested read-write mapping: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(state.mountPoint, "a/b/c"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(state.MountPoint, "a/b/c"), 0755); err != nil {
 		t.Errorf("mkdir failed in read-write root mapping: %v", err)
 	}
-	if err := ioutil.WriteFile(filepath.Join(state.mountPoint, "a/b/c/file"), []byte("foo bar"), 0644); err != nil {
+	if err := ioutil.WriteFile(filepath.Join(state.MountPoint, "a/b/c/file"), []byte("foo bar"), 0644); err != nil {
 		t.Errorf("write failed in read-write root mapping: %v", err)
 	}
-	if err := fileEquals(filepath.Join(state.mountPoint, "a/b/c/file"), "foo bar"); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.MountPoint, "a/b/c/file"), "foo bar"); err != nil {
 		t.Error(err)
 	}
-	if err := fileEquals(filepath.Join(state.root, "a/b/c/file"), "foo bar"); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.Root, "a/b/c/file"), "foo bar"); err != nil {
 		t.Error(err)
 	}
 
 	config = jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/rw/dir", Target: state.root, Writable: true},
+		sandbox.MappingSpec{Mapping: "/rw/dir", Target: state.Root, Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(state.mountPoint, "rw/dir/hello"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(state.MountPoint, "rw/dir/hello"), 0755); err != nil {
 		t.Errorf("mkdir failed in read-write mapping: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(state.mountPoint, "a")); os.IsExist(err) {
+	if _, err := os.Lstat(filepath.Join(state.MountPoint, "a")); os.IsExist(err) {
 		t.Errorf("old contents of root directory were not cleared after reconfiguration")
 	}
-	if _, err := os.Lstat(filepath.Join(state.mountPoint, "ro")); os.IsExist(err) {
+	if _, err := os.Lstat(filepath.Join(state.MountPoint, "ro")); os.IsExist(err) {
 		t.Errorf("old read-only mapping was not cleared after reconfiguration")
 	}
 }
@@ -123,9 +124,9 @@ func TestReconfiguration_DefaultStreams(t *testing.T) {
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 
-	state := mountSetupWithOutputs(t, stdoutWriter, nil, "dynamic")
-	defer state.tearDown(t)
-	doReconfigurationTest(t, state, state.stdin, stdoutReader)
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, nil, "dynamic")
+	defer state.TearDown(t)
+	doReconfigurationTest(t, state, state.Stdin, stdoutReader)
 }
 
 func TestReconfiguration_ExplicitStreams(t *testing.T) {
@@ -145,8 +146,8 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 		t.Fatalf("failed to create %s fifo: %v", outFifo, err)
 	}
 
-	state := mountSetupWithOutputs(t, nil, nil, "dynamic", "--input="+inFifo, "--output="+outFifo)
-	defer state.tearDown(t)
+	state := utils.MountSetupWithOutputs(t, nil, nil, "dynamic", "--input="+inFifo, "--output="+outFifo)
+	defer state.TearDown(t)
 
 	input, err := os.OpenFile(inFifo, os.O_WRONLY, 0)
 	if err != nil {
@@ -191,14 +192,14 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(1, "dynamic", d.flag, filepath.Join(tempDir, "mnt"))
+			stdout, stderr, err := utils.RunAndWait(1, "dynamic", d.flag, filepath.Join(tempDir, "mnt"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
 				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
-			if !matchesRegexp(d.wantStderr, stderr) {
+			if !utils.MatchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 		})

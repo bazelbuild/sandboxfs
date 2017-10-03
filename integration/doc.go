@@ -12,25 +12,9 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+// Package integration contains integration tests for sandboxfs.
+//
+// All the tests in this package are designed to execute a sandboxfs binary and treat it as a black
+// box.  The binary to be tested is indicated by the SANDBOXFS environment variable, which must be
+// set by the user at startup time.
 package integration
-
-import (
-	"bytes"
-	"path/filepath"
-	"testing"
-
-	"github.com/bazelbuild/sandboxfs/integration/utils"
-)
-
-func TestDebug_FuseOpsInLog(t *testing.T) {
-	stderr := new(bytes.Buffer)
-
-	state := utils.MountSetupWithOutputs(t, nil, stderr, "--debug", "static", "-read_only_mapping=/:%ROOT%")
-	defer state.TearDown(t)
-
-	utils.MustWriteFile(t, filepath.Join(state.Root, "cookie"), 0644, "")
-
-	if !utils.MatchesRegexp("Lookup.*cookie", stderr.String()) {
-		t.Errorf("FUSE operations not found in stderr; debug flag did not reach FUSE library")
-	}
-}

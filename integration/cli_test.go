@@ -17,6 +17,8 @@ package integration
 import (
 	"fmt"
 	"testing"
+
+	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
 func TestCli_Help(t *testing.T) {
@@ -75,7 +77,7 @@ Flags:
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(0, d.args...)
+			stdout, stderr, err := utils.RunAndWait(0, d.args...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,17 +121,17 @@ func TestCli_Syntax(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(2, d.args...)
+			stdout, stderr, err := utils.RunAndWait(2, d.args...)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
 				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
-			if !matchesRegexp(d.wantStderr, stderr) {
+			if !utils.MatchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
-			if !matchesRegexp("--help", stderr) {
+			if !utils.MatchesRegexp("--help", stderr) {
 				t.Errorf("got %s; want --help mention in stderr", stderr)
 			}
 		})
@@ -152,17 +154,17 @@ func TestCli_StaticMappingsSyntax(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(2, "static", fmt.Sprintf("--%s=%s", d.flagName, d.flagValue), "irrelevant-mount-point")
+			stdout, stderr, err := utils.RunAndWait(2, "static", fmt.Sprintf("--%s=%s", d.flagName, d.flagValue), "irrelevant-mount-point")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
 				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
-			if !matchesRegexp(d.wantStderr, stderr) {
+			if !utils.MatchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
-			if !matchesRegexp("--help", stderr) {
+			if !utils.MatchesRegexp("--help", stderr) {
 				t.Errorf("got %s; want --help mention in stderr", stderr)
 			}
 		})

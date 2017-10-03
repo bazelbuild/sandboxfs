@@ -19,62 +19,64 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
 func TestNesting_VirtualIntermediateComponents(t *testing.T) {
-	state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/1/2/3/4/5:%ROOT%/subdir")
-	defer state.tearDown(t)
+	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/1/2/3/4/5:%ROOT%/subdir")
+	defer state.TearDown(t)
 
-	writeFileOrFatal(t, filepath.Join(state.root, "subdir", "file"), 0644, "some contents")
+	utils.MustWriteFile(t, filepath.Join(state.Root, "subdir", "file"), 0644, "some contents")
 
-	if err := dirEquals(filepath.Join(state.root, "subdir"), filepath.Join(state.mountPoint, "1/2/3/4/5")); err != nil {
+	if err := utils.DirEquals(filepath.Join(state.Root, "subdir"), filepath.Join(state.MountPoint, "1/2/3/4/5")); err != nil {
 		t.Error(err)
 	}
-	if err := fileEquals(filepath.Join(state.mountPoint, "1/2/3/4/5", "file"), "some contents"); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.MountPoint, "1/2/3/4/5", "file"), "some contents"); err != nil {
 		t.Error(err)
 	}
 
-	mkdirAllOrFatal(t, filepath.Join(state.tempDir, "golden/1/2/3/4/5"), 0755)
+	utils.MustMkdirAll(t, filepath.Join(state.TempDir, "golden/1/2/3/4/5"), 0755)
 	for _, dir := range []string{"1/2/3/4", "1/2/3", "1/2", "1"} {
-		goldenDir := filepath.Join(state.tempDir, "golden", dir)
+		goldenDir := filepath.Join(state.TempDir, "golden", dir)
 		if err := os.Chmod(goldenDir, 0555); err != nil {
 			t.Errorf("failed to set golden dir permissions to 0555 to match virtual dir expectations: %v", err)
 		}
 		defer os.Chmod(goldenDir, 0755) // To allow cleanup in tearDown to succeed.
 
-		virtualDir := filepath.Join(state.mountPoint, dir)
-		if err := dirEquals(goldenDir, virtualDir); err != nil {
+		virtualDir := filepath.Join(state.MountPoint, dir)
+		if err := utils.DirEquals(goldenDir, virtualDir); err != nil {
 			t.Error(err)
 		}
 	}
 }
 
 func TestNesting_ReadWriteWithinReadOnly(t *testing.T) {
-	state := mountSetup(t, "static", "-read_write_mapping=/:%ROOT%", "-read_only_mapping=/ro:%ROOT%/one/two", "-read_write_mapping=/ro/rw:%ROOT%")
-	defer state.tearDown(t)
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%", "-read_only_mapping=/ro:%ROOT%/one/two", "-read_write_mapping=/ro/rw:%ROOT%")
+	defer state.TearDown(t)
 
-	if err := os.MkdirAll(filepath.Join(state.mountPoint, "ro/hello"), 0755); err == nil {
+	if err := os.MkdirAll(filepath.Join(state.MountPoint, "ro/hello"), 0755); err == nil {
 		t.Errorf("mkdir succeeded in read-only mapping")
 	}
-	if err := os.MkdirAll(filepath.Join(state.mountPoint, "ro/rw/hello"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(state.MountPoint, "ro/rw/hello"), 0755); err != nil {
 		t.Errorf("mkdir failed in read-write mapping: %v", err)
 	}
 }
 
 func TestNesting_SameTarget(t *testing.T) {
-	state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_write_mapping=/dir1:%ROOT%/same", "-read_write_mapping=/dir2/dir3/dir4:%ROOT%/same")
-	defer state.tearDown(t)
+	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_write_mapping=/dir1:%ROOT%/same", "-read_write_mapping=/dir2/dir3/dir4:%ROOT%/same")
+	defer state.TearDown(t)
 
-	writeFileOrFatal(t, filepath.Join(state.mountPoint, "dir1/file"), 0644, "old contents")
-	writeFileOrFatal(t, filepath.Join(state.mountPoint, "dir2/dir3/dir4/file"), 0644, "new contents")
+	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "dir1/file"), 0644, "old contents")
+	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "dir2/dir3/dir4/file"), 0644, "new contents")
 
-	externalDir := filepath.Join(state.root, "same")
-	if err := fileEquals(filepath.Join(externalDir, "file"), "new contents"); err != nil {
+	externalDir := filepath.Join(state.Root, "same")
+	if err := utils.FileEquals(filepath.Join(externalDir, "file"), "new contents"); err != nil {
 		t.Error(err)
 	}
 	for _, dir := range []string{"/dir1", "/dir2/dir3/dir4"} {
-		internalDir := filepath.Join(state.mountPoint, dir)
-		if err := dirEquals(externalDir, internalDir); err != nil {
+		internalDir := filepath.Join(state.MountPoint, dir)
+		if err := utils.DirEquals(externalDir, internalDir); err != nil {
 			t.Error(err)
 		}
 	}
@@ -107,29 +109,29 @@ func TestNesting_SameTarget(t *testing.T) {
 	default:
 		t.Fatalf("don't know how this test behaves in this platform")
 	}
-	if err := fileEquals(filepath.Join(state.mountPoint, "dir1/file"), wantDir1FileContents); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.MountPoint, "dir1/file"), wantDir1FileContents); err != nil {
 		t.Error(err)
 	}
 
-	if err := fileEquals(filepath.Join(state.mountPoint, "dir2/dir3/dir4/file"), "new contents"); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.MountPoint, "dir2/dir3/dir4/file"), "new contents"); err != nil {
 		t.Error(err)
 	}
 }
 
 func TestNesting_PreserveSymlinks(t *testing.T) {
-	state := mountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/dir1/dir2:%ROOT%")
-	defer state.tearDown(t)
+	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/dir1/dir2:%ROOT%")
+	defer state.TearDown(t)
 
-	writeFileOrFatal(t, filepath.Join(state.root, "file"), 0644, "file in root directory")
-	mkdirAllOrFatal(t, filepath.Join(state.root, "dir"), 0755)
-	if err := os.Symlink("..", filepath.Join(state.root, "dir/up")); err != nil {
+	utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "file in root directory")
+	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir"), 0755)
+	if err := os.Symlink("..", filepath.Join(state.Root, "dir/up")); err != nil {
 		t.Fatalf("failed to create test symlink: %v", err)
 	}
 
-	if err := fileEquals(filepath.Join(state.mountPoint, "dir/up/file"), "file in root directory"); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.MountPoint, "dir/up/file"), "file in root directory"); err != nil {
 		t.Error(err)
 	}
-	if err := fileEquals(filepath.Join(state.mountPoint, "dir1/dir2/dir/up/file"), "file in root directory"); err != nil {
+	if err := utils.FileEquals(filepath.Join(state.MountPoint, "dir1/dir2/dir/up/file"), "file in root directory"); err != nil {
 		t.Error(err)
 	}
 }

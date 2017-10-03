@@ -24,23 +24,24 @@ import (
 	"time"
 
 	"bazil.org/fuse"
+	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
 // checkSignalHandled verifies that the given sandboxfs process exited with an error on receipt of
 // a signal and that the mount point was truly unmounted.
-func checkSignalHandled(state *mountState) error {
-	if err := state.cmd.Wait(); err == nil {
+func checkSignalHandled(state *utils.MountState) error {
+	if err := state.Cmd.Wait(); err == nil {
 		return fmt.Errorf("wait of sandboxfs returned nil, want an error")
 	}
-	if state.cmd.ProcessState.Success() {
+	if state.Cmd.ProcessState.Success() {
 		return fmt.Errorf("exit status of sandboxfs returned success, want an error")
 	}
 
-	if err := fuse.Unmount(state.mountPoint); err == nil {
+	if err := fuse.Unmount(state.MountPoint); err == nil {
 		return fmt.Errorf("mount point should have been released during signal handling but wasn't")
 	}
 
-	state.cmd = nil // Tell state.tearDown that we cleaned the mount point ourselves.
+	state.Cmd = nil // Tell state.TearDown that we cleaned the mount point ourselves.
 	return nil
 }
 
@@ -52,12 +53,12 @@ func TestSignal_RaceBetweenSignalSetupAndMount(t *testing.T) {
 	ok := true
 	for delayMs := 2; ok && delayMs < 200; delayMs += 2 {
 		ok = t.Run(fmt.Sprintf("Delay%v", delayMs), func(t *testing.T) {
-			state := mountSetup(t, "dynamic")
-			defer state.tearDown(t)
+			state := utils.MountSetup(t, "dynamic")
+			defer state.TearDown(t)
 
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 
-			if err := state.cmd.Process.Signal(os.Interrupt); err != nil {
+			if err := state.Cmd.Process.Signal(os.Interrupt); err != nil {
 				t.Fatalf("failed to deliver signal to sandboxfs process: %v", err)
 			}
 			if err := checkSignalHandled(state); err != nil {
@@ -72,25 +73,25 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 		t.Run(signal.String(), func(t *testing.T) {
 			stderr := new(bytes.Buffer)
 
-			state := mountSetupWithOutputs(t, nil, stderr, "static", "-read_only_mapping=/:%ROOT%")
-			defer state.tearDown(t)
+			state := utils.MountSetupWithOutputs(t, nil, stderr, "static", "-read_only_mapping=/:%ROOT%")
+			defer state.TearDown(t)
 
-			writeFileOrFatal(t, filepath.Join(state.root, "a"), 0644, "")
-			if _, err := os.Lstat(filepath.Join(state.mountPoint, "a")); os.IsNotExist(err) {
+			utils.MustWriteFile(t, filepath.Join(state.Root, "a"), 0644, "")
+			if _, err := os.Lstat(filepath.Join(state.MountPoint, "a")); os.IsNotExist(err) {
 				t.Fatalf("failed to create test file within file system: %v", err)
 			}
 
-			if err := state.cmd.Process.Signal(signal); err != nil {
+			if err := state.Cmd.Process.Signal(signal); err != nil {
 				t.Fatalf("failed to deliver signal to sandboxfs process: %v", err)
 			}
 			if err := checkSignalHandled(state); err != nil {
 				t.Fatal(err)
 			}
-			if !matchesRegexp(fmt.Sprintf("caught signal.*%v", signal.String()), stderr.String()) {
+			if !utils.MatchesRegexp(fmt.Sprintf("caught signal.*%v", signal.String()), stderr.String()) {
 				t.Errorf("termination error message does not mention signal name; got %v", stderr)
 			}
 
-			if _, err := os.Lstat(filepath.Join(state.mountPoint, "a")); os.IsExist(err) {
+			if _, err := os.Lstat(filepath.Join(state.MountPoint, "a")); os.IsExist(err) {
 				t.Fatalf("file system not unmounted; test file still exists in mount point")
 			}
 		})

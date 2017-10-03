@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+
+	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
 // listenAddressRegex captures the host:port pair on which the status server started by sandboxfs's
@@ -32,8 +34,8 @@ var listenAddressRegex = regexp.MustCompile(`starting HTTP server on ([^:]+:\d+)
 
 func TestProfiling_Http(t *testing.T) {
 	stderr := new(bytes.Buffer)
-	state := mountSetupWithOutputs(t, nil, stderr, "--listen_address=localhost:0", "static", "-read_only_mapping=/:%ROOT%")
-	defer state.tearDown(t)
+	state := utils.MountSetupWithOutputs(t, nil, stderr, "--listen_address=localhost:0", "static", "-read_only_mapping=/:%ROOT%")
+	defer state.TearDown(t)
 
 	matches := listenAddressRegex.FindStringSubmatch(stderr.String())
 	if matches == nil {
@@ -81,10 +83,10 @@ func TestProfiling_FileProfiles(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			state := mountSetup(t, append(d.args, "static", "-read_only_mapping=/:%ROOT%")...)
+			state := utils.MountSetup(t, append(d.args, "static", "-read_only_mapping=/:%ROOT%")...)
 			// Explicitly stop sandboxfs (which is different to what most other tests do).  We need
 			// to do this here to cause the profiles to be written to disk.
-			state.tearDown(t)
+			state.TearDown(t)
 
 			for _, profile := range d.wantProfiles {
 				// Check if the profile exists and is not empty.  We cannot do much more complex
@@ -125,18 +127,18 @@ func TestProfiling_BadConfiguration(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := runAndWait(d.wantExitCode, append(d.args, "static", "/non-existent")...)
+			stdout, stderr, err := utils.RunAndWait(d.wantExitCode, append(d.args, "static", "/non-existent")...)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
 				t.Errorf("got %s; want stdout to be empty", stdout)
 			}
-			if !matchesRegexp(d.wantStderr, stderr) {
+			if !utils.MatchesRegexp(d.wantStderr, stderr) {
 				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 			if d.wantExitCode == 2 {
-				if !matchesRegexp("--help", stderr) {
+				if !utils.MatchesRegexp("--help", stderr) {
 					t.Errorf("got %s; want --help mention in stderr", stderr)
 				}
 			}

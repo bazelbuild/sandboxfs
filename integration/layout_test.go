@@ -19,6 +19,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
 func TestLayout_MountPointDoesNotExist(t *testing.T) {
@@ -31,14 +33,14 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	mountPoint := filepath.Join(tempDir, "non-existent")
 	wantStderr := "Unable to mount: " + mountPoint + " does not exist\n"
 
-	stdout, stderr, err := runAndWait(1, "static", "--read_only_mapping=/:"+tempDir, mountPoint)
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:"+tempDir, mountPoint)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
 		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
-	if !matchesRegexp(wantStderr, stderr) {
+	if !utils.MatchesRegexp(wantStderr, stderr) {
 		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
@@ -51,18 +53,18 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	file := filepath.Join(tempDir, "file")
-	writeFileOrFatal(t, file, 0644, "")
+	utils.MustWriteFile(t, file, 0644, "")
 
 	wantStderr := "Unable to init sandbox: can't map a file at root; must be a directory\n"
 
-	stdout, stderr, err := runAndWait(1, "static", "--read_only_mapping=/:"+file, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:"+file, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
 		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
-	if !matchesRegexp(wantStderr, stderr) {
+	if !utils.MatchesRegexp(wantStderr, stderr) {
 		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
@@ -76,14 +78,14 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 
 	wantStderr := "Unable to init sandbox: mapping /a/a: two nodes mapped at the same location\n"
 
-	stdout, stderr, err := runAndWait(1, "static", "--read_only_mapping=/:"+tempDir, "--read_only_mapping=/a/a:"+tempDir, "--read_only_mapping=/a/b:"+tempDir, "--read_only_mapping=/a/a:/does-not-matter", "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:"+tempDir, "--read_only_mapping=/a/a:"+tempDir, "--read_only_mapping=/a/b:"+tempDir, "--read_only_mapping=/a/a:/does-not-matter", "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
 		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
-	if !matchesRegexp(wantStderr, stderr) {
+	if !utils.MatchesRegexp(wantStderr, stderr) {
 		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
@@ -96,18 +98,18 @@ func TestLayout_FileMappedOnVirtualDirectory(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	file := filepath.Join(tempDir, "file")
-	writeFileOrFatal(t, file, 0644, "")
+	utils.MustWriteFile(t, file, 0644, "")
 
 	wantStderr := "Unable to init sandbox: mapping /a: file \"" + file + "\" mapped over existing directory\n"
 
-	stdout, stderr, err := runAndWait(1, "static", "--read_only_mapping=/a/b/c:"+tempDir, "--read_only_mapping=/a:"+file, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/a/b/c:"+tempDir, "--read_only_mapping=/a:"+file, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
 		t.Errorf("got %s; want stdout to be empty", stdout)
 	}
-	if !matchesRegexp(wantStderr, stderr) {
+	if !utils.MatchesRegexp(wantStderr, stderr) {
 		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
