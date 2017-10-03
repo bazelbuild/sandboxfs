@@ -17,7 +17,6 @@ package integration
 import (
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"runtime"
 	"syscall"
 	"testing"
@@ -30,13 +29,13 @@ func TestReadOnly_DirectoryStructure(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir1"), 0755)
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir2"), 0500)
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir3/dir1"), 0700)
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir3/dir2"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("dir2"), 0500)
+	utils.MustMkdirAll(t, state.RootPath("dir3/dir1"), 0700)
+	utils.MustMkdirAll(t, state.RootPath("dir3/dir2"), 0755)
 
 	for _, dir := range []string{"", "dir1", "dir2", "dir3/dir1", "dir3/dir2"} {
-		if err := utils.DirEquals(filepath.Join(state.Root, dir), filepath.Join(state.MountPoint, dir)); err != nil {
+		if err := utils.DirEquals(state.RootPath(dir), state.MountPath(dir)); err != nil {
 			t.Error(err)
 		}
 	}
@@ -46,17 +45,17 @@ func TestReadOnly_FileContents(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0400, "foo")
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir1/dir2"), 0755)
-	utils.MustWriteFile(t, filepath.Join(state.Root, "dir1/dir2/file"), 0600, "bar baz")
+	utils.MustWriteFile(t, state.RootPath("file"), 0400, "foo")
+	utils.MustMkdirAll(t, state.RootPath("dir1/dir2"), 0755)
+	utils.MustWriteFile(t, state.RootPath("dir1/dir2/file"), 0600, "bar baz")
 
 	// Do the checks many times to ensure file reads and handles do not conflict with each
 	// other, and that we do not leak file descriptors within sandboxfs.
 	for i := 0; i < 1000; i++ {
-		if err := utils.FileEquals(filepath.Join(state.MountPoint, "file"), "foo"); err != nil {
+		if err := utils.FileEquals(state.MountPath("file"), "foo"); err != nil {
 			t.Error(err)
 		}
-		if err := utils.FileEquals(filepath.Join(state.MountPoint, "dir1/dir2/file"), "bar baz"); err != nil {
+		if err := utils.FileEquals(state.MountPath("dir1/dir2/file"), "bar baz"); err != nil {
 			t.Error(err)
 		}
 	}
@@ -66,15 +65,15 @@ func TestReadOnly_DeleteUnderlyingRoot(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	if _, err := ioutil.ReadDir(state.MountPoint); err != nil {
+	if _, err := ioutil.ReadDir(state.MountPath()); err != nil {
 		t.Errorf("accessing the mount point should have succeeded, but got %v", err)
 	}
 
-	if err := os.RemoveAll(state.Root); err != nil {
+	if err := os.RemoveAll(state.RootPath()); err != nil {
 		t.Fatalf("failed to remove underlying root directory: %v", err)
 	}
 
-	if _, err := ioutil.ReadDir(state.MountPoint); err == nil {
+	if _, err := ioutil.ReadDir(state.MountPath()); err == nil {
 		t.Errorf("accessing the mount point should have failed, but it did not")
 	}
 }
@@ -83,8 +82,8 @@ func TestReadOnly_ReplaceUnderlyingFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	externalFile := filepath.Join(state.Root, "foo")
-	internalFile := filepath.Join(state.MountPoint, "foo")
+	externalFile := state.RootPath("foo")
+	internalFile := state.MountPath("foo")
 
 	utils.MustWriteFile(t, externalFile, 0600, "old contents")
 	if err := utils.FileEquals(internalFile, "old contents"); err != nil {
@@ -115,29 +114,29 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "first/a"), 0755)
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "first/b"), 0755)
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "first/c"), 0755)
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "second/1"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("first/a"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("first/b"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("first/c"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("second/1"), 0755)
 
-	if err := utils.DirEquals(filepath.Join(state.Root, "first"), filepath.Join(state.MountPoint, "first")); err != nil {
+	if err := utils.DirEquals(state.RootPath("first"), state.MountPath("first")); err != nil {
 		t.Fatal(err)
 	}
-	if err := utils.DirEquals(filepath.Join(state.Root, "second"), filepath.Join(state.MountPoint, "second")); err != nil {
+	if err := utils.DirEquals(state.RootPath("second"), state.MountPath("second")); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.Rename(filepath.Join(state.Root, "first"), filepath.Join(state.Root, "third")); err != nil {
+	if err := os.Rename(state.RootPath("first"), state.RootPath("third")); err != nil {
 		t.Fatalf("failed to move underlying directory away: %v", err)
 	}
-	if err := os.Rename(filepath.Join(state.Root, "second"), filepath.Join(state.Root, "first")); err != nil {
+	if err := os.Rename(state.RootPath("second"), state.RootPath("first")); err != nil {
 		t.Fatalf("failed to replace previous underlying directory: %v", err)
 	}
 
-	if err := utils.DirEquals(filepath.Join(state.Root, "first"), filepath.Join(state.MountPoint, "first")); err != nil {
+	if err := utils.DirEquals(state.RootPath("first"), state.MountPath("first")); err != nil {
 		t.Error(err)
 	}
-	if err := utils.DirEquals(filepath.Join(state.Root, "third"), filepath.Join(state.MountPoint, "third")); err != nil {
+	if err := utils.DirEquals(state.RootPath("third"), state.MountPath("third")); err != nil {
 		t.Error(err)
 	}
 }
@@ -161,19 +160,19 @@ func TestReadOnly_Attributes(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir"), 0755)
-	utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "new content")
-	utils.MustSymlink(t, "missing", filepath.Join(state.Root, "symlink"))
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("symlink"))
 
 	for _, name := range []string{"dir", "file", "symlink"} {
-		outerPath := filepath.Join(state.Root, name)
+		outerPath := state.RootPath(name)
 		outerFileInfo, err := os.Lstat(outerPath)
 		if err != nil {
 			t.Fatalf("failed to stat %s: %v", outerPath, err)
 		}
 		outerStat := outerFileInfo.Sys().(*syscall.Stat_t)
 
-		innerPath := filepath.Join(state.MountPoint, name)
+		innerPath := state.MountPath(name)
 		innerFileInfo, err := os.Lstat(innerPath)
 		if err != nil {
 			t.Fatalf("failed to stat %s: %v", innerPath, err)

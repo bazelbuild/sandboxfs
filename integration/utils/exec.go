@@ -169,17 +169,6 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...
 // need to interact with a temporary directory where external files can be placed, and with the
 // mount point.
 type MountState struct {
-	// TempDir points to the base directory where the test places any files it creates.  Tests
-	// should not reference this directly.
-	TempDir string
-
-	// Root points to the directory that tests can use to place files that will later be
-	// remapped into the sandbox.
-	Root string
-
-	// MountPoint points to the directory where the sandboxfs instance is mounted.
-	MountPoint string
-
 	// Cmd holds the handle for the running sandboxfs instance.  Can be used by tests to get
 	// access to the input and output of the process.
 	Cmd *exec.Cmd
@@ -188,8 +177,37 @@ type MountState struct {
 	// with the sandboxfs process via stdin, so it's fine to just ignore this.
 	Stdin io.WriteCloser
 
+	// tempDir points to the base directory where the test places any files it creates.
+	tempDir string
+
+	// root points to the directory that tests can use to place files that will later be
+	// remapped into the sandbox.
+	root string
+
+	// mountPoint points to the directory where the sandboxfs instance is mounted.
+	mountPoint string
+
 	// oldMask keeps track of the process umask to restore when the test completes.
 	oldMask int
+}
+
+// MountPath joins all the given path components and constructs an absolute path within the test's
+// mount point.
+func (s *MountState) MountPath(arg ...string) string {
+	return filepath.Join(s.mountPoint, filepath.Join(arg...))
+}
+
+// RootPath joins all the given path components and constructs an absolute path within the directory
+// where the test can place files that will later be remapped into the sandbox.
+func (s *MountState) RootPath(arg ...string) string {
+	return filepath.Join(s.root, filepath.Join(arg...))
+}
+
+// TempPath joins all the given path components and constructs an absolute path to the base
+// temporary directory of the test.  Tests should rarely need to use this and should prefer the use
+// of MountPath and RootPath.
+func (s *MountState) TempPath(arg ...string) string {
+	return filepath.Join(s.tempDir, filepath.Join(arg...))
 }
 
 // isDynamic returns true if the arguments to run sandboxfs cause the instance to be configured in
@@ -313,11 +331,11 @@ func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 	// cleanup routines from running, so any code below this line must not be able to fail.
 	success = true
 	state := &MountState{
-		TempDir:    tempDir,
-		Root:       root,
-		MountPoint: mountPoint,
 		Cmd:        cmd,
 		Stdin:      stdin,
+		tempDir:    tempDir,
+		root:       root,
+		mountPoint: mountPoint,
 		oldMask:    oldMask,
 	}
 	return state
@@ -344,7 +362,7 @@ func (s *MountState) TearDown(t *testing.T) {
 		// stop serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2)
 		// system call: this can be run as an unprivileged user, so we needn't check for
 		// root privileges.
-		if err := fuse.Unmount(s.MountPoint); err != nil {
+		if err := fuse.Unmount(s.mountPoint); err != nil {
 			t.Errorf("failed to unmount sandboxfs instance during teardown: %v", err)
 		}
 
@@ -360,7 +378,7 @@ func (s *MountState) TearDown(t *testing.T) {
 		s.Cmd = nil
 	}
 
-	if err := os.RemoveAll(s.TempDir); err != nil {
-		t.Errorf("failed to remove temporary directory %s during teardown: %v", s.TempDir, err)
+	if err := os.RemoveAll(s.tempDir); err != nil {
+		t.Errorf("failed to remove temporary directory %s during teardown: %v", s.tempDir, err)
 	}
 }

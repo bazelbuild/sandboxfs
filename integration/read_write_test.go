@@ -36,14 +36,14 @@ func TestReadWrite_CreateFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "original content")
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "subdir"), 0755)
-	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "subdir/file"), 0644, "new content")
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "original content")
+	utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("subdir/file"), 0644, "new content")
 
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "file"), "original content"); err != nil {
+	if err := utils.FileEquals(state.MountPath("file"), "original content"); err != nil {
 		t.Error(err)
 	}
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "subdir/file"), "new content"); err != nil {
+	if err := utils.FileEquals(state.MountPath("subdir/file"), "new content"); err != nil {
 		t.Error(err)
 	}
 }
@@ -52,13 +52,13 @@ func TestReadWrite_RewriteFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "original content")
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "file"), "original content"); err != nil {
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "original content")
+	if err := utils.FileEquals(state.MountPath("file"), "original content"); err != nil {
 		t.Error(err)
 	}
 
-	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "file"), 0644, "rewritten content")
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "file"), "rewritten content"); err != nil {
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "rewritten content")
+	if err := utils.FileEquals(state.MountPath("file"), "rewritten content"); err != nil {
 		t.Error(err)
 	}
 }
@@ -67,9 +67,9 @@ func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "file"), 0644, "very long contents")
-	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "file"), 0644, "short")
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "file"), "short"); err != nil {
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "very long contents")
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "short")
+	if err := utils.FileEquals(state.MountPath("file"), "short"); err != nil {
 		t.Error(err)
 	}
 }
@@ -78,14 +78,14 @@ func TestReadWrite_Truncate(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustWriteFile(t, filepath.Join(state.MountPoint, "file"), 0644, "very long contents")
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "very long contents")
 
 	wantContent := "very"
-	if err := os.Truncate(filepath.Join(state.MountPoint, "file"), int64(len(wantContent))); err != nil {
+	if err := os.Truncate(state.MountPath("file"), int64(len(wantContent))); err != nil {
 		t.Fatalf("truncate failed: %v", err)
 	}
 
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "file"), wantContent); err != nil {
+	if err := utils.FileEquals(state.MountPath("file"), wantContent); err != nil {
 		t.Error(err)
 	}
 }
@@ -157,10 +157,10 @@ func TestReadWrite_RenameFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	oldOuterPath := filepath.Join(state.Root, "old-name")
-	newOuterPath := filepath.Join(state.Root, "new-name")
-	oldInnerPath := filepath.Join(state.MountPoint, "old-name")
-	newInnerPath := filepath.Join(state.MountPoint, "new-name")
+	oldOuterPath := state.RootPath("old-name")
+	newOuterPath := state.RootPath("new-name")
+	oldInnerPath := state.MountPath("old-name")
+	newInnerPath := state.MountPath("new-name")
 	doRenameTest(t, oldOuterPath, newOuterPath, oldInnerPath, newInnerPath)
 }
 
@@ -168,10 +168,10 @@ func TestReadWrite_MoveFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	oldOuterPath := filepath.Join(state.Root, "dir1/dir2/old-name")
-	newOuterPath := filepath.Join(state.Root, "dir2/dir3/dir4/new-name")
-	oldInnerPath := filepath.Join(state.MountPoint, "dir1/dir2/old-name")
-	newInnerPath := filepath.Join(state.MountPoint, "dir2/dir3/dir4/new-name")
+	oldOuterPath := state.RootPath("dir1/dir2/old-name")
+	newOuterPath := state.RootPath("dir2/dir3/dir4/new-name")
+	oldInnerPath := state.MountPath("dir1/dir2/old-name")
+	newInnerPath := state.MountPath("dir2/dir3/dir4/new-name")
 	doRenameTest(t, oldOuterPath, newOuterPath, oldInnerPath, newInnerPath)
 }
 
@@ -187,8 +187,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 	// that the file is a device, that the device number matches.  This check is done on both
 	// the underlying file system and within the mount point.
 	checkNode := func(relPath string, wantMode os.FileMode, wantDev uint64) error {
-		for _, dir := range []string{state.Root, state.MountPoint} {
-			path := filepath.Join(dir, relPath)
+		for _, path := range []string{state.RootPath(relPath), state.MountPath(relPath)} {
 			fileInfo, err := os.Lstat(path)
 			if err != nil {
 				return fmt.Errorf("failed to stat %s: %v", path, err)
@@ -249,7 +248,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			path := filepath.Join(state.MountPoint, d.filename)
+			path := state.MountPath(d.filename)
 
 			shouldHaveFailed := false
 
@@ -289,9 +288,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 	// checkPerm ensures that the given file has the given permissions on the underlying file
 	// system and within the mount point.
 	checkPerm := func(relPath string, wantPerm os.FileMode) error {
-		for _, dir := range []string{state.Root, state.MountPoint} {
-			path := filepath.Join(dir, relPath)
-
+		for _, path := range []string{state.RootPath(relPath), state.MountPath(relPath)} {
 			fileInfo, err := os.Lstat(path)
 			if err != nil {
 				return fmt.Errorf("failed to stat %s: %v", path, err)
@@ -305,9 +302,9 @@ func TestReadWrite_Chmod(t *testing.T) {
 	}
 
 	t.Run("Dir", func(t *testing.T) {
-		utils.MustMkdirAll(t, filepath.Join(state.Root, "dir"), 0755)
+		utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 
-		path := filepath.Join(state.MountPoint, "dir")
+		path := state.MountPath("dir")
 		if err := os.Chmod(path, 0500); err != nil {
 			t.Fatalf("failed to chmod %s: %v", path, err)
 		}
@@ -317,9 +314,9 @@ func TestReadWrite_Chmod(t *testing.T) {
 	})
 
 	t.Run("File", func(t *testing.T) {
-		utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "new content")
+		utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
 
-		path := filepath.Join(state.MountPoint, "file")
+		path := state.MountPath("file")
 		if err := os.Chmod(path, 0440); err != nil {
 			t.Fatalf("failed to chmod %s: %v", path, err)
 		}
@@ -329,19 +326,19 @@ func TestReadWrite_Chmod(t *testing.T) {
 	})
 
 	t.Run("DanglingSymlink", func(t *testing.T) {
-		utils.MustSymlink(t, "missing", filepath.Join(state.Root, "dangling-symlink"))
+		utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
 
-		path := filepath.Join(state.MountPoint, "dangling-symlink")
+		path := state.MountPath("dangling-symlink")
 		if err := os.Chmod(path, 0555); err == nil {
 			t.Errorf("want chmod to fail on dangling link, got success")
 		}
 	})
 
 	t.Run("GoodSymlink", func(t *testing.T) {
-		utils.MustWriteFile(t, filepath.Join(state.Root, "target"), 0644, "")
-		utils.MustSymlink(t, "target", filepath.Join(state.Root, "good-symlink"))
+		utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
+		utils.MustSymlink(t, "target", state.RootPath("good-symlink"))
 
-		path := filepath.Join(state.MountPoint, "good-symlink")
+		path := state.MountPath("good-symlink")
 		linkFileInfo, err := os.Lstat(path)
 		if err != nil {
 			t.Fatalf("failed to stat %s: %v", path, err)
@@ -371,9 +368,7 @@ func TestReadWrite_Chown(t *testing.T) {
 	// checkOwners ensures that the given file is owned by the given user and group on the
 	// underlying file system and within the mount point.
 	checkOwners := func(relPath string, wantUID uint32, wantGID uint32) error {
-		for _, dir := range []string{state.Root, state.MountPoint} {
-			path := filepath.Join(dir, relPath)
-
+		for _, path := range []string{state.RootPath(relPath), state.MountPath(relPath)} {
 			fileInfo, err := os.Lstat(path)
 			if err != nil {
 				return fmt.Errorf("failed to stat %s: %v", path, err)
@@ -390,15 +385,15 @@ func TestReadWrite_Chown(t *testing.T) {
 		return nil
 	}
 
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "dir"), 0755)
-	utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "new content")
-	utils.MustSymlink(t, "missing", filepath.Join(state.Root, "dangling-symlink"))
-	utils.MustWriteFile(t, filepath.Join(state.Root, "target"), 0644, "")
-	utils.MustSymlink(t, "target", filepath.Join(state.Root, "good-symlink"))
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
+	utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
+	utils.MustSymlink(t, "target", state.RootPath("good-symlink"))
 
-	targetFileInfo, err := os.Lstat(filepath.Join(state.Root, "target"))
+	targetFileInfo, err := os.Lstat(state.RootPath("target"))
 	if err != nil {
-		t.Fatalf("failed to stat %s: %v", filepath.Join(state.Root), err)
+		t.Fatalf("failed to stat %s: %v", state.RootPath("target"), err)
 	}
 	targetStat := targetFileInfo.Sys().(*syscall.Stat_t)
 
@@ -416,7 +411,7 @@ func TestReadWrite_Chown(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			path := filepath.Join(state.MountPoint, d.filename)
+			path := state.MountPath(d.filename)
 			if err := os.Lchown(path, d.wantUID, d.wantGID); err != nil {
 				t.Fatalf("failed to chown %s: %v", path, err)
 			}
@@ -442,9 +437,7 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	// for equality.  wantMinCtime indicates the minimum ctime that the file should have, as
 	// that's the most we can check for (because ctime cannot be explicitly set).
 	checkTimes := func(relPath string, wantAtime time.Time, wantMtime time.Time, wantMinCtime time.Time) error {
-		for _, dir := range []string{state.Root, state.MountPoint} {
-			path := filepath.Join(dir, relPath)
-
+		for _, path := range []string{state.RootPath(relPath), state.MountPath(relPath)} {
 			fileInfo, err := os.Lstat(path)
 			if err != nil {
 				return fmt.Errorf("failed to stat %s: %v", path, err)
@@ -487,9 +480,9 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	someMtime := time.Date(1984, 8, 10, 19, 15, 0, 0, time.UTC)
 
 	t.Run("Dir", func(t *testing.T) {
-		utils.MustMkdirAll(t, filepath.Join(state.Root, "dir"), 0755)
+		utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 
-		wantMinCtime, err := chtimes(filepath.Join(state.MountPoint, "dir"), someAtime, someMtime)
+		wantMinCtime, err := chtimes(state.MountPath("dir"), someAtime, someMtime)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -499,9 +492,9 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	})
 
 	t.Run("File", func(t *testing.T) {
-		utils.MustWriteFile(t, filepath.Join(state.Root, "file"), 0644, "new content")
+		utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
 
-		wantMinCtime, err := chtimes(filepath.Join(state.MountPoint, "file"), someAtime, someMtime)
+		wantMinCtime, err := chtimes(state.MountPath("file"), someAtime, someMtime)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -511,7 +504,7 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	})
 
 	t.Run("DanglingSymlink", func(t *testing.T) {
-		utils.MustSymlink(t, "missing", filepath.Join(state.Root, "dangling-symlink"))
+		utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
 
 		if _, err := chtimes("dangling-symlink", time.Unix(0, 0), time.Unix(0, 0)); err == nil {
 			t.Errorf("want chtimes to fail on dangling link, got success")
@@ -519,9 +512,9 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	})
 
 	t.Run("GoodSymlink", func(t *testing.T) {
-		utils.MustWriteFile(t, filepath.Join(state.Root, "target"), 0644, "")
-		utils.MustSymlink(t, "target", filepath.Join(state.Root, "good-symlink"))
-		path := filepath.Join(state.MountPoint, "good-symlink")
+		utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
+		utils.MustSymlink(t, "target", state.RootPath("good-symlink"))
+		path := state.MountPath("good-symlink")
 
 		linkFileInfo, err := os.Lstat(path)
 		if err != nil {

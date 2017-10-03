@@ -69,49 +69,49 @@ func reconfigure(input io.Writer, output *bufio.Scanner, config string) error {
 func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Writer, outputReader io.Reader) {
 	output := bufio.NewScanner(outputReader)
 
-	utils.MustMkdirAll(t, filepath.Join(state.Root, "a/a"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("a/a"), 0755)
 	config := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/ro", Target: filepath.Join(state.Root, "a/a"), Writable: false},
-		sandbox.MappingSpec{Mapping: "/", Target: state.Root, Writable: true},
-		sandbox.MappingSpec{Mapping: "/ro/rw", Target: state.Root, Writable: true},
+		sandbox.MappingSpec{Mapping: "/ro", Target: state.RootPath("a/a"), Writable: false},
+		sandbox.MappingSpec{Mapping: "/", Target: state.RootPath(), Writable: true},
+		sandbox.MappingSpec{Mapping: "/ro/rw", Target: state.RootPath(), Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(state.MountPoint, "ro/hello"), 0755); err == nil {
+	if err := os.MkdirAll(state.MountPath("ro/hello"), 0755); err == nil {
 		t.Errorf("mkdir succeeded in read-only mapping")
 	}
-	if err := os.MkdirAll(filepath.Join(state.MountPoint, "ro/rw/hello"), 0755); err != nil {
+	if err := os.MkdirAll(state.MountPath("ro/rw/hello"), 0755); err != nil {
 		t.Errorf("mkdir failed in nested read-write mapping: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(state.MountPoint, "a/b/c"), 0755); err != nil {
+	if err := os.MkdirAll(state.MountPath("a/b/c"), 0755); err != nil {
 		t.Errorf("mkdir failed in read-write root mapping: %v", err)
 	}
-	if err := ioutil.WriteFile(filepath.Join(state.MountPoint, "a/b/c/file"), []byte("foo bar"), 0644); err != nil {
+	if err := ioutil.WriteFile(state.MountPath("a/b/c/file"), []byte("foo bar"), 0644); err != nil {
 		t.Errorf("write failed in read-write root mapping: %v", err)
 	}
-	if err := utils.FileEquals(filepath.Join(state.MountPoint, "a/b/c/file"), "foo bar"); err != nil {
+	if err := utils.FileEquals(state.MountPath("a/b/c/file"), "foo bar"); err != nil {
 		t.Error(err)
 	}
-	if err := utils.FileEquals(filepath.Join(state.Root, "a/b/c/file"), "foo bar"); err != nil {
+	if err := utils.FileEquals(state.RootPath("a/b/c/file"), "foo bar"); err != nil {
 		t.Error(err)
 	}
 
 	config = jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/rw/dir", Target: state.Root, Writable: true},
+		sandbox.MappingSpec{Mapping: "/rw/dir", Target: state.RootPath(), Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(state.MountPoint, "rw/dir/hello"), 0755); err != nil {
+	if err := os.MkdirAll(state.MountPath("rw/dir/hello"), 0755); err != nil {
 		t.Errorf("mkdir failed in read-write mapping: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(state.MountPoint, "a")); os.IsExist(err) {
+	if _, err := os.Lstat(state.MountPath("a")); os.IsExist(err) {
 		t.Errorf("old contents of root directory were not cleared after reconfiguration")
 	}
-	if _, err := os.Lstat(filepath.Join(state.MountPoint, "ro")); os.IsExist(err) {
+	if _, err := os.Lstat(state.MountPath("ro")); os.IsExist(err) {
 		t.Errorf("old read-only mapping was not cleared after reconfiguration")
 	}
 }

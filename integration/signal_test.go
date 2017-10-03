@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -37,7 +36,7 @@ func checkSignalHandled(state *utils.MountState) error {
 		return fmt.Errorf("exit status of sandboxfs returned success, want an error")
 	}
 
-	if err := fuse.Unmount(state.MountPoint); err == nil {
+	if err := fuse.Unmount(state.MountPath()); err == nil {
 		return fmt.Errorf("mount point should have been released during signal handling but wasn't")
 	}
 
@@ -76,8 +75,8 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 			state := utils.MountSetupWithOutputs(t, nil, stderr, "static", "-read_only_mapping=/:%ROOT%")
 			defer state.TearDown(t)
 
-			utils.MustWriteFile(t, filepath.Join(state.Root, "a"), 0644, "")
-			if _, err := os.Lstat(filepath.Join(state.MountPoint, "a")); os.IsNotExist(err) {
+			utils.MustWriteFile(t, state.RootPath("a"), 0644, "")
+			if _, err := os.Lstat(state.MountPath("a")); os.IsNotExist(err) {
 				t.Fatalf("failed to create test file within file system: %v", err)
 			}
 
@@ -91,7 +90,7 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 				t.Errorf("termination error message does not mention signal name; got %v", stderr)
 			}
 
-			if _, err := os.Lstat(filepath.Join(state.MountPoint, "a")); os.IsExist(err) {
+			if _, err := os.Lstat(state.MountPath("a")); os.IsExist(err) {
 				t.Fatalf("file system not unmounted; test file still exists in mount point")
 			}
 		})

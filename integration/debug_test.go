@@ -16,7 +16,6 @@ package integration
 
 import (
 	"bytes"
-	"path/filepath"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
@@ -28,7 +27,7 @@ func TestDebug_FuseOpsInLog(t *testing.T) {
 	state := utils.MountSetupWithOutputs(t, nil, stderr, "--debug", "static", "-read_only_mapping=/:%ROOT%")
 	defer state.TearDown(t)
 
-	utils.MustWriteFile(t, filepath.Join(state.Root, "cookie"), 0644, "")
+	utils.MustWriteFile(t, state.RootPath("cookie"), 0644, "")
 
 	if !utils.MatchesRegexp("Lookup.*cookie", stderr.String()) {
 		t.Errorf("FUSE operations not found in stderr; debug flag did not reach FUSE library")
