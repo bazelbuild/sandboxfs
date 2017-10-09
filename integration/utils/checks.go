@@ -32,7 +32,7 @@ import (
 // This is purely syntactic sugar to keep test setup short and concise.
 func MustMkdirAll(t *testing.T, path string, perm os.FileMode) {
 	if err := os.MkdirAll(path, perm); err != nil {
-		t.Fatalf("failed to create directory %s: %v", path, err)
+		t.Fatalf("Failed to create directory %s: %v", path, err)
 	}
 }
 
@@ -44,7 +44,7 @@ func MustMkdirAll(t *testing.T, path string, perm os.FileMode) {
 // call it on the systems that support it.
 func MustSymlink(t *testing.T, target string, path string) {
 	if err := os.Symlink(target, path); err != nil {
-		t.Fatalf("failed to create symlink %s: %v", path, err)
+		t.Fatalf("Failed to create symlink %s: %v", path, err)
 	}
 }
 
@@ -52,7 +52,7 @@ func MustSymlink(t *testing.T, target string, path string) {
 // This is purely syntactic sugar to keep test setup short and concise.
 func MustWriteFile(t *testing.T, path string, perm os.FileMode, contents string) {
 	if err := ioutil.WriteFile(path, []byte(contents), perm); err != nil {
-		t.Fatalf("failed to create file %s: %v", path, err)
+		t.Fatalf("Failed to create file %s: %v", path, err)
 	}
 }
 

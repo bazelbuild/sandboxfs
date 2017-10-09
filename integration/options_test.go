@@ -25,13 +25,13 @@ import (
 
 func TestOptions_Allow(t *testing.T) {
 	if os.Getuid() != 0 {
-		t.Skipf("requires root privileges to spawn sandboxfs under different users")
+		t.Skipf("Requires root privileges to spawn sandboxfs under different users")
 	}
 	root, err := utils.LookupUID(os.Getuid())
 	if err != nil {
-		t.Fatalf("failed to get details about root user: %v", err)
+		t.Fatalf("Failed to get details about root user: %v", err)
 	}
-	t.Logf("running test as: %v", root)
+	t.Logf("Running test as: %v", root)
 
 	username := os.Getenv("UNPRIVILEGED_USER")
 	if username == "" {
@@ -39,9 +39,9 @@ func TestOptions_Allow(t *testing.T) {
 	}
 	user, err := utils.LookupUser(username)
 	if err != nil {
-		t.Fatalf("failed to get details about unprivileged user %s: %v", username, err)
+		t.Fatalf("Failed to get details about unprivileged user %s: %v", username, err)
 	}
-	t.Logf("using primary unprivileged user: %v", user)
+	t.Logf("Using primary unprivileged user: %v", user)
 
 	// Search for an arbitrary user that is neither root nor the user specified in
 	// UNPRIVILEGED_USER.  Testing a bunch of low-numbered UIDs should be sufficient because
@@ -55,9 +55,9 @@ func TestOptions_Allow(t *testing.T) {
 		}
 	}
 	if other == nil {
-		t.Fatalf("cannot find an unprivileged user other than root and %s", username)
+		t.Fatalf("Cannot find an unprivileged user other than root and %s", username)
 	}
-	t.Logf("using secondary unprivileged user: %v", other)
+	t.Logf("Using secondary unprivileged user: %v", other)
 
 	var allowRootWorks bool
 	switch runtime.GOOS {
@@ -66,7 +66,7 @@ func TestOptions_Allow(t *testing.T) {
 	case "linux":
 		allowRootWorks = false
 	default:
-		t.Fatalf("don't know how this test behaves in this platform")
+		t.Fatalf("Don't know how this test behaves in this platform")
 	}
 
 	data := []struct {
@@ -93,17 +93,17 @@ func TestOptions_Allow(t *testing.T) {
 			if !d.wantMountOk {
 				tempDir, err := ioutil.TempDir("", "test")
 				if err != nil {
-					t.Fatalf("failed to create temporary directory: %v", err)
+					t.Fatalf("Failed to create temporary directory: %v", err)
 				}
 				defer os.RemoveAll(tempDir)
 
 				args = append(args, tempDir)
 				_, stderr, err := utils.RunAndWait(1, args...)
 				if err == nil {
-					t.Fatalf("mount should have failed, got success")
+					t.Fatalf("Mount should have failed, got success")
 				}
 				if !utils.MatchesRegexp("known.*broken", stderr) {
-					t.Errorf("want error message to mention known brokenness; got %v", stderr)
+					t.Errorf("Want error message to mention known brokenness; got %v", stderr)
 				}
 				return
 			}
@@ -116,13 +116,13 @@ func TestOptions_Allow(t *testing.T) {
 
 			for _, user := range d.okUsers {
 				if err := utils.FileExistsAsUser(file, user); err != nil {
-					t.Errorf("failed to access mount point as user %s: %v", user.Username, err)
+					t.Errorf("Failed to access mount point as user %s: %v", user.Username, err)
 				}
 			}
 
 			for _, user := range d.notOkUsers {
 				if err := utils.FileExistsAsUser(file, user); err == nil {
-					t.Errorf("was able to access mount point as user %s; want error", user.Username)
+					t.Errorf("Was able to access mount point as user %s; want error", user.Username)
 				}
 			}
 		})
@@ -145,13 +145,13 @@ func TestOptions_Syntax(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
-				t.Errorf("got %s; want stdout to be empty", stdout)
+				t.Errorf("Got %s; want stdout to be empty", stdout)
 			}
 			if !utils.MatchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
+				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 			if !utils.MatchesRegexp("--help", stderr) {
-				t.Errorf("got %s; want --help mention in stderr", stderr)
+				t.Errorf("Got %s; want --help mention in stderr", stderr)
 			}
 		})
 	}

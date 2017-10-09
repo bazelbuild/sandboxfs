@@ -314,7 +314,7 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer func() {
 		if !success {
@@ -331,12 +331,12 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 		// Ensure all users can navigate through the temporary directory, which are often created with
 		// strict permissions.
 		if err := os.Chmod(tempDir, 0755); err != nil {
-			t.Fatalf("failed to change permissions of %s", tempDir)
+			t.Fatalf("Failed to change permissions of %s", tempDir)
 		}
 
 		// The mount point must be owned by the user that will mount the FUSE file system.
 		if err := os.Chown(mountPoint, user.UID, user.GID); err != nil {
-			t.Fatalf("failed to change ownership of %s", mountPoint)
+			t.Fatalf("Failed to change ownership of %s", mountPoint)
 		}
 	}
 
@@ -347,7 +347,7 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 	realArgs = append(realArgs, mountPoint)
 
 	if err := createDirsRequiredByMappings(root, realArgs...); err != nil {
-		t.Fatalf("failed to create directories required by mappings: %v", err)
+		t.Fatalf("Failed to create directories required by mappings: %v", err)
 	}
 
 	var cmd *exec.Cmd
@@ -370,7 +370,7 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 		cmd, stdin, err = startBackground(".cookie", stdout, stderr, user, realArgs...)
 	}
 	if err != nil {
-		t.Fatalf("failed to start sandboxfs: %v", err)
+		t.Fatalf("Failed to start sandboxfs: %v", err)
 	}
 
 	// All operations that can fail are now done.  Setting success=true prevents any deferred
@@ -401,7 +401,7 @@ func (s *MountState) TearDown(t *testing.T) {
 
 	if s.Cmd != nil {
 		if err := s.Stdin.Close(); err != nil {
-			t.Errorf("failed to close sandboxfs's stdin pipe: %v", err)
+			t.Errorf("Failed to close sandboxfs's stdin pipe: %v", err)
 		}
 
 		// Calling fuse.Unmount on the mount point causes the running sandboxfs process to
@@ -409,7 +409,7 @@ func (s *MountState) TearDown(t *testing.T) {
 		// system call: this can be run as an unprivileged user, so we needn't check for
 		// root privileges.
 		if err := fuse.Unmount(s.mountPoint); err != nil {
-			t.Errorf("failed to unmount sandboxfs instance during teardown: %v", err)
+			t.Errorf("Failed to unmount sandboxfs instance during teardown: %v", err)
 		}
 
 		timer := time.AfterFunc(shutdownDeadlineSeconds*time.Second, func() {
@@ -425,6 +425,6 @@ func (s *MountState) TearDown(t *testing.T) {
 	}
 
 	if err := os.RemoveAll(s.tempDir); err != nil {
-		t.Errorf("failed to remove temporary directory %s during teardown: %v", s.tempDir, err)
+		t.Errorf("Failed to remove temporary directory %s during teardown: %v", s.tempDir, err)
 	}
 }

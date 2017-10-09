@@ -39,9 +39,9 @@ func TestProfiling_Http(t *testing.T) {
 
 	matches := listenAddressRegex.FindStringSubmatch(stderr.String())
 	if matches == nil {
-		t.Fatalf("cannot determine address on which server was started; log was: %v", stderr)
+		t.Fatalf("Cannot determine address on which server was started; log was: %v", stderr)
 	} else if len(matches) != 2 {
-		t.Fatalf("multiple matches while trying to determine server's address; log was: %v", stderr)
+		t.Fatalf("Multiple matches while trying to determine server's address; log was: %v", stderr)
 	}
 	hostPort := matches[1]
 
@@ -50,24 +50,24 @@ func TestProfiling_Http(t *testing.T) {
 	// expected is sufficient.
 	response, err := http.Get(fmt.Sprintf("http://%s/debug/pprof/fakename", hostPort))
 	if err != nil {
-		t.Fatalf("failed to query fake pprof endpoint: %v", err)
+		t.Fatalf("Failed to query fake pprof endpoint: %v", err)
 	}
 	defer response.Body.Close()
 
 	contents, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		t.Fatalf("failed to read response from fake pprof endpoint: %v", err)
+		t.Fatalf("Failed to read response from fake pprof endpoint: %v", err)
 	}
 	wantContents := "Unknown profile: fakename\n"
 	if string(contents) != wantContents {
-		t.Errorf("got unexpected pprof response %s; want %s", string(contents), wantContents)
+		t.Errorf("Got unexpected pprof response %s; want %s", string(contents), wantContents)
 	}
 }
 
 func TestProfiling_FileProfiles(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -94,11 +94,11 @@ func TestProfiling_FileProfiles(t *testing.T) {
 				// that the profiles were actually written during termination.
 				stat, err := os.Lstat(filepath.Join(tempDir, profile))
 				if err != nil {
-					t.Errorf("cannot find expected profile %s", profile)
+					t.Errorf("Cannot find expected profile %s", profile)
 					continue
 				}
 				if stat.Size() == 0 {
-					t.Errorf("expected profile %s is empty", profile)
+					t.Errorf("Expected profile %s is empty", profile)
 				}
 				os.Remove(filepath.Join(tempDir, profile))
 			}
@@ -132,14 +132,14 @@ func TestProfiling_BadConfiguration(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
-				t.Errorf("got %s; want stdout to be empty", stdout)
+				t.Errorf("Got %s; want stdout to be empty", stdout)
 			}
 			if !utils.MatchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
+				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 			if d.wantExitCode == 2 {
 				if !utils.MatchesRegexp("--help", stderr) {
-					t.Errorf("got %s; want --help mention in stderr", stderr)
+					t.Errorf("Got %s; want --help mention in stderr", stderr)
 				}
 			}
 		})

@@ -82,7 +82,7 @@ func TestReadWrite_Truncate(t *testing.T) {
 
 	wantContent := "very"
 	if err := os.Truncate(state.MountPath("file"), int64(len(wantContent))); err != nil {
-		t.Fatalf("truncate failed: %v", err)
+		t.Fatalf("Truncate failed: %v", err)
 	}
 
 	if err := utils.FileEquals(state.MountPath("file"), wantContent); err != nil {
@@ -120,36 +120,36 @@ func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInn
 	lstatOrFatal := func(path string) os.FileInfo {
 		stat, err := os.Lstat(path)
 		if err != nil {
-			t.Fatalf("failed to lstat %s: %v", path, err)
+			t.Fatalf("Failed to lstat %s: %v", path, err)
 		}
 		return stat
 	}
 	oldOuterStat := lstatOrFatal(oldOuterPath)
 	oldInnerStat := lstatOrFatal(oldInnerPath)
 	if err := os.Rename(oldInnerPath, newInnerPath); err != nil {
-		t.Fatalf("failed to rename %s to %s: %v", oldInnerPath, newInnerPath, err)
+		t.Fatalf("Failed to rename %s to %s: %v", oldInnerPath, newInnerPath, err)
 	}
 	newOuterStat := lstatOrFatal(newOuterPath)
 	newInnerStat := lstatOrFatal(newInnerPath)
 
 	if _, err := os.Lstat(oldOuterPath); os.IsExist(err) {
-		t.Fatalf("old file name in root still present but should have disappeared: %s", oldOuterPath)
+		t.Fatalf("Old file name in root still present but should have disappeared: %s", oldOuterPath)
 	}
 	if _, err := os.Lstat(oldInnerPath); os.IsExist(err) {
-		t.Fatalf("old file name in mount point still present but should have disappeared: %s", oldInnerPath)
+		t.Fatalf("Old file name in mount point still present but should have disappeared: %s", oldInnerPath)
 	}
 	if err := utils.FileEquals(newOuterPath, "some content"); err != nil {
-		t.Fatalf("new file name in root missing or with bad contents: %s: %v", newOuterPath, err)
+		t.Fatalf("New file name in root missing or with bad contents: %s: %v", newOuterPath, err)
 	}
 	if err := utils.FileEquals(newInnerPath, "some content"); err != nil {
-		t.Fatalf("new file name in mount point missing or with bad contents: %s: %v", newInnerPath, err)
+		t.Fatalf("New file name in mount point missing or with bad contents: %s: %v", newInnerPath, err)
 	}
 
 	if err := equivalentStats(oldOuterStat, newOuterStat); err != nil {
-		t.Errorf("stats for %s and %s differ: %v", oldOuterPath, newOuterPath, err)
+		t.Errorf("Stats for %s and %s differ: %v", oldOuterPath, newOuterPath, err)
 	}
 	if err := equivalentStats(oldInnerStat, newInnerStat); err != nil {
-		t.Errorf("stats for %s and %s differ: %v", oldInnerPath, newInnerPath, err)
+		t.Errorf("Stats for %s and %s differ: %v", oldInnerPath, newInnerPath, err)
 	}
 }
 
@@ -177,7 +177,7 @@ func TestReadWrite_MoveFile(t *testing.T) {
 
 func TestReadWrite_Mknod(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skipf("requires root privileges to create arbitrary nodes")
+		t.Skipf("Requires root privileges to create arbitrary nodes")
 	}
 
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
@@ -218,7 +218,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 
 	allOSes := []string{"darwin", "linux"}
 	if !findOS(allOSes) {
-		t.Fatalf("don't know how this test behaves in this platform")
+		t.Fatalf("Don't know how this test behaves in this platform")
 	}
 
 	data := []struct {
@@ -255,7 +255,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 			err := syscall.Mknod(path, d.perm|d.mknodType, d.dev)
 			if findOS(d.wantOS) {
 				if err != nil {
-					t.Fatalf("failed to mknod %s: %v", path, err)
+					t.Fatalf("Failed to mknod %s: %v", path, err)
 				}
 			} else {
 				if err == nil {
@@ -275,7 +275,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 			}
 
 			if shouldHaveFailed {
-				t.Fatalf("test was expected to fail on this platform due to behavioral differences in mknod(2) but succeeded")
+				t.Fatalf("Test was expected to fail on this platform due to behavioral differences in mknod(2) but succeeded")
 			}
 		})
 	}
@@ -306,7 +306,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 
 		path := state.MountPath("dir")
 		if err := os.Chmod(path, 0500); err != nil {
-			t.Fatalf("failed to chmod %s: %v", path, err)
+			t.Fatalf("Failed to chmod %s: %v", path, err)
 		}
 		if err := checkPerm("dir", 0500); err != nil {
 			t.Error(err)
@@ -318,7 +318,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 
 		path := state.MountPath("file")
 		if err := os.Chmod(path, 0440); err != nil {
-			t.Fatalf("failed to chmod %s: %v", path, err)
+			t.Fatalf("Failed to chmod %s: %v", path, err)
 		}
 		if err := checkPerm("file", 0440); err != nil {
 			t.Error(err)
@@ -330,7 +330,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 
 		path := state.MountPath("dangling-symlink")
 		if err := os.Chmod(path, 0555); err == nil {
-			t.Errorf("want chmod to fail on dangling link, got success")
+			t.Errorf("Want chmod to fail on dangling link, got success")
 		}
 	})
 
@@ -341,11 +341,11 @@ func TestReadWrite_Chmod(t *testing.T) {
 		path := state.MountPath("good-symlink")
 		linkFileInfo, err := os.Lstat(path)
 		if err != nil {
-			t.Fatalf("failed to stat %s: %v", path, err)
+			t.Fatalf("Failed to stat %s: %v", path, err)
 		}
 
 		if err := os.Chmod(path, 0200); err != nil {
-			t.Fatalf("failed to chmod %s: %v", path, err)
+			t.Fatalf("Failed to chmod %s: %v", path, err)
 		}
 
 		if err := checkPerm("good-symlink", linkFileInfo.Mode()&os.ModePerm); err != nil {
@@ -359,7 +359,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 
 func TestReadWrite_Chown(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skipf("requires root privileges to change test file ownership")
+		t.Skipf("Requires root privileges to change test file ownership")
 	}
 
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
@@ -393,7 +393,7 @@ func TestReadWrite_Chown(t *testing.T) {
 
 	targetFileInfo, err := os.Lstat(state.RootPath("target"))
 	if err != nil {
-		t.Fatalf("failed to stat %s: %v", state.RootPath("target"), err)
+		t.Fatalf("Failed to stat %s: %v", state.RootPath("target"), err)
 	}
 	targetStat := targetFileInfo.Sys().(*syscall.Stat_t)
 
@@ -413,7 +413,7 @@ func TestReadWrite_Chown(t *testing.T) {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.filename)
 			if err := os.Lchown(path, d.wantUID, d.wantGID); err != nil {
-				t.Fatalf("failed to chown %s: %v", path, err)
+				t.Fatalf("Failed to chown %s: %v", path, err)
 			}
 			if err := checkOwners(d.filename, uint32(d.wantUID), uint32(d.wantGID)); err != nil {
 				t.Error(err)
@@ -422,7 +422,7 @@ func TestReadWrite_Chown(t *testing.T) {
 	}
 
 	if err := checkOwners("target", targetStat.Uid, targetStat.Gid); err != nil {
-		t.Errorf("ownership of symlink target was modified but shouldn't have been: %v", err)
+		t.Errorf("Ownership of symlink target was modified but shouldn't have been: %v", err)
 	}
 }
 
@@ -507,7 +507,7 @@ func TestReadWrite_Chtimes(t *testing.T) {
 		utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
 
 		if _, err := chtimes("dangling-symlink", time.Unix(0, 0), time.Unix(0, 0)); err == nil {
-			t.Errorf("want chtimes to fail on dangling link, got success")
+			t.Errorf("Want chtimes to fail on dangling link, got success")
 		}
 	})
 
@@ -518,7 +518,7 @@ func TestReadWrite_Chtimes(t *testing.T) {
 
 		linkFileInfo, err := os.Lstat(path)
 		if err != nil {
-			t.Fatalf("failed to stat %s: %v", path, err)
+			t.Fatalf("Failed to stat %s: %v", path, err)
 		}
 		linkStat := linkFileInfo.Sys().(*syscall.Stat_t)
 

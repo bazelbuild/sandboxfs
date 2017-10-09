@@ -26,7 +26,7 @@ import (
 func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -38,17 +38,17 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("got %s; want stdout to be empty", stdout)
+		t.Errorf("Got %s; want stdout to be empty", stdout)
 	}
 	if !utils.MatchesRegexp(wantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
 func TestLayout_RootMustBeDirectory(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -62,17 +62,17 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("got %s; want stdout to be empty", stdout)
+		t.Errorf("Got %s; want stdout to be empty", stdout)
 	}
 	if !utils.MatchesRegexp(wantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
 func TestLayout_DuplicateMapping(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -83,17 +83,17 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("got %s; want stdout to be empty", stdout)
+		t.Errorf("Got %s; want stdout to be empty", stdout)
 	}
 	if !utils.MatchesRegexp(wantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
 func TestLayout_FileMappedOnVirtualDirectory(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -107,9 +107,9 @@ func TestLayout_FileMappedOnVirtualDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("got %s; want stdout to be empty", stdout)
+		t.Errorf("Got %s; want stdout to be empty", stdout)
 	}
 	if !utils.MatchesRegexp(wantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }

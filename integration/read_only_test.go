@@ -66,15 +66,15 @@ func TestReadOnly_DeleteUnderlyingRoot(t *testing.T) {
 	defer state.TearDown(t)
 
 	if _, err := ioutil.ReadDir(state.MountPath()); err != nil {
-		t.Errorf("accessing the mount point should have succeeded, but got %v", err)
+		t.Errorf("Accessing the mount point should have succeeded, but got %v", err)
 	}
 
 	if err := os.RemoveAll(state.RootPath()); err != nil {
-		t.Fatalf("failed to remove underlying root directory: %v", err)
+		t.Fatalf("Failed to remove underlying root directory: %v", err)
 	}
 
 	if _, err := ioutil.ReadDir(state.MountPath()); err == nil {
-		t.Errorf("accessing the mount point should have failed, but it did not")
+		t.Errorf("Accessing the mount point should have failed, but it did not")
 	}
 }
 
@@ -87,7 +87,7 @@ func TestReadOnly_ReplaceUnderlyingFile(t *testing.T) {
 
 	utils.MustWriteFile(t, externalFile, 0600, "old contents")
 	if err := utils.FileEquals(internalFile, "old contents"); err != nil {
-		t.Fatalf("test file doesn't match expected contents: %v", err)
+		t.Fatalf("Test file doesn't match expected contents: %v", err)
 	}
 
 	utils.MustWriteFile(t, externalFile, 0600, "new contents")
@@ -99,14 +99,14 @@ func TestReadOnly_ReplaceUnderlyingFile(t *testing.T) {
 	switch runtime.GOOS {
 	case "darwin":
 		if err == nil {
-			t.Fatalf("test file matches expected contents, but we know it shouldn't have on this platform")
+			t.Fatalf("Test file matches expected contents, but we know it shouldn't have on this platform")
 		}
 	case "linux":
 		if err != nil {
-			t.Fatalf("test file doesn't match expected contents: %v", err)
+			t.Fatalf("Test file doesn't match expected contents: %v", err)
 		}
 	default:
-		t.Fatalf("don't know how this test behaves in this platform")
+		t.Fatalf("Don't know how this test behaves in this platform")
 	}
 }
 
@@ -127,10 +127,10 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 	}
 
 	if err := os.Rename(state.RootPath("first"), state.RootPath("third")); err != nil {
-		t.Fatalf("failed to move underlying directory away: %v", err)
+		t.Fatalf("Failed to move underlying directory away: %v", err)
 	}
 	if err := os.Rename(state.RootPath("second"), state.RootPath("first")); err != nil {
-		t.Fatalf("failed to replace previous underlying directory: %v", err)
+		t.Fatalf("Failed to replace previous underlying directory: %v", err)
 	}
 
 	if err := utils.DirEquals(state.RootPath("first"), state.MountPath("first")); err != nil {
@@ -149,10 +149,10 @@ func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(stdout) > 0 {
-		t.Errorf("got %s; want stdout to be empty", stdout)
+		t.Errorf("Got %s; want stdout to be empty", stdout)
 	}
 	if !utils.MatchesRegexp(wantStderr, stderr) {
-		t.Errorf("got %s; want stderr to match %s", stderr, wantStderr)
+		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 	}
 }
 
@@ -168,41 +168,41 @@ func TestReadOnly_Attributes(t *testing.T) {
 		outerPath := state.RootPath(name)
 		outerFileInfo, err := os.Lstat(outerPath)
 		if err != nil {
-			t.Fatalf("failed to stat %s: %v", outerPath, err)
+			t.Fatalf("Failed to stat %s: %v", outerPath, err)
 		}
 		outerStat := outerFileInfo.Sys().(*syscall.Stat_t)
 
 		innerPath := state.MountPath(name)
 		innerFileInfo, err := os.Lstat(innerPath)
 		if err != nil {
-			t.Fatalf("failed to stat %s: %v", innerPath, err)
+			t.Fatalf("Failed to stat %s: %v", innerPath, err)
 		}
 		innerStat := innerFileInfo.Sys().(*syscall.Stat_t)
 
 		if innerFileInfo.Mode() != outerFileInfo.Mode() {
-			t.Errorf("got mode %v for %s, want %v", innerFileInfo.Mode(), innerPath, outerFileInfo.Mode())
+			t.Errorf("Got mode %v for %s, want %v", innerFileInfo.Mode(), innerPath, outerFileInfo.Mode())
 		}
 
 		if sandbox.Atime(innerStat) != sandbox.Atime(outerStat) {
-			t.Errorf("got atime %v for %s, want %v", sandbox.Atime(innerStat), innerPath, sandbox.Atime(outerStat))
+			t.Errorf("Got atime %v for %s, want %v", sandbox.Atime(innerStat), innerPath, sandbox.Atime(outerStat))
 		}
 		if innerFileInfo.ModTime() != outerFileInfo.ModTime() {
-			t.Errorf("got mtime %v for %s, want %v", innerFileInfo.ModTime(), innerPath, outerFileInfo.ModTime())
+			t.Errorf("Got mtime %v for %s, want %v", innerFileInfo.ModTime(), innerPath, outerFileInfo.ModTime())
 		}
 		if sandbox.Ctime(innerStat) != sandbox.Ctime(outerStat) {
-			t.Errorf("got ctime %v for %s, want %v", sandbox.Ctime(innerStat), innerPath, sandbox.Ctime(outerStat))
+			t.Errorf("Got ctime %v for %s, want %v", sandbox.Ctime(innerStat), innerPath, sandbox.Ctime(outerStat))
 		}
 
 		if innerStat.Nlink != outerStat.Nlink {
-			t.Errorf("got nlink %v for %s, want %v", innerStat.Nlink, innerPath, outerStat.Nlink)
+			t.Errorf("Got nlink %v for %s, want %v", innerStat.Nlink, innerPath, outerStat.Nlink)
 		}
 
 		if innerStat.Rdev != outerStat.Rdev {
-			t.Errorf("got rdev %v for %s, want %v", innerStat.Rdev, innerPath, outerStat.Rdev)
+			t.Errorf("Got rdev %v for %s, want %v", innerStat.Rdev, innerPath, outerStat.Rdev)
 		}
 
 		if innerStat.Blksize != outerStat.Blksize {
-			t.Errorf("got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, outerStat.Blksize)
+			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, outerStat.Blksize)
 		}
 	}
 }

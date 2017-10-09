@@ -80,16 +80,16 @@ func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Write
 	}
 
 	if err := os.MkdirAll(state.MountPath("ro/hello"), 0755); err == nil {
-		t.Errorf("mkdir succeeded in read-only mapping")
+		t.Errorf("Mkdir succeeded in read-only mapping")
 	}
 	if err := os.MkdirAll(state.MountPath("ro/rw/hello"), 0755); err != nil {
-		t.Errorf("mkdir failed in nested read-write mapping: %v", err)
+		t.Errorf("Mkdir failed in nested read-write mapping: %v", err)
 	}
 	if err := os.MkdirAll(state.MountPath("a/b/c"), 0755); err != nil {
-		t.Errorf("mkdir failed in read-write root mapping: %v", err)
+		t.Errorf("Mkdir failed in read-write root mapping: %v", err)
 	}
 	if err := ioutil.WriteFile(state.MountPath("a/b/c/file"), []byte("foo bar"), 0644); err != nil {
-		t.Errorf("write failed in read-write root mapping: %v", err)
+		t.Errorf("Write failed in read-write root mapping: %v", err)
 	}
 	if err := utils.FileEquals(state.MountPath("a/b/c/file"), "foo bar"); err != nil {
 		t.Error(err)
@@ -106,13 +106,13 @@ func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Write
 	}
 
 	if err := os.MkdirAll(state.MountPath("rw/dir/hello"), 0755); err != nil {
-		t.Errorf("mkdir failed in read-write mapping: %v", err)
+		t.Errorf("Mkdir failed in read-write mapping: %v", err)
 	}
 	if _, err := os.Lstat(state.MountPath("a")); os.IsExist(err) {
-		t.Errorf("old contents of root directory were not cleared after reconfiguration")
+		t.Errorf("Old contents of root directory were not cleared after reconfiguration")
 	}
 	if _, err := os.Lstat(state.MountPath("ro")); os.IsExist(err) {
-		t.Errorf("old read-only mapping was not cleared after reconfiguration")
+		t.Errorf("Old read-only mapping was not cleared after reconfiguration")
 	}
 }
 
@@ -132,18 +132,18 @@ func TestReconfiguration_DefaultStreams(t *testing.T) {
 func TestReconfiguration_ExplicitStreams(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
 	inFifo := filepath.Join(tempDir, "input")
 	if err := syscall.Mkfifo(inFifo, 0600); err != nil {
-		t.Fatalf("failed to create %s fifo: %v", inFifo, err)
+		t.Fatalf("Failed to create %s fifo: %v", inFifo, err)
 	}
 
 	outFifo := filepath.Join(tempDir, "output")
 	if err := syscall.Mkfifo(outFifo, 0600); err != nil {
-		t.Fatalf("failed to create %s fifo: %v", outFifo, err)
+		t.Fatalf("Failed to create %s fifo: %v", outFifo, err)
 	}
 
 	state := utils.MountSetupWithOutputs(t, nil, nil, "dynamic", "--input="+inFifo, "--output="+outFifo)
@@ -151,13 +151,13 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 
 	input, err := os.OpenFile(inFifo, os.O_WRONLY, 0)
 	if err != nil {
-		t.Fatalf("failed to open input fifo for writing: %v", err)
+		t.Fatalf("Failed to open input fifo for writing: %v", err)
 	}
 	defer input.Close()
 
 	output, err := os.OpenFile(outFifo, os.O_RDONLY, 0)
 	if err != nil {
-		t.Fatalf("failed to open output fifo for reading: %v", err)
+		t.Fatalf("Failed to open output fifo for reading: %v", err)
 	}
 	defer output.Close()
 
@@ -167,7 +167,7 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
-		t.Fatalf("failed to create temporary directory: %v", err)
+		t.Fatalf("Failed to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -197,10 +197,10 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(stdout) > 0 {
-				t.Errorf("got %s; want stdout to be empty", stdout)
+				t.Errorf("Got %s; want stdout to be empty", stdout)
 			}
 			if !utils.MatchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("got %s; want stderr to match %s", stderr, d.wantStderr)
+				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 		})
 	}

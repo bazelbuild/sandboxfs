@@ -58,7 +58,7 @@ func TestSignal_RaceBetweenSignalSetupAndMount(t *testing.T) {
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
 
 			if err := state.Cmd.Process.Signal(os.Interrupt); err != nil {
-				t.Fatalf("failed to deliver signal to sandboxfs process: %v", err)
+				t.Fatalf("Failed to deliver signal to sandboxfs process: %v", err)
 			}
 			if err := checkSignalHandled(state); err != nil {
 				t.Fatal(err)
@@ -77,21 +77,21 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 
 			utils.MustWriteFile(t, state.RootPath("a"), 0644, "")
 			if _, err := os.Lstat(state.MountPath("a")); os.IsNotExist(err) {
-				t.Fatalf("failed to create test file within file system: %v", err)
+				t.Fatalf("Failed to create test file within file system: %v", err)
 			}
 
 			if err := state.Cmd.Process.Signal(signal); err != nil {
-				t.Fatalf("failed to deliver signal to sandboxfs process: %v", err)
+				t.Fatalf("Failed to deliver signal to sandboxfs process: %v", err)
 			}
 			if err := checkSignalHandled(state); err != nil {
 				t.Fatal(err)
 			}
 			if !utils.MatchesRegexp(fmt.Sprintf("caught signal.*%v", signal.String()), stderr.String()) {
-				t.Errorf("termination error message does not mention signal name; got %v", stderr)
+				t.Errorf("Termination error message does not mention signal name; got %v", stderr)
 			}
 
 			if _, err := os.Lstat(state.MountPath("a")); os.IsExist(err) {
-				t.Fatalf("file system not unmounted; test file still exists in mount point")
+				t.Fatalf("File system not unmounted; test file still exists in mount point")
 			}
 		})
 	}
