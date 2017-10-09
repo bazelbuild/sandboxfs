@@ -27,6 +27,8 @@ Subcommands:
   static   statically configured sandbox using command line flags.
   dynamic  dynamically configured sandbox using stdin.
 Flags:
+  -allow value
+    	specifies who should have access to the file system; must be one of other, root, or self (default self)
   -cpu_profile string
     	write a CPU profile to the given file on exit
   -debug

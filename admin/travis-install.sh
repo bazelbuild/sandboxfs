@@ -19,11 +19,18 @@ case "${TRAVIS_OS_NAME}" in
   linux)
     sudo apt-get update
     sudo apt-get install -qq fuse libfuse-dev pkg-config user-mode-linux
-    sudo chmod 666 /dev/fuse
+
+    sudo usermod -a -G fuse "${USER}"
+
+    sudo /bin/sh -c 'echo user_allow_other >>/etc/fuse.conf'
+    sudo chmod 644 /etc/fuse.conf
     ;;
 
   osx)
     brew update
     brew cask install osxfuse
+
+    sudo /Library/Filesystems/osxfuse.fs/Contents/Resources/load_osxfuse
+    sudo sysctl -w vfs.generic.osxfuse.tunables.allow_other=1
     ;;
 esac

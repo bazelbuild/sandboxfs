@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd September 28, 2017
+.Dd October 5, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -19,6 +19,7 @@
 .Nd A virtual file system for sandboxing
 .Sh SYNOPSIS
 .Nm
+.Op Fl -allow Ar who
 .Op Fl -cpu_profile Ar file
 .Op Fl -debug
 .Op Fl -listen_address Ar host:port
@@ -54,6 +55,39 @@ variety of platforms.
 .Pp
 The following general flags are recognized for all commands:
 .Bl -tag -width XXXX
+.It Fl -allow Ar who
+Specifies who should have access to the file system.
+.Ar who
+must be one of:
+.Sq other
+to indicate that everyone, including root, can access the file system;
+.Sq root
+to indicate that only the current user and root can access the file system; and
+.Sq self
+to indicate that only the current user can access the file system.
+.Pp
+The default value is
+.Sq self
+because the standard FUSE configuration does not allow more relaxed
+permissions, and it would be a pity if you couldn't run
+.Nm
+successfully without additional configuration.
+To change this behavior, add
+.Sq user_allow_other
+to
+.Pa /etc/fuse.conf
+on Linux or set the
+.Sq vfs.generic.osxfuse.tunables.allow_other
+.Xr sysctl 8
+tunable to 1 on macOS.
+.Pp
+Note that, at least on macOS, you will need to consider granting
+.Sq other
+permissions if you intend to run signed binaries through the sandbox.
+This is because the
+.Xr amfid 8
+daemon, which implements the signature validation, runs as a different user
+and must be able to access the executables.
 .It Fl -cpu_profile Ar file
 Enables CPU profiling and writes a profile to the given
 .Ar file
@@ -272,4 +306,11 @@ can lead to data corruption.
 This is true even for read-only mappings because each separate view within
 the mount point may have cached different contents, returning different data
 than what's truly on disk.
+.It
+The
+.Fl allow Ar root
+setting does not work on Linux; use
+.Fl allow Ar other
+as the alternative.
+See https://github.com/bazil/fuse/issues/144 for details.
 .El

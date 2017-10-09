@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -31,22 +32,34 @@ import (
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
-// usageError represents an error caused by the user invoking the command with an invalid syntax
-// (bad number of arguments, bad flag names, bad flag values, etc.).
-type usageError struct {
-	message string
+// allowFlag holds the value of and parses a flag that controls who has access to the file system.
+type allowFlag struct {
+	// Option is the FUSE mount option to pass to the mount operation, or nil if not applicable.
+	Option fuse.MountOption
+
+	// value is the textual representation of the flag's value.
+	value string
 }
 
-// Error returns the formatted usage error message.
-func (e *usageError) Error() string {
-	return e.message
+// String returns the textual value of the flag.
+func (f *allowFlag) String() string {
+	return f.value
 }
 
-// newUsageError constructs a new usageError given a format string and positional arguments.
-func newUsageError(format string, arg ...interface{}) error {
-	return &usageError{
-		message: fmt.Sprintf(format, arg...),
+// Set parses the value of the flag as given by the user.
+func (f *allowFlag) Set(value string) error {
+	switch value {
+	case "other":
+		f.Option = fuse.AllowOther()
+	case "root":
+		f.Option = fuse.AllowRoot()
+	case "self":
+		f.Option = nil
+	default:
+		return fmt.Errorf("must be one of other, root, or self")
 	}
+	f.value = value
+	return nil
 }
 
 // MappingTargetPair stores a single mapping of the form mapping->target.
@@ -171,7 +184,7 @@ func newFlagSet(name string) *flag.FlagSet {
 }
 
 // staticCommand implements the "static" command.
-func staticCommand(args []string, volumeName string, settings ProfileSettings) error {
+func staticCommand(args []string, options []fuse.MountOption, settings ProfileSettings) error {
 	flags := newFlagSet("static")
 	help := flags.Bool("help", false, "print the usage information and exit")
 	var readOnlyMappings mappingFlag
@@ -194,11 +207,11 @@ func staticCommand(args []string, volumeName string, settings ProfileSettings) e
 	}
 	mountPoint := flags.Arg(0)
 
-	return serve(settings, mountPoint, volumeName, nil, combineToSpec(readOnlyMappings, readWriteMappings))
+	return serve(settings, mountPoint, options, nil, combineToSpec(readOnlyMappings, readWriteMappings))
 }
 
 // dynamicCommand implements the "dynamic" command.
-func dynamicCommand(args []string, volumeName string, settings ProfileSettings) error {
+func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileSettings) error {
 	flags := newFlagSet("dynamic")
 	help := flags.Bool("help", false, "print the usage information and exit")
 	input := flags.String("input", "-", "where to read the configuration data from (- for stdin)")
@@ -237,10 +250,10 @@ func dynamicCommand(args []string, volumeName string, settings ProfileSettings) 
 		dynamicConf.Output = file
 	}
 
-	return serve(settings, mountPoint, volumeName, dynamicConf, nil)
+	return serve(settings, mountPoint, options, dynamicConf, nil)
 }
 
-func serve(settings ProfileSettings, mountPoint string, volumeName string, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
+func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
 	sfs, err := sandbox.Init(mappings)
 	if err != nil {
 		return fmt.Errorf("Unable to init sandbox: %v", err)
@@ -272,13 +285,7 @@ func serve(settings ProfileSettings, mountPoint string, volumeName string, dynam
 	caughtSignal := make(chan os.Signal, 1)
 	handleSignals(mountOk, caughtSignal)
 
-	c, err := fuse.Mount(
-		mountPoint,
-		fuse.FSName("sandboxfs"),
-		fuse.Subtype("sandboxfs"),
-		fuse.LocalVolume(),
-		fuse.VolumeName(volumeName),
-	)
+	c, err := fuse.Mount(mountPoint, options...)
 	if err != nil {
 		mountOk <- "" // Neutralize signal handler.
 
@@ -294,7 +301,7 @@ func serve(settings ProfileSettings, mountPoint string, volumeName string, dynam
 		// behind. This is likely a bug in the fuse.Mount logic.
 		fuse.Unmount(mountPoint)
 
-		return fmt.Errorf("Unable to mount: %v", err)
+		return newMountError("Unable to mount: %v", err)
 	}
 	defer c.Close()
 	mountOk <- mountPoint // Tell signal handler that the mount point requires cleanup.
@@ -324,6 +331,9 @@ func serve(settings ProfileSettings, mountPoint string, volumeName string, dynam
 // so that the real main function can format all errors consistently across all commands.
 func safeMain(progname string, args []string) error {
 	flags := newFlagSet(progname)
+	var allow allowFlag
+	allow.Set("self")
+	flags.Var(&allow, "allow", "specifies who should have access to the file system; must be one of other, root, or self")
 	cpuProfile := flags.String("cpu_profile", "", "write a CPU profile to the given file on exit")
 	debug := flags.Bool("debug", false, "log details about FUSE requests and responses to stderr")
 	help := flags.Bool("help", false, "print the usage information and exit")
@@ -361,13 +371,38 @@ Flags:
 	command := flags.Arg(0)
 	commandArgs := flags.Args()[1:]
 
+	options := []fuse.MountOption{
+		fuse.VolumeName(*volumeName),
+
+		// TODO(jmmv): Should be user-customizable.
+		fuse.FSName("sandboxfs"),
+		fuse.Subtype("sandboxfs"),
+		fuse.LocalVolume(),
+	}
+	if allow.Option != nil {
+		options = append(options, allow.Option)
+	}
+
 	switch command {
 	case "static":
-		err = staticCommand(commandArgs, *volumeName, settings)
+		err = staticCommand(commandArgs, options, settings)
 	case "dynamic":
-		err = dynamicCommand(commandArgs, *volumeName, settings)
+		err = dynamicCommand(commandArgs, options, settings)
 	default:
 		err = newUsageError("Invalid command")
+	}
+	if runtime.GOOS == "linux" && allow.String() == "root" {
+		if _, ok := err.(*mountError); ok {
+			// "-o allow_root" is broken on Linux because this is not actually a
+			// fusermount option: it is a libfuse option and the Go bindings don't
+			// implement it as such.  We could implement this on our own by handling
+			// allow_root as if it were allow_other with an explicit user check... but
+			// it's probably not worth doing.  For now, just tell the user that we know
+			// about the breakage.
+			//
+			// See https://github.com/bazil/fuse/issues/144 for context.
+			err = newMountError("%v (-allow=root is known to be broken on Linux", err)
+		}
 	}
 	return err
 }

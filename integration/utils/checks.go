@@ -18,8 +18,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"reflect"
 	"regexp"
+	"syscall"
 	"testing"
 )
 
@@ -84,6 +86,25 @@ func FileEquals(path string, wantContents string) error {
 		return fmt.Errorf("file %s doesn't match expected contents: got '%s', want '%s'", path, contents, wantContents)
 	}
 	return nil
+}
+
+// FileExistsAsUser checks if the given path is accessible by the given user.  The user may be nil,
+// in which case the current user is assumed.
+func FileExistsAsUser(path string, user *UnixUser) error {
+	// We cannot do the access test in-process by switching the effective UID/GID because we
+	// must fully drop privileges to the given user.  If we dropped privileges, we wouldn't be
+	// able to restore them to root's for the remainder of the test.
+	//
+	// Also, using os.Lstat or running "test -e" is insufficient: FUSE still allows root to
+	// traverse the file system (that is, to resolve nodes and even stat them) even if root has
+	// not been granted access through the allow_other/allow_root options.  Therefore, we must
+	// read file contents to really validate the access control.  Note that this might be a bug
+	// in OSXFUSE.
+	cmd := exec.Command("cat", path)
+	if user != nil && user.UID != os.Getuid() {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: user.ToCredential()}
+	}
+	return cmd.Run()
 }
 
 // MatchesRegexp returns true if the given string s matches the pattern.

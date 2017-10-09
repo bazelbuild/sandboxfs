@@ -102,12 +102,12 @@ func RunAndWait(wantExitStatus int, arg ...string) (string, string, error) {
 	return wait(state, wantExitStatus)
 }
 
-// waitForFile waits until a given file exists with a timeout of deadlineSeconds.  Returns true if
-// the file was found before the timer expired, or false otherwise.
-func waitForFile(cookie string, deadlineSeconds int) bool {
+// waitForFile waits until a given file exists and is accessible by the given user with a timeout
+// of deadlineSeconds.  Returns true if the file was found before the timer expired, or false
+// otherwise.  The user may be nil, in which case the current user is assumed.
+func waitForFile(cookie string, deadlineSeconds int, user *UnixUser) bool {
 	for tries := 0; tries < deadlineSeconds; tries++ {
-		_, err := os.Lstat(cookie)
-		if err == nil {
+		if err := FileExistsAsUser(cookie, user); err == nil {
 			return true
 		}
 		time.Sleep(time.Second)
@@ -124,8 +124,11 @@ func waitForFile(cookie string, deadlineSeconds int) bool {
 // function.  Any of these objects can be set to nil, which causes the corresponding output to be
 // discarded.
 //
+// The credentials of the sandboxfs process are set to user if not nil.  Note that the caller must
+// be root if the given user is not nil.
+//
 // Returns a handle on the spawned sandboxfs process and a pipe to send data to its stdin.
-func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...string) (*exec.Cmd, io.WriteCloser, error) {
+func startBackground(cookie string, stdout io.Writer, stderr io.Writer, user *UnixUser, args ...string) (*exec.Cmd, io.WriteCloser, error) {
 	bin, err := sandboxfsBinary()
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot find sandboxfs binary: %v", err)
@@ -143,13 +146,16 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, args ...
 	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	if user != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: user.ToCredential()}
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, args, err)
 	}
 
 	if cookie != "" {
 		cookiePath := filepath.Join(mountPoint, cookie)
-		if !waitForFile(cookiePath, startupDeadlineSeconds) {
+		if !waitForFile(cookiePath, startupDeadlineSeconds, user) {
 			// Give up.  sandboxfs did't come up, so kill the process and clean up.
 			// There is not much we can do here if we encounter errors (e.g. we don't
 			// even know if the mount point was initialized, so the unmount call may or
@@ -245,17 +251,36 @@ func createDirsRequiredByMappings(root string, args ...string) error {
 	return nil
 }
 
-// MountSetup initializes a test that wants to run sandboxfs in the background and does not care
-// about what sandboxfs may print to stdout and stderr.
+// MountSetup initializes a test that runs sandboxfs in the background with default settings.
 //
-// This is essentially the same as MountSetupWithOutputs but with stdout and stderr set to ignore
-// any output.  See the documentation for this other function for further details.
+// This is essentially the same as mountSetupFull with stdout and stderr set to the caller's
+// outputs and with the user set to nil.  See the documentation for this other function for
+// further details.
 func MountSetup(t *testing.T, args ...string) *MountState {
-	return MountSetupWithOutputs(t, nil, nil, args...)
+	return mountSetupFull(t, os.Stdout, os.Stderr, nil, args...)
 }
 
-// MountSetupWithOutputs initializes a test that wants to run sandboxfs in the background and wants
-// to inspect the contents of stdout and stderr.
+// MountSetupWithOutputs initializes a test that runs sandboxfs in the background with output
+// redirections.
+//
+// This is essentially the same as mountSetupFull with stdout and stderr set to the caller's
+// provided values and with the user set to nil.  See the documentation for this other function
+// for further details.
+func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, args ...string) *MountState {
+	return mountSetupFull(t, stdout, stderr, nil, args...)
+}
+
+// MountSetupWithUser initializes a test that runs sandboxfs in the background with different
+// credentials.
+//
+// This is essentially the same as mountSetupFull with stdout and stderr set to the caller's
+// outputs and with the user set to the given value.  See the documentation for this other
+// function for further details.
+func MountSetupWithUser(t *testing.T, user *UnixUser, args ...string) *MountState {
+	return mountSetupFull(t, os.Stdout, os.Stderr, user, args...)
+}
+
+// mountSetupFull initializes a test that runs sandboxfs in the background.
 //
 // args contains the list of arguments to pass to the sandboxfs *without* the mount point: the
 // mount point is derived from a temporary directory created here and returned in the mountPoint
@@ -266,14 +291,26 @@ func MountSetup(t *testing.T, args ...string) *MountState {
 // function.  Any of these objects can be set to nil, which causes the corresponding output to be
 // discarded.
 //
+// The sandboxfs process is started with the credentials of the calling user, unless the user field
+// is not nil, in which case those credentials are used.
+//
 // This helper function receives a testing.T object because test setup for sandboxfs is complex and
 // we want to keep the test cases themselves as concise as possible.  Any failures within this
 // function are fatal.
 //
 // Callers must defer execution of MountState.TearDown() immediately on return to ensure the
 // background process and the mount point are cleaned up on test completion.
-func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, args ...string) *MountState {
+func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *UnixUser, args ...string) *MountState {
 	success := false
+
+	// Reset the test's umask to zero.  This allows tests to not care about how the umask
+	// affects files, which can introduce subtle bugs in the tests themselves.
+	oldMask := unix.Umask(0)
+	defer func() {
+		if !success {
+			unix.Umask(oldMask)
+		}
+	}()
 
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
@@ -289,6 +326,19 @@ func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 
 	MustMkdirAll(t, root, 0755)
 	MustMkdirAll(t, mountPoint, 0755)
+
+	if user != nil {
+		// Ensure all users can navigate through the temporary directory, which are often created with
+		// strict permissions.
+		if err := os.Chmod(tempDir, 0755); err != nil {
+			t.Fatalf("failed to change permissions of %s", tempDir)
+		}
+
+		// The mount point must be owned by the user that will mount the FUSE file system.
+		if err := os.Chown(mountPoint, user.UID, user.GID); err != nil {
+			t.Fatalf("failed to change ownership of %s", mountPoint)
+		}
+	}
 
 	realArgs := make([]string, 0, len(args)+1)
 	for _, arg := range args {
@@ -314,18 +364,14 @@ func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 		// reconsider whether we need a dynamic mode at all: it is probably a good idea to
 		// consolidate the static/dynamic duality and allow any sandboxfs to accept
 		// reconfiguration (which would, in turn, make all of our code much simpler).
-		cmd, stdin, err = startBackground("", stdout, stderr, realArgs...)
+		cmd, stdin, err = startBackground("", stdout, stderr, user, realArgs...)
 	} else {
-		MustWriteFile(t, filepath.Join(root, ".cookie"), 0400, "")
-		cmd, stdin, err = startBackground(".cookie", stdout, stderr, realArgs...)
+		MustWriteFile(t, filepath.Join(root, ".cookie"), 0444, "")
+		cmd, stdin, err = startBackground(".cookie", stdout, stderr, user, realArgs...)
 	}
 	if err != nil {
 		t.Fatalf("failed to start sandboxfs: %v", err)
 	}
-
-	// Reset the test's umask to zero.  This allows tests to not care about how the umask
-	// affects files, which can introduce subtle bugs in the tests themselves.
-	oldMask := unix.Umask(0)
 
 	// All operations that can fail are now done.  Setting success=true prevents any deferred
 	// cleanup routines from running, so any code below this line must not be able to fail.

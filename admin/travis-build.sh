@@ -24,6 +24,7 @@ SANDBOXFS="$(pwd)/sandboxfs" \
 rootenv=()
 rootenv+=(PATH="${PATH}")
 rootenv+=(SANDBOXFS="$(pwd)/sandboxfs")
+rootenv+=(UNPRIVILEGED_USER="${USER}")
 [ "${GOPATH-unset}" = unset ] || rootenv+=(GOPATH="${GOPATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
 sudo -H "${rootenv[@]}" -s \
