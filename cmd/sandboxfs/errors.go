@@ -21,14 +21,14 @@ type mountError struct {
 	message string
 }
 
-// Error returns the formatted usage error message.
+// Error returns the formatted mount error message.
 func (e *mountError) Error() string {
 	return e.message
 }
 
 // newMountError constructs a new mountError given a format string and positional arguments.
 func newMountError(format string, arg ...interface{}) error {
-	return &usageError{
+	return &mountError{
 		message: fmt.Sprintf(format, arg...),
 	}
 }

@@ -84,12 +84,6 @@ func TestOptions_Allow(t *testing.T) {
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {
-			args := make([]string, 0)
-			if d.allowFlag != "" {
-				args = append(args, d.allowFlag)
-			}
-			args = append(args, "static", "-read_only_mapping=/:%ROOT%")
-
 			if !d.wantMountOk {
 				tempDir, err := ioutil.TempDir("", "test")
 				if err != nil {
@@ -97,16 +91,21 @@ func TestOptions_Allow(t *testing.T) {
 				}
 				defer os.RemoveAll(tempDir)
 
-				args = append(args, tempDir)
-				_, stderr, err := utils.RunAndWait(1, args...)
-				if err == nil {
-					t.Fatalf("Mount should have failed, got success")
+				_, stderr, err := utils.RunAndWait(1, d.allowFlag, "static", "-read_only_mapping=/:/", tempDir)
+				if err != nil {
+					t.Fatal(err)
 				}
 				if !utils.MatchesRegexp("known.*broken", stderr) {
 					t.Errorf("Want error message to mention known brokenness; got %v", stderr)
 				}
 				return
 			}
+
+			args := make([]string, 0)
+			if d.allowFlag != "" {
+				args = append(args, d.allowFlag)
+			}
+			args = append(args, "static", "-read_only_mapping=/:%ROOT%")
 
 			state := utils.MountSetupWithUser(t, user, args...)
 			defer state.TearDown(t)

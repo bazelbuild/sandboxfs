@@ -401,7 +401,7 @@ Flags:
 			// about the breakage.
 			//
 			// See https://github.com/bazil/fuse/issues/144 for context.
-			err = newMountError("%v (-allow=root is known to be broken on Linux", err)
+			err = newMountError("%v (-allow=root is known to be broken on Linux)", err)
 		}
 	}
 	return err
