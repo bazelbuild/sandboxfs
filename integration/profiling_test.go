@@ -107,7 +107,7 @@ func TestProfiling_FileProfiles(t *testing.T) {
 }
 
 func TestProfiling_BadConfiguration(t *testing.T) {
-	incompatibleSettings := "Invalid profiling settings: file-based CPU or memory profiling are incompatible with a listening address\n"
+	incompatibleSettings := "invalid profiling settings: file-based CPU or memory profiling are incompatible with a listening address\n"
 
 	data := []struct {
 		name string

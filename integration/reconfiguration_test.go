@@ -182,12 +182,12 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 		{
 			"input",
 			"--input=" + nonExistentFile,
-			fmt.Sprintf("Unable to open file \"%s\" for reading: open %s: no such file or directory", nonExistentFile, nonExistentFile),
+			fmt.Sprintf("unable to open file \"%s\" for reading: open %s: no such file or directory", nonExistentFile, nonExistentFile),
 		},
 		{
 			"output",
 			"--output=" + nonExistentFile,
-			fmt.Sprintf("Unable to open file \"%s\" for writing: open %s: no such file or directory", nonExistentFile, nonExistentFile),
+			fmt.Sprintf("unable to open file \"%s\" for writing: open %s: no such file or directory", nonExistentFile, nonExistentFile),
 		},
 	}
 	for _, d := range data {

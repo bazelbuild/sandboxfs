@@ -101,19 +101,19 @@ func TestCli_Syntax(t *testing.T) {
 		wantStderr string
 	}{
 		{"InvalidFlag", []string{"--foo"}, "not defined.*-foo"},
-		{"NoArguments", []string{}, "Invalid number of arguments"},
-		{"InvalidCommand", []string{"foo"}, "Invalid command"},
+		{"NoArguments", []string{}, "invalid number of arguments"},
+		{"InvalidCommand", []string{"foo"}, "invalid command"},
 
-		{"DynamicNoArguments", []string{"dynamic"}, "Invalid number of arguments"},
+		{"DynamicNoArguments", []string{"dynamic"}, "invalid number of arguments"},
 		{"DynamicInvalidFlag", []string{"dynamic", "--bar"}, "not defined.*-bar"},
-		{"DynamicTooManyArguments", []string{"dynamic", "a", "b"}, "Invalid number of arguments"},
+		{"DynamicTooManyArguments", []string{"dynamic", "a", "b"}, "invalid number of arguments"},
 
-		{"StaticNoArguments", []string{"static"}, "Invalid number of arguments"},
+		{"StaticNoArguments", []string{"static"}, "invalid number of arguments"},
 		{"StaticInvalidFlag", []string{"static", "--baz"}, "not defined.*-baz"},
-		{"StaticTooManyArguments", []string{"static", "a", "b"}, "Invalid number of arguments"},
+		{"StaticTooManyArguments", []string{"static", "a", "b"}, "invalid number of arguments"},
 
 		{"InvalidFlagWinsOverHelp", []string{"--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
-		{"InvalidCommandWinsOverHelp", []string{"foo", "--help"}, "Invalid command"},
+		{"InvalidCommandWinsOverHelp", []string{"foo", "--help"}, "invalid command"},
 		{"DynamicInvalidFlagWinsOverHelp", []string{"dynamic", "--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
 		{"StaticInvalidFlagWinsOverHelp", []string{"static", "--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
 		// TODO(jmmv): For consistency with all previous tests, an invalid number of

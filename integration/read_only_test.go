@@ -142,7 +142,7 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 }
 
 func TestReadOnly_TargetDoesNotExist(t *testing.T) {
-	wantStderr := `Unable to init sandbox: mapping /: creating node for path "/non-existent" failed: lstat /non-existent: no such file or directory` + "\n"
+	wantStderr := `unable to init sandbox: mapping /: creating node for path "/non-existent" failed: lstat /non-existent: no such file or directory` + "\n"
 
 	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:/non-existent", "irrelevant-mount-point")
 	if err != nil {

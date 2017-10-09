@@ -203,7 +203,7 @@ func staticCommand(args []string, options []fuse.MountOption, settings ProfileSe
 	}
 
 	if flags.NArg() != 1 {
-		return newUsageError("Invalid number of arguments")
+		return newUsageError("invalid number of arguments")
 	}
 	mountPoint := flags.Arg(0)
 
@@ -228,7 +228,7 @@ func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileS
 	}
 
 	if flags.NArg() != 1 {
-		return newUsageError("Invalid number of arguments")
+		return newUsageError("invalid number of arguments")
 	}
 	mountPoint := flags.Arg(0)
 
@@ -236,7 +236,7 @@ func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileS
 	if *input != "-" {
 		file, err := os.Open(*input)
 		if err != nil {
-			return fmt.Errorf("Unable to open file %q for reading: %v", *input, err)
+			return fmt.Errorf("unable to open file %q for reading: %v", *input, err)
 		}
 		defer file.Close()
 		dynamicConf.Input = file
@@ -244,7 +244,7 @@ func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileS
 	if *output != "-" {
 		file, err := os.Create(*output)
 		if err != nil {
-			return fmt.Errorf("Unable to open file %q for writing: %v", *output, err)
+			return fmt.Errorf("unable to open file %q for writing: %v", *output, err)
 		}
 		defer file.Close()
 		dynamicConf.Output = file
@@ -256,7 +256,7 @@ func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileS
 func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
 	sfs, err := sandbox.Init(mappings)
 	if err != nil {
-		return fmt.Errorf("Unable to init sandbox: %v", err)
+		return fmt.Errorf("unable to init sandbox: %v", err)
 	}
 
 	profileContext, err := StartProfiling(settings)
@@ -278,7 +278,7 @@ func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOpti
 	// alternative would be to add a "-o nocreate_mount" option to mount_osxfuse and then use that
 	// in the fuse.Mount call below.
 	if _, err := os.Lstat(mountPoint); os.IsNotExist(err) {
-		return fmt.Errorf("Unable to mount: %s does not exist", mountPoint)
+		return fmt.Errorf("unable to mount: %s does not exist", mountPoint)
 	}
 
 	mountOk := make(chan string, 1)
@@ -301,19 +301,19 @@ func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOpti
 		// behind. This is likely a bug in the fuse.Mount logic.
 		fuse.Unmount(mountPoint)
 
-		return newMountError("Unable to mount: %v", err)
+		return newMountError("unable to mount: %v", err)
 	}
 	defer c.Close()
 	mountOk <- mountPoint // Tell signal handler that the mount point requires cleanup.
 
 	err = sandbox.Serve(c, sfs, dynamicConf)
 	if err != nil {
-		return fmt.Errorf("FileSystem server error: %v", err)
+		return fmt.Errorf("serve error: %v", err)
 	}
 
 	<-c.Ready
 	if err := c.MountError; err != nil {
-		return fmt.Errorf("Mount error: %v", err)
+		return fmt.Errorf("mount error: %v", err)
 	}
 
 	// If we reach this point, the FUSE serve loop has terminated because the user unmounted the
@@ -358,7 +358,7 @@ Flags:
 
 	settings, err := NewProfileSettings(*cpuProfile, *memProfile, *listenAddress)
 	if err != nil {
-		return newUsageError("Invalid profiling settings: %v", err)
+		return newUsageError("invalid profiling settings: %v", err)
 	}
 
 	if *debug {
@@ -366,7 +366,7 @@ Flags:
 	}
 
 	if flags.NArg() < 1 {
-		return newUsageError("Invalid number of arguments")
+		return newUsageError("invalid number of arguments")
 	}
 	command := flags.Arg(0)
 	commandArgs := flags.Args()[1:]
@@ -389,7 +389,7 @@ Flags:
 	case "dynamic":
 		err = dynamicCommand(commandArgs, options, settings)
 	default:
-		err = newUsageError("Invalid command")
+		err = newUsageError("invalid command")
 	}
 	if runtime.GOOS == "linux" && allow.String() == "root" {
 		if _, ok := err.(*mountError); ok {
