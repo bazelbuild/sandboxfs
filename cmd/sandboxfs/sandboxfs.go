@@ -27,6 +27,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"bazil.org/fuse"
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
@@ -128,9 +129,23 @@ func handleSignals(mountPoint <-chan string, caughtSignal chan<- os.Signal) {
 			// Now the real deal: the main process did actually get to issue a
 			// successful mount(2) system call. Make the mount point vanish so that the
 			// FUSE serve loop terminates or prevent it from starting.
-			err := fuse.Unmount(mnt)
-			if err != nil {
-				log.Printf("unmounting filesystem failed with error: %v", err)
+			backoff := 10 * time.Millisecond
+			for {
+				err := fuse.Unmount(mnt)
+				if err == nil {
+					break
+				}
+
+				// If unmounting fails, it is probably because the file system is
+				// busy. We don't know, but it doesn't matter: we have entered a
+				// terminal status: we know we have to exit, so we'll keep trying to
+				// unclog things while telling the user what's going on.  They are
+				// the ones that have to fix this situation.
+				log.Printf("unmounting filesystem failed with error: %v; will retry in %v", err, backoff)
+				time.Sleep(backoff)
+				if backoff < time.Second {
+					backoff = backoff * 2
+				}
 			}
 		}
 	}()

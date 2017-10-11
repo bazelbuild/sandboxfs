@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd October 5, 2017
+.Dd October 10, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -258,7 +258,14 @@ exits with 0 if the file system was both mounted and unmounted cleanly; 1 on a
 controlled error condition encountered during the execution of a command; or 2
 on a usage error.
 .Pp
-Additionally, due to the nature of signal handling in Go (which is the language
+Sending a termination signal to
+.Nm
+will cause the file system to exit in a controlled manner, ensuring that the
+mount point is released.
+If the file system is busy, the signal will be queued until all open file
+descriptors on the file system are released at which point the file system
+will try to exit cleanly again.
+Note that, due to the nature of signal handling in Go (which is the language
 in which
 .Nm
 is implemented), the reception of a signal will cause
@@ -313,4 +320,14 @@ setting does not work on Linux; use
 .Fl allow Ar other
 as the alternative.
 See https://github.com/bazil/fuse/issues/144 for details.
+.It
+It is currently impossible to terminate
+.Nm
+cleanly while the file system is busy.
+Signals received while the file system is in use will be queued as described in
+.Sx EXIT STATUS
+and fatal signals will cause
+.Nm
+to leak the mount point (possibly irrecoverably without a reboot because of
+kernel bugs).
 .El

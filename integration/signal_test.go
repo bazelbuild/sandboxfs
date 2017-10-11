@@ -15,8 +15,10 @@
 package integration
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 	"testing"
@@ -94,5 +96,73 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 				t.Fatalf("File system not unmounted; test file still exists in mount point")
 			}
 		})
+	}
+}
+
+func TestSignal_QueuedWhileInUse(t *testing.T) {
+	stderrReader, stderrWriter := io.Pipe()
+	defer stderrReader.Close()
+	defer stderrWriter.Close()
+	stderr := bufio.NewScanner(stderrReader)
+
+	state := utils.MountSetupWithOutputs(t, nil, stderrWriter, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	// Create a file under the root directory and open it via the mount point to keep the file
+	// system busy.
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "file contents")
+	file, err := os.Open(state.MountPath("file"))
+	if err != nil {
+		t.Fatalf("Failed to open test file: %v", err)
+	}
+	defer file.Close()
+
+	// Send signal.  The mount point is busy because we hold an open file descriptor.  While the
+	// file system will receive the signal, it will not be able to exit cleanly.  Instead, we
+	// expect it to continue running until we release the resources, at which point the signal
+	// should be processed.
+	if err := state.Cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatalf("Failed to deliver signal to sandboxfs process: %v", err)
+	}
+
+	// Wait until sandboxfs has acknowledged the first receipt of the signal, but continue
+	// consuming stderr output in the background to prevent stalling sandboxfs due to a full
+	// pipe.
+	received := make(chan bool)
+	go func() {
+		notified := false
+		for {
+			if !stderr.Scan() {
+				break
+			}
+			os.Stderr.WriteString(stderr.Text() + "\n")
+			if utils.MatchesRegexp("unmounting.*failed.*will retry", stderr.Text()) {
+				if !notified {
+					received <- true
+					notified = true
+				}
+				// Continue running so that any additional contents to stderr are
+				// consumed.  Otherwise, the sandboxfs could stall if the stderr
+				// pipe's buffer filled up.
+			}
+		}
+	}()
+	_ = <-received
+	t.Logf("sandboxfs saw the signal delivery; continuing test")
+
+	// Now that we know that sandboxfs has seen the signal, verify that it continues to work
+	// successfully.
+	if err := utils.FileEquals(state.MountPath("file"), "file contents"); err != nil {
+		t.Fatalf("Failed to verify file contents using handle opened before signal delivery: %v", err)
+	}
+	if err := os.Mkdir(state.MountPath("dir"), 0755); err != nil {
+		t.Fatalf("Mkdir failed after signal reception; sandboxfs may have exited: %v", err)
+	}
+
+	// Release the open file.  This should cause sandboxfs to terminate within a limited amount
+	// of time, so ensure it exited as expected.
+	file.Close()
+	if err := checkSignalHandled(state); err != nil {
+		t.Fatal(err)
 	}
 }
