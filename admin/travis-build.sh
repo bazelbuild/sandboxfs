@@ -17,9 +17,9 @@ set -e -u -x
 
 go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
-go test -v -timeout 120s github.com/bazelbuild/sandboxfs/internal/sandbox
+go test -v -timeout 60s github.com/bazelbuild/sandboxfs/internal/sandbox
 SANDBOXFS="$(pwd)/sandboxfs" \
-    go test -v -timeout 120s github.com/bazelbuild/sandboxfs/integration
+    go test -v -timeout 600s github.com/bazelbuild/sandboxfs/integration
 
 rootenv=()
 rootenv+=(PATH="${PATH}")
@@ -28,4 +28,4 @@ rootenv+=(UNPRIVILEGED_USER="${USER}")
 [ "${GOPATH-unset}" = unset ] || rootenv+=(GOPATH="${GOPATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
 sudo -H "${rootenv[@]}" -s \
-    go test -v -timeout 120s github.com/bazelbuild/sandboxfs/integration
+    go test -v -timeout 600s github.com/bazelbuild/sandboxfs/integration

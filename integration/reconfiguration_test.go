@@ -27,6 +27,7 @@ import (
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
+	"golang.org/x/net/context"
 )
 
 // jsonConfig converts a collection of sandbox mappings to the JSON structure expected by sandboxfs.
@@ -204,6 +205,106 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconfiguration_InvalidationsRaceWithWrites(t *testing.T) {
+	// This is a race-condition test: we attempt to mutate the in-memory nodes of the file
+	// system while reconfiguration operations are in-progress to ensure that handling those
+	// reconfigurations doesn't collide with the mutations.  Given that this tries to exercise a
+	// race condition, a success in this test does not imply that things work correctly, but a
+	// failure is a conclusive indication of a real bug.
+	//
+	// The way we exercise this race is: first, we create a large number of files and expose
+	// them through sandboxfs.  We then issue individual Lookup operations on each file (by
+	// reading the files by name, *NOT* by doing a ReadDir), which internally must update the
+	// contents of the directory known so far.  Concurrently, we hammer the sandboxfs process
+	// with reconfiguration requests.  If all goes well, all reads should succeed and sandboxfs
+	// should exit cleanly; any other outcome is a failure.
+
+	// createEntries fills the given directory with n files named [0..n-1].
+	createEntries := func(dir string, n int) {
+		for i := 0; i < n; i++ {
+			path := filepath.Join(dir, fmt.Sprintf("%d", i))
+			if err := ioutil.WriteFile(path, []byte{}, 0644); err != nil {
+				t.Errorf("WriteFile of %s failed: %v", path, err)
+			}
+
+			if i%100 == 0 {
+				t.Logf("Done creating %d files", i)
+			}
+		}
+	}
+
+	// readEntries reads n files named [0..n-1] from the given directory.
+	//
+	// As described above, this must not issue a ReadDir operation.  Instead, it must look up
+	// the files individually so that sandboxfs receives individual requests at the directory
+	// level for each.
+	readEntries := func(dir string, n int) {
+		for i := 0; i < n; i++ {
+			path := filepath.Join(dir, fmt.Sprintf("%d", i))
+			if _, err := ioutil.ReadFile(path); err != nil {
+				t.Errorf("ReadFile of %s failed: %v", path, err)
+			}
+
+			if i%100 == 0 {
+				t.Logf("Done looking up and reading %d files", i)
+			}
+		}
+		t.Logf("Done looking up and reading %d files", n)
+	}
+
+	// hammerReconfigurations wraps reconfigure in a tight loop to flood the file system with
+	// requests to update its configuration.  Requesting a cancellation via the context causes
+	// this to terminate, which then notifies the caller by writing to done.
+	hammerReconfigurations := func(ctx context.Context, input io.Writer, output *bufio.Scanner, config string, done chan<- bool) {
+		for i := 0; ; i++ {
+			if i%500 == 0 {
+				t.Logf("Reconfiguration number %d", i)
+			}
+
+			if err := reconfigure(input, output, config); err != nil {
+				t.Fatal(err)
+			}
+
+			select {
+			case <-ctx.Done():
+				done <- true
+				return
+			default:
+				// Just try again immediately.  We want this to be very aggressive,
+				// as we are trying to catch very subtle race problems.
+			}
+		}
+	}
+
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	output := bufio.NewScanner(stdoutReader)
+
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	config := jsonConfig([]sandbox.MappingSpec{
+		sandbox.MappingSpec{Mapping: "/dir", Target: state.RootPath("dir"), Writable: false},
+	})
+
+	nEntries := 2000
+	utils.MustMkdirAll(t, state.RootPath("dir/subdir"), 0755)
+	createEntries(state.RootPath("dir/subdir"), nEntries)
+
+	if err := reconfigure(state.Stdin, output, config); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan bool)
+	ctx, cancel := context.WithCancel(context.Background())
+	go hammerReconfigurations(ctx, state.Stdin, output, config, done)
+	readEntries(state.MountPath("dir/subdir"), nEntries)
+	cancel()
+	<-done
 }
 
 // TODO(jmmv): Need to have tests for when the configuration is invalid (malformed JSON,

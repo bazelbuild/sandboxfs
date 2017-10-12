@@ -404,19 +404,22 @@ func (d *Dir) invalidateRecursivelyParent(parent fs.Node, server *fs.Server) {
 	err := server.InvalidateNodeData(d)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", d)
 
-	invalidate := func(name string, node cacheInvalidator) {
+	d.mu.Lock()
+	entries := make(map[string]cacheInvalidator)
+	for name, node := range d.mappedChildren {
+		entries[name] = node
+	}
+	for name, node := range d.baseChildren {
+		entries[name] = node
+	}
+	for name, node := range d.virtualDirs {
+		entries[name] = node
+	}
+	d.mu.Unlock()
+
+	for name, node := range entries {
 		err := server.InvalidateEntry(parent, name)
 		logCacheInvalidationError(err, "Could not invalidate node entry: ", parent, name)
 		node.invalidateRecursively(server)
-	}
-
-	for name, node := range d.mappedChildren {
-		invalidate(name, node)
-	}
-	for name, node := range d.baseChildren {
-		invalidate(name, node)
-	}
-	for name, node := range d.virtualDirs {
-		invalidate(name, node)
 	}
 }
