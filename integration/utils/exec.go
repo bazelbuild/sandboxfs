@@ -395,15 +395,20 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 // argument is the simplest way of doing so.
 //
 // If tests wish to control the shutdown of the sandboxfs process, they can do so, but then they
-// must set s.Cmd to nil to tell TearDown to not clean up the process a second time.
+// must set s.Cmd to nil to tell TearDown to not clean up the process a second time.  The same
+// applies to s.Stdin.
 func (s *MountState) TearDown(t *testing.T) {
 	unix.Umask(s.oldMask)
 
-	if s.Cmd != nil {
+	if s.Stdin != nil {
 		if err := s.Stdin.Close(); err != nil {
 			t.Errorf("Failed to close sandboxfs's stdin pipe: %v", err)
 		}
 
+		s.Stdin = nil
+	}
+
+	if s.Cmd != nil {
 		// Calling fuse.Unmount on the mount point causes the running sandboxfs process to
 		// stop serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2)
 		// system call: this can be run as an unprivileged user, so we needn't check for

@@ -165,6 +165,66 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 	doReconfigurationTest(t, state, input, output)
 }
 
+func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
+	// grepStderr reads from a pipe connected to stderr looking for the given pattern and writes
+	// to the found channel when the pattern is found.  Any contents read from the pipe are
+	// dumped to the process' stderr so that they are visible to the user, and so that the child
+	// process connected to the pipe does not stall due to a full pipe.
+	grepStderr := func(stderr io.Reader, pattern string, found chan<- bool) {
+		scanner := bufio.NewScanner(stderr)
+
+		for {
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != io.EOF && err != io.ErrClosedPipe {
+					t.Errorf("Got error while reading from stderr: %v", err)
+				}
+				break
+			}
+
+			fmt.Fprintln(os.Stderr, scanner.Text())
+
+			if utils.MatchesRegexp(pattern, scanner.Text()) {
+				found <- true
+			}
+		}
+	}
+
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	output := bufio.NewScanner(stdoutReader)
+
+	stderrReader, stderrWriter := io.Pipe()
+	defer stderrReader.Close()
+	defer stderrWriter.Close()
+
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, stderrWriter, "dynamic")
+	defer state.TearDown(t)
+
+	gotEOF := make(chan bool)
+	go grepStderr(stderrReader, `reached end of input`, gotEOF)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	config := jsonConfig([]sandbox.MappingSpec{
+		sandbox.MappingSpec{Mapping: "/dir", Target: state.RootPath("dir"), Writable: true},
+	})
+	if err := reconfigure(state.Stdin, output, config); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := state.Stdin.Close(); err != nil {
+		t.Fatalf("Failed to close stdin: %v", err)
+	}
+	state.Stdin = nil // Tell state.TearDown that we cleaned up ourselves.
+	<-gotEOF
+
+	// sandboxfs stopped listening for reconfiguration requests but the file system should
+	// continue to be functional.  Make sure that's the case.
+	if err := os.MkdirAll(state.MountPath("dir/still-alive"), 0755); err != nil {
+		t.Errorf("Mkdir failed: %v", err)
+	}
+}
+
 func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {

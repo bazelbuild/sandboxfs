@@ -88,10 +88,10 @@ func readConfig(reader *bufio.Reader) ([]byte, error) {
 	configRead := make([]byte, 0, 2048)
 	for {
 		input, err := reader.ReadBytes('\n')
-		configRead = append(configRead, input...)
-		if err != nil && err != io.EOF {
-			return configRead, err
+		if err != nil {
+			return nil, err
 		}
+		configRead = append(configRead, input...)
 		if len(input) == 1 && input[0] == '\n' {
 			break // empty line = end of config.
 		}
@@ -99,11 +99,15 @@ func readConfig(reader *bufio.Reader) ([]byte, error) {
 	return configRead, nil
 }
 
-// initFromReader initializes a filesystem configuration after reading the
-// config from the passed reader.
+// initFromReader initializes a filesystem configuration after reading the config from the passed
+// reader.  Reaching EOF on the reader causes this function to return io.EOF, which the caller
+// must handle gracefully.
 func initFromReader(reader *bufio.Reader) (dirCommon, error) {
 	configRead, err := readConfig(reader)
 	if err != nil {
+		if err == io.EOF {
+			return nil, err
+		}
 		return nil, fmt.Errorf("unable to read config: %v", err)
 	}
 	configArgs := make([]MappingSpec, 0)
@@ -124,12 +128,16 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 	for {
 		sfs, err := initFromReader(reader)
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			fmt.Fprintf(output, "Reconfig failed: %v\n", err)
 			continue
 		}
 		filesystem.Reconfigure(server, sfs)
 		fmt.Fprintln(output, "Done")
 	}
+	log.Printf("reached end of input during reconfiguration; file system will continue running until unmounted")
 }
 
 // Serve sets up the work environment before starting to serve the filesystem.
