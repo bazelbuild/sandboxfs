@@ -15,7 +15,6 @@
 package integration
 
 import (
-	"io/ioutil"
 	"os"
 	"runtime"
 	"syscall"
@@ -58,23 +57,6 @@ func TestReadOnly_FileContents(t *testing.T) {
 		if err := utils.FileEquals(state.MountPath("dir1/dir2/file"), "bar baz"); err != nil {
 			t.Error(err)
 		}
-	}
-}
-
-func TestReadOnly_DeleteUnderlyingRoot(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
-	defer state.TearDown(t)
-
-	if _, err := ioutil.ReadDir(state.MountPath()); err != nil {
-		t.Errorf("Accessing the mount point should have succeeded, but got %v", err)
-	}
-
-	if err := os.RemoveAll(state.RootPath()); err != nil {
-		t.Fatalf("Failed to remove underlying root directory: %v", err)
-	}
-
-	if _, err := ioutil.ReadDir(state.MountPath()); err == nil {
-		t.Errorf("Accessing the mount point should have failed, but it did not")
 	}
 }
 
@@ -208,6 +190,10 @@ func TestReadOnly_Attributes(t *testing.T) {
 }
 
 // TODO(jmmv): Must have tests to ensure that read-only mappings are, well, read only.
+
+// TODO(jmmv): Should have tests to check what happens when the underlying files are modified
+// or removed.  It's hard to say what the behavior should be here, as a FUSE file system is
+// oblivious to such modifications in the general case.
 
 // TODO(jmmv): Must have tests to verify that files are valid mapping targets, which is what we
 // promise users in the documentation.
