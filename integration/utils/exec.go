@@ -146,9 +146,7 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, user *Un
 	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if user != nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: user.ToCredential()}
-	}
+	SetCredential(cmd, user)
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, args, err)
 	}

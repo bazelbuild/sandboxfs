@@ -16,6 +16,8 @@ package utils
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"os/user"
 	"strconv"
 	"syscall"
@@ -100,4 +102,52 @@ func LookupUID(uid int) (*UnixUser, error) {
 		return nil, fmt.Errorf("cannot find user %d: %v", uid, err)
 	}
 	return toUnixUser(generic)
+}
+
+// LookupUserOtherThan searches for a user whose username is different than all given ones.
+func LookupUserOtherThan(username ...string) (*UnixUser, error) {
+	// Testing a bunch of low-numbered UIDs should be sufficient because most Unix systems,
+	// if not all, have system accounts immediately after 0.
+	var other *UnixUser
+	for i := 1; i < 100; i++ {
+		var err error
+		other, err = LookupUID(i)
+		if err != nil {
+			continue
+		}
+
+		for _, name := range username {
+			if other.Username == name {
+				continue
+			}
+		}
+		break
+	}
+	if other == nil {
+		return nil, fmt.Errorf("cannot find an unprivileged user other than %v", username)
+	}
+	return other, nil
+}
+
+// SetCredential updates the spawn attributes of the given command to execute such command under the
+// credentials of the given user.
+//
+// For the simplicity of the caller, the attributes are not modified if the given user is nil or if
+// the given user matches the current user.
+func SetCredential(cmd *exec.Cmd, user *UnixUser) {
+	if user == nil || user.UID == os.Getuid() {
+		return
+	}
+
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	if cmd.SysProcAttr.Credential != nil {
+		// This function is intended to be used exclusively from tests, and as such we
+		// expect the given cmd object to not have credentials set.  If that were the case,
+		// it'd indicate a bug in the code that must be fixed: there is no point in
+		// returning this as an error.
+		panic("SetCredential invoked on a cmd object that already includes user credentials")
+	}
+	cmd.SysProcAttr.Credential = user.ToCredential()
 }

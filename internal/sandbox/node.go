@@ -23,7 +23,6 @@ import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
-	"golang.org/x/sys/unix"
 )
 
 // BaseNode is a common type for all nodes: files, directories, pipes, symlinks, etc.
@@ -145,11 +144,6 @@ func (n *BaseNode) Setattr(_ context.Context, req *fuse.SetattrRequest) (bool, e
 	}
 
 	return true, fuseErrno(finalError)
-}
-
-// Access checks for permissions on a given node in the file system.
-func (n *BaseNode) Access(_ context.Context, req *fuse.AccessRequest) error {
-	return fuseErrno(unix.Access(n.underlyingPath, req.Mask))
 }
 
 // UnderlyingID returns the node's {deviceID, inodeNum} in the underlying filesystem.

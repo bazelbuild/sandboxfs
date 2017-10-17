@@ -21,7 +21,6 @@ import (
 	"os/exec"
 	"reflect"
 	"regexp"
-	"syscall"
 	"testing"
 )
 
@@ -54,6 +53,20 @@ func MustWriteFile(t *testing.T, path string, perm os.FileMode, contents string)
 	if err := ioutil.WriteFile(path, []byte(contents), perm); err != nil {
 		t.Fatalf("Failed to create file %s: %v", path, err)
 	}
+}
+
+// RequireRoot checks if the test is running as root and skips the test with the given reason
+// otherwise.
+func RequireRoot(t *testing.T, skipReason string) *UnixUser {
+	if os.Getuid() != 0 {
+		t.Skipf(skipReason)
+	}
+	root, err := LookupUID(os.Getuid())
+	if err != nil {
+		t.Fatalf("Failed to get details about root user: %v", err)
+	}
+	t.Logf("Running test as: %v", root)
+	return root
 }
 
 // DirEquals checks if the contents of two directories are the same.  The equality check is based
@@ -101,9 +114,7 @@ func FileExistsAsUser(path string, user *UnixUser) error {
 	// read file contents to really validate the access control.  Note that this might be a bug
 	// in OSXFUSE.
 	cmd := exec.Command("cat", path)
-	if user != nil && user.UID != os.Getuid() {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: user.ToCredential()}
-	}
+	SetCredential(cmd, user)
 	return cmd.Run()
 }
 

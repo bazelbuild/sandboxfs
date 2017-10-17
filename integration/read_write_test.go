@@ -176,9 +176,7 @@ func TestReadWrite_MoveFile(t *testing.T) {
 }
 
 func TestReadWrite_Mknod(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skipf("Requires root privileges to create arbitrary nodes")
-	}
+	utils.RequireRoot(t, "Requires root privileges to create arbitrary nodes")
 
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
@@ -358,9 +356,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 }
 
 func TestReadWrite_Chown(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skipf("Requires root privileges to change test file ownership")
-	}
+	utils.RequireRoot(t, "Requires root privileges to change test file ownership")
 
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)

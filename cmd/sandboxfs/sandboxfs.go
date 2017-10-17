@@ -387,6 +387,11 @@ Flags:
 	commandArgs := flags.Args()[1:]
 
 	options := []fuse.MountOption{
+		// Rely on in-kernel permission checking based on the node's ownership and mode to
+		// avoid having to implement Access -- and we shouldn't implement it because doing
+		// so causes a noticeable performance regression with OSXFUSE.
+		fuse.DefaultPermissions(),
+
 		fuse.VolumeName(*volumeName),
 
 		// TODO(jmmv): Should be user-customizable.

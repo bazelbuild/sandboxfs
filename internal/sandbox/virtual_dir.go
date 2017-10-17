@@ -73,14 +73,6 @@ func (v *VirtualDir) Open(context.Context, *fuse.OpenRequest, *fuse.OpenResponse
 	return &OpenVirtualDir{v}, nil
 }
 
-// Access checks for permissions on a given node in the file system.
-func (v *VirtualDir) Access(_ context.Context, req *fuse.AccessRequest) error {
-	if req.Mask&2 != 0 { // W_OK permission == 2
-		return fuseErrno(syscall.EACCES)
-	}
-	return nil
-}
-
 // Lookup looks for a particular directory/file in all the children of a given
 // directory.
 func (v *VirtualDir) Lookup(_ context.Context, name string) (fs.Node, error) {

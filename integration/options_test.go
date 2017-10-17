@@ -24,14 +24,7 @@ import (
 )
 
 func TestOptions_Allow(t *testing.T) {
-	if os.Getuid() != 0 {
-		t.Skipf("Requires root privileges to spawn sandboxfs under different users")
-	}
-	root, err := utils.LookupUID(os.Getuid())
-	if err != nil {
-		t.Fatalf("Failed to get details about root user: %v", err)
-	}
-	t.Logf("Running test as: %v", root)
+	root := utils.RequireRoot(t, "Requires root privileges to spawn sandboxfs under different users")
 
 	username := os.Getenv("UNPRIVILEGED_USER")
 	if username == "" {
@@ -43,19 +36,9 @@ func TestOptions_Allow(t *testing.T) {
 	}
 	t.Logf("Using primary unprivileged user: %v", user)
 
-	// Search for an arbitrary user that is neither root nor the user specified in
-	// UNPRIVILEGED_USER.  Testing a bunch of low-numbered UIDs should be sufficient because
-	// most Unix systems, if not all, have system accounts immediately after 0.
-	var other *utils.UnixUser
-	for i := 1; i < 100; i++ {
-		var err error
-		other, err = utils.LookupUID(i)
-		if err == nil && other.Username != root.Username && other.Username != user.Username {
-			break
-		}
-	}
-	if other == nil {
-		t.Fatalf("Cannot find an unprivileged user other than root and %s", username)
+	other, err := utils.LookupUserOtherThan(root.Username, user.Username)
+	if err != nil {
+		t.Fatal(err)
 	}
 	t.Logf("Using secondary unprivileged user: %v", other)
 

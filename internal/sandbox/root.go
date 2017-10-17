@@ -34,7 +34,6 @@ type cacheInvalidator interface {
 // dirCommon defines the interfaces satisfied by all directory types.
 type dirCommon interface {
 	fs.Node
-	fs.NodeAccesser
 	fs.NodeCreater
 	fs.NodeStringLookuper
 	fs.NodeMkdirer

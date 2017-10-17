@@ -16,6 +16,7 @@ package integration
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
 	"syscall"
 	"testing"
@@ -186,6 +187,116 @@ func TestReadOnly_Attributes(t *testing.T) {
 		if innerStat.Blksize != outerStat.Blksize {
 			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, outerStat.Blksize)
 		}
+	}
+}
+
+func TestReadOnly_Access(t *testing.T) {
+	// mustMkdirAs creates a directory owned by the requested user and with the given mode, and
+	// fails the test immediately if these operations fail.
+	mustMkdirAs := func(user *utils.UnixUser, path string, mode os.FileMode) {
+		cmd := exec.Command("mkdir", path)
+		utils.SetCredential(cmd, user)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("Failed to mkdir %s as %v: %v", path, user, err)
+		}
+
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatalf("Failed to chmod %v %s: %v", mode, path, err)
+		}
+	}
+
+	// testAs runs test(1) as the given user to check for the access permissions requested by
+	// "op" and returns the exit status of the invocation.  "op" is a test(1) flag of the form
+	// "-e".
+	testAs := func(user *utils.UnixUser, path string, op string) error {
+		cmd := exec.Command("test", op, path)
+		utils.SetCredential(cmd, user)
+		return cmd.Run()
+	}
+
+	root := utils.RequireRoot(t, "Requires root privileges to test permissions as various user combinations")
+
+	user, err := utils.LookupUserOtherThan(root.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Using unprivileged user: %v", user)
+
+	// We use MountSetupWithUser to mount the file system as root even if we are running as
+	// root because this function takes care of opening up all temporary directories to all
+	// readers, which we need for the tests below that run as the unprivileged user.
+	//
+	// Note also that we must mount with "allow=other" so that our unprivileged executions
+	// can access the file system.
+	state := utils.MountSetupWithUser(t, root, "-allow=other", "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/virtual/dir/foo:%ROOT%/foo")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("all"), 0777) // Place where "user" can create entries.
+
+	mustMkdirAs(root, state.RootPath("all/root"), 0755)
+	mustMkdirAs(root, state.RootPath("all/root/self"), 0700)
+	mustMkdirAs(root, state.RootPath("all/root/self/hidden"), 0500)
+	mustMkdirAs(root, state.RootPath("all/root/everyone-ro"), 0555)
+	mustMkdirAs(user, state.RootPath("all/user"), 0755)
+	mustMkdirAs(user, state.RootPath("all/user/self"), 0700)
+	mustMkdirAs(user, state.RootPath("all/user/self/hidden"), 0500)
+	mustMkdirAs(user, state.RootPath("all/user/everyone-ro"), 0555)
+
+	data := []struct {
+		name string
+
+		runAs    *utils.UnixUser
+		testFile string
+		testOp   string
+		wantOk   bool
+	}{
+		{"RootCanLookupUser", root, "all/user/self/hidden", "-e", true},
+		{"RootCanLookupRoot", root, "all/root/self/hidden", "-e", true},
+		{"RootCanReadUser", root, "all/user/self", "-r", true},
+		{"RootCanReadRoot", root, "all/root/self", "-r", true},
+		{"RootCanWriteUser", root, "all/user/self", "-w", true},
+		{"RootCanWriteRoot", root, "all/root/self", "-w", true},
+		{"RootCanExecuteUser", root, "all/user/self", "-x", true},
+		{"RootCanExecuteRoot", root, "all/root/self", "-x", true},
+
+		{"RootCanReadOwnReadOnly", root, "all/root/everyone-ro", "-r", true},
+		{"RootCanWriteOwnReadOnly", root, "all/root/everyone-ro", "-w", true},
+
+		{"UserCanLookupUser", user, "all/user/self/hidden", "-e", true},
+		{"UserCannotLookupRoot", user, "all/root/self/hidden", "-e", false},
+		{"UserCanReadUser", user, "all/user/self", "-r", true},
+		{"UserCannotReadRoot", user, "all/root/self", "-r", false},
+		{"UserCanWriteUser", user, "all/user/self", "-w", true},
+		{"UserCannotWriteRoot", user, "all/root/self", "-w", false},
+		{"UserCanExecuteUser", user, "all/user/self", "-x", true},
+		{"UserCannotExecuteRoot", user, "all/root/self", "-x", false},
+
+		{"UserCanReadOwnReadOnly", user, "all/user/everyone-ro", "-r", true},
+		{"UserCannotWriteOwnReadOnly", user, "all/user/everyone-ro", "-w", false},
+
+		{"RootCanLookupVirtualDir", root, "virtual/dir", "-e", true},
+		{"RootCanReadVirtualDir", root, "virtual/dir", "-r", true},
+		// Note that virtual directories are immutable but access tests report them as
+		// writable to root.  This is an artifact of how permission checks work on read-only
+		// file systems: the permission checks are based on file ownerships and modes, not
+		// on whether the file system is writable.
+		{"RootCanWriteVirtualDir", root, "virtual/dir", "-w", true},
+		{"RootCanExecuteVirtualDir", root, "virtual/dir", "-x", true},
+
+		{"UserCanLookupVirtualDir", user, "virtual/dir", "-e", true},
+		{"UserCanReadVirtualDir", user, "virtual/dir", "-r", true},
+		{"UserCannotWriteVirtualDir", user, "virtual/dir", "-w", false},
+		{"UserCanExecuteVirtualDir", user, "virtual/dir", "-x", true},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			err := testAs(d.runAs, state.MountPath(d.testFile), d.testOp)
+			if d.wantOk && err != nil {
+				t.Errorf("Want test %s %s to succeed; got %v", d.testOp, d.testFile, err)
+			} else if !d.wantOk && err == nil {
+				t.Errorf("Want test %s %s to fail; got success", d.testOp, d.testFile)
+			}
+		})
 	}
 }
 

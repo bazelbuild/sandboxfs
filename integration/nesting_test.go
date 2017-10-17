@@ -17,7 +17,9 @@ package integration
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"syscall"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
@@ -48,6 +50,28 @@ func TestNesting_VirtualIntermediateComponents(t *testing.T) {
 		if err := utils.DirEquals(goldenDir, virtualDir); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestNesting_VirtualIntermediateComponentsAreImmutable(t *testing.T) {
+	// Virtual directories have mode 0555 to signal that they are read-only.  The mode alone
+	// prevents unprivileged users from writing to those directories, but the mode has no effect
+	// on root accesses.  Therefore, run the test as root to bypass permission checks and
+	// attempt real writes.
+	root := utils.RequireRoot(t, "Requires root privileges to write to directories with mode 0555")
+
+	state := utils.MountSetupWithUser(t, root, "static", "-read_only_mapping=/:%ROOT%", "-read_write_mapping=/1/2/3:%ROOT%/subdir")
+	defer state.TearDown(t)
+
+	for _, dir := range []string{"1/foo", "1/2/foo"} {
+		err := os.Mkdir(state.MountPath(dir), 0755)
+		pathErr, ok := err.(*os.PathError)
+		if !ok || pathErr.Err != syscall.EPERM {
+			t.Errorf("Want Mkdir to fail inside virtual directory %s with %v; got %v (%v)", dir, syscall.EPERM, err, reflect.TypeOf(err))
+		}
+	}
+	if err := os.Mkdir(state.MountPath("1/2/3/foo"), 0755); err != nil {
+		t.Errorf("Want Mkdir to succeed inside non-virtual directory; got %v", err)
 	}
 }
 
