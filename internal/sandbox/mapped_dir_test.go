@@ -46,32 +46,32 @@ func dirTeardown(src string, t *testing.T) {
 	}
 }
 
-func TestDir_NewDirFromExisting(t *testing.T) {
+func TestMappedDir_NewDirFromExisting(t *testing.T) {
 	for _, writable := range []bool{false, true} {
-		vd := newVirtualDir()
-		vd.mappedChildren["a"] = newDir("/", DevInoPair{}, writable)
-		vd.mappedChildren["c"] = newFile("/", DevInoPair{}, writable)
-		vd.virtualDirs["b"] = newVirtualDir()
-		vd.virtualDirs["c"] = newVirtualDir()
+		vd := newScaffoldDir()
+		vd.mappedChildren["a"] = newMappedDir("/", DevInoPair{}, writable)
+		vd.mappedChildren["c"] = newMappedFile("/", DevInoPair{}, writable)
+		vd.scaffoldDirs["b"] = newScaffoldDir()
+		vd.scaffoldDirs["c"] = newScaffoldDir()
 
 		testID := DevInoPair{2, 3}
-		d := newDirFromExisting(vd.mappedChildren, vd.virtualDirs, "/", testID, writable)
+		d := newMappedDirFromExisting(vd.mappedChildren, vd.scaffoldDirs, "/", testID, writable)
 		if !reflect.DeepEqual(vd.mappedChildren, d.mappedChildren) {
-			t.Errorf("newDirFromExisting result had mappedChildren %v, want %v", d.mappedChildren, vd.mappedChildren)
+			t.Errorf("newMappedDirFromExisting result had mappedChildren %v, want %v", d.mappedChildren, vd.mappedChildren)
 		}
-		if !reflect.DeepEqual(vd.virtualDirs, d.virtualDirs) {
-			t.Errorf("newDirFromExisting result had virtualDirs %v, want %v", d.mappedChildren, vd.mappedChildren)
+		if !reflect.DeepEqual(vd.scaffoldDirs, d.scaffoldDirs) {
+			t.Errorf("newMappedDirFromExisting result had scaffoldDirs %v, want %v", d.mappedChildren, vd.mappedChildren)
 		}
 		if d.underlyingID != testID {
-			t.Errorf("Dir got underlyingID: %v, want: %v ", d.underlyingID, testID)
+			t.Errorf("MappedDir got underlyingID: %v, want: %v ", d.underlyingID, testID)
 		}
 		if d.inode == vd.inode {
-			t.Errorf("Dir should not have preserved VirtualDir's inode number, but did")
+			t.Errorf("MappedDir should not have preserved ScaffoldDir's inode number, but did")
 		}
 	}
 }
 
-func TestDir_Lookup(t *testing.T) {
+func TestMappedDir_Lookup(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
@@ -82,30 +82,30 @@ func TestDir_Lookup(t *testing.T) {
 		t.Fatal("WriteFile failed with error: ", err)
 	}
 
-	for _, d := range []*Dir{
-		newDir(src, DevInoPair{}, false),
-		newDir(src, DevInoPair{}, true),
+	for _, d := range []*MappedDir{
+		newMappedDir(src, DevInoPair{}, false),
+		newMappedDir(src, DevInoPair{}, true),
 	} {
 		node, err := d.Lookup(context.Background(), "b")
 		if err != nil {
 			t.Error("Lookup failed with error:", err)
 		}
-		childB, ok := node.(*Dir)
+		childB, ok := node.(*MappedDir)
 		if !ok {
-			t.Errorf("Node is of type %T, want: (*Dir)", node)
+			t.Errorf("Node is of type %T, want: (*MappedDir)", node)
 		}
 
 		node, err = childB.Lookup(context.Background(), "c")
 		if err != nil {
 			t.Error("Lookup failed with error:", err)
 		}
-		if _, ok := node.(*File); !ok {
-			t.Errorf("Node is of type %T, want: (*File)", node)
+		if _, ok := node.(*MappedFile); !ok {
+			t.Errorf("Node is of type %T, want: (*MappedFile)", node)
 		}
 	}
 }
 
-func TestDir_Lookup_PreferMapped(t *testing.T) {
+func TestMappedDir_Lookup_PreferMapped(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
@@ -114,17 +114,17 @@ func TestDir_Lookup_PreferMapped(t *testing.T) {
 	}
 
 	for _, writable := range []bool{false, true} {
-		dir := newDir(src, DevInoPair{}, writable)
-		dir.mappedChildren["a"] = newDir("/", DevInoPair{}, writable)
-		dir.virtualDirs["a"] = newVirtualDir()
+		dir := newMappedDir(src, DevInoPair{}, writable)
+		dir.mappedChildren["a"] = newMappedDir("/", DevInoPair{}, writable)
+		dir.scaffoldDirs["a"] = newScaffoldDir()
 
 		node, err := dir.Lookup(context.Background(), "a")
 		if err != nil {
 			t.Error("Lookup failed with error:", err)
 		}
-		childA, ok := node.(*Dir)
+		childA, ok := node.(*MappedDir)
 		if !ok {
-			t.Errorf("Node is of type %T, want: (*Dir)", node)
+			t.Errorf("Node is of type %T, want: (*MappedDir)", node)
 		}
 		if childA.underlyingPath != "/" {
 			t.Errorf("Node has underlyingPath %q, want: %q", childA.underlyingPath, "/")
@@ -132,7 +132,7 @@ func TestDir_Lookup_PreferMapped(t *testing.T) {
 	}
 }
 
-func TestDir_BaseOverVirtual(t *testing.T) {
+func TestMappedDir_BaseOverScaffold(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
@@ -141,16 +141,16 @@ func TestDir_BaseOverVirtual(t *testing.T) {
 	}
 
 	for _, writable := range []bool{false, true} {
-		dir := newDir(src, DevInoPair{}, writable)
-		dir.virtualDirs["b"] = newVirtualDir()
+		dir := newMappedDir(src, DevInoPair{}, writable)
+		dir.scaffoldDirs["b"] = newScaffoldDir()
 
 		node, err := dir.Lookup(context.Background(), "b")
 		if err != nil {
 			t.Error("Lookup failed with error:", err)
 		}
-		childB, ok := node.(*Dir)
+		childB, ok := node.(*MappedDir)
 		if !ok {
-			t.Errorf("Node is of type %T, want: (*Dir)", node)
+			t.Errorf("Node is of type %T, want: (*MappedDir)", node)
 		}
 		if childB.underlyingPath != src+"/b" {
 			t.Errorf("Node has underlyingPath %q, want: %q", childB.underlyingPath, src+"/b")
@@ -160,7 +160,7 @@ func TestDir_BaseOverVirtual(t *testing.T) {
 		if err != nil {
 			t.Error("Directory open failed with error: ", err)
 		}
-		got, err := handle.(*OpenDir).ReadDirAll(context.Background())
+		got, err := handle.(*openMappedDir).ReadDirAll(context.Background())
 		if err != nil {
 			t.Errorf("ReadDirAll failed with error: %v", err)
 		}
@@ -171,7 +171,7 @@ func TestDir_BaseOverVirtual(t *testing.T) {
 	}
 }
 
-func TestDir_VirtualOverBaseFile(t *testing.T) {
+func TestMappedDir_ScaffoldOverBaseFile(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
@@ -180,23 +180,23 @@ func TestDir_VirtualOverBaseFile(t *testing.T) {
 	}
 
 	for _, writable := range []bool{false, true} {
-		dir := newDir(src, DevInoPair{}, writable)
-		dir.virtualDirs["b"] = newVirtualDir()
+		dir := newMappedDir(src, DevInoPair{}, writable)
+		dir.scaffoldDirs["b"] = newScaffoldDir()
 
 		node, err := dir.Lookup(context.Background(), "b")
 		if err != nil {
 			t.Error("Lookup failed with error:", err)
 		}
-		childB, ok := node.(*VirtualDir)
+		childB, ok := node.(*ScaffoldDir)
 		if !ok {
-			t.Errorf("Node is of type %T, want: (*VirtualDir)", node)
+			t.Errorf("Node is of type %T, want: (*ScaffoldDir)", node)
 		}
 
 		handle, err := dir.Open(context.Background(), OpenRequestDir, nil)
 		if err != nil {
 			t.Error("Directory open failed with error: ", err)
 		}
-		got, err := handle.(*OpenDir).ReadDirAll(context.Background())
+		got, err := handle.(*openMappedDir).ReadDirAll(context.Background())
 		if err != nil {
 			t.Errorf("ReadDirAll failed with error: %v", err)
 		}
@@ -207,7 +207,7 @@ func TestDir_VirtualOverBaseFile(t *testing.T) {
 	}
 }
 
-func TestDir_ReadDirAll(t *testing.T) {
+func TestMappedDir_ReadDirAll(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
@@ -222,17 +222,17 @@ func TestDir_ReadDirAll(t *testing.T) {
 	}
 
 	for _, writable := range []bool{false, true} {
-		d := newDir(src, DevInoPair{}, writable)
+		d := newMappedDir(src, DevInoPair{}, writable)
 
 		node, err := d.Lookup(context.Background(), "b")
 		if err != nil {
 			t.Error("Directory lookup failed with error: ", err)
 		}
-		handle, err := node.(*Dir).Open(context.Background(), OpenRequestDir, nil)
+		handle, err := node.(*MappedDir).Open(context.Background(), OpenRequestDir, nil)
 		if err != nil {
 			t.Error("Directory open failed with error: ", err)
 		}
-		dirents, err := handle.(*OpenDir).ReadDirAll(context.Background())
+		dirents, err := handle.(*openMappedDir).ReadDirAll(context.Background())
 		if err != nil {
 			t.Errorf("ReadDirAll failed with error: %v", err)
 		}
@@ -248,18 +248,18 @@ func TestDir_ReadDirAll(t *testing.T) {
 			}
 			inodeNums[fileInfo.Inode] = true
 		}
-		if err := handle.(*OpenDir).Release(context.Background(), nil); err != nil {
+		if err := handle.(*openMappedDir).Release(context.Background(), nil); err != nil {
 			t.Error("Directory close failed with error: ", err)
 		}
 	}
 }
 
-func TestDir_Mkdir_ReadOnly_Error(t *testing.T) {
+func TestMappedDir_Mkdir_ReadOnly_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, false)
-	mkdirReq := fuse.MkdirRequest{Name: "newDir"}
+	d := newMappedDir(src, DevInoPair{}, false)
+	mkdirReq := fuse.MkdirRequest{Name: "newMappedDir"}
 
 	if _, err := d.Mkdir(context.Background(), &mkdirReq); err != fuseErrno(syscall.EPERM) {
 		t.Errorf("Mkdir on a read-only directory gave error %T(%v), want fuseErrno(syscall.EPERM)", err, err)
@@ -269,17 +269,17 @@ func TestDir_Mkdir_ReadOnly_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Mkdir_ReadWrite_Error(t *testing.T) {
+func TestMappedDir_Mkdir_ReadWrite_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, true)
-	if err := os.MkdirAll(src+"/newDir", 0755); err != nil {
+	d := newMappedDir(src, DevInoPair{}, true)
+	if err := os.MkdirAll(src+"/newMappedDir", 0755); err != nil {
 		t.Fatal("MkdirAll failed with error: ", err)
 	}
 
 	req := fuse.MkdirRequest{
-		Name: "newDir",
+		Name: "newMappedDir",
 		Mode: os.ModeDir | 0755,
 	}
 	_, err := d.Mkdir(context.Background(), &req)
@@ -288,14 +288,14 @@ func TestDir_Mkdir_ReadWrite_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Mkdir_ReadWrite_Ok(t *testing.T) {
+func TestMappedDir_Mkdir_ReadWrite_Ok(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	const perm = 0755
 	req := fuse.MkdirRequest{
-		Name: "newDir",
+		Name: "newMappedDir",
 		Mode: os.ModeDir | perm,
 	}
 
@@ -317,12 +317,12 @@ func TestDir_Mkdir_ReadWrite_Ok(t *testing.T) {
 	}
 }
 
-func TestDir_Create_ReadOnly_Error(t *testing.T) {
+func TestMappedDir_Create_ReadOnly_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, false)
-	createReq := fuse.CreateRequest{Name: "newFile"}
+	d := newMappedDir(src, DevInoPair{}, false)
+	createReq := fuse.CreateRequest{Name: "newMappedFile"}
 	createResp := fuse.CreateResponse{}
 
 	if _, _, err := d.Create(context.Background(), &createReq, &createResp); err != fuseErrno(syscall.EPERM) {
@@ -333,16 +333,16 @@ func TestDir_Create_ReadOnly_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Create_ReadWrite_Error(t *testing.T) {
+func TestMappedDir_Create_ReadWrite_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
-	if err := os.MkdirAll(src+"/newFile", 0755); err != nil {
+	if err := os.MkdirAll(src+"/newMappedFile", 0755); err != nil {
 		t.Fatal("MkdirAll failed with error: ", err)
 	}
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	req := fuse.CreateRequest{
-		Name:  "newFile",
+		Name:  "newMappedFile",
 		Flags: fuse.OpenFlags(os.O_CREATE | os.O_TRUNC),
 		Mode:  0644,
 	}
@@ -353,14 +353,14 @@ func TestDir_Create_ReadWrite_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Create_ReadWrite_Ok(t *testing.T) {
+func TestMappedDir_Create_ReadWrite_Ok(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	const perm = 0755
 	req := fuse.CreateRequest{
-		Name:  "newFile",
+		Name:  "newMappedFile",
 		Flags: fuse.OpenFlags(os.O_CREATE | os.O_TRUNC),
 		Mode:  os.ModeDir | perm,
 	}
@@ -382,16 +382,16 @@ func TestDir_Create_ReadWrite_Ok(t *testing.T) {
 		t.Errorf("Got node permissions: %v, want: %v", got, perm)
 	}
 
-	if o.(*OpenFile).file != n {
+	if o.(*openMappedFile).file != n {
 		t.Errorf("The handle returned from create does not point to the returned node")
 	}
 }
 
-func TestDir_Symlink_ReadOnly_Error(t *testing.T) {
+func TestMappedDir_Symlink_ReadOnly_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, false)
+	d := newMappedDir(src, DevInoPair{}, false)
 	symlinkReq := fuse.SymlinkRequest{NewName: "newNode", Target: "."}
 
 	if _, err := d.Symlink(context.Background(), &symlinkReq); err != fuseErrno(syscall.EPERM) {
@@ -402,14 +402,14 @@ func TestDir_Symlink_ReadOnly_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Symlink_ReadWrite_Error(t *testing.T) {
+func TestMappedDir_Symlink_ReadWrite_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 	if err := os.Chmod(src, 0444); err != nil {
 		t.Errorf("Chmod failed with error: %v", err)
 	}
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	symlinkReq := fuse.SymlinkRequest{NewName: "newNode", Target: "."}
 
 	if _, err := d.Symlink(context.Background(), &symlinkReq); err != fuseErrno(syscall.EACCES) {
@@ -417,13 +417,13 @@ func TestDir_Symlink_ReadWrite_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Symlink_ReadWrite_Ok(t *testing.T) {
+func TestMappedDir_Symlink_ReadWrite_Ok(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	req := fuse.SymlinkRequest{
-		NewName: "newSymlink",
+		NewName: "newMappedSymlink",
 		Target:  "..",
 	}
 
@@ -443,11 +443,11 @@ func TestDir_Symlink_ReadWrite_Ok(t *testing.T) {
 	}
 }
 
-func TestDir_Rename_ReadOnly_Error(t *testing.T) {
+func TestMappedDir_Rename_ReadOnly_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	renameReq := fuse.RenameRequest{OldName: "a", NewName: "b"}
 
 	err := d.Rename(context.Background(), &renameReq, d)
@@ -456,11 +456,11 @@ func TestDir_Rename_ReadOnly_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Rename_ReadWrite_Error(t *testing.T) {
+func TestMappedDir_Rename_ReadWrite_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, false)
+	d := newMappedDir(src, DevInoPair{}, false)
 	if err := ioutil.WriteFile(src+"/a", []byte(""), 0644); err != nil {
 		t.Fatal("WriteFile failed with error: ", err)
 	}
@@ -471,14 +471,14 @@ func TestDir_Rename_ReadWrite_Error(t *testing.T) {
 	}
 }
 
-func TestDir_RenameInSameDir_ReadWrite_Ok(t *testing.T) {
+func TestMappedDir_RenameInSameDir_ReadWrite_Ok(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 	if err := ioutil.WriteFile(src+"/a", []byte(""), 0644); err != nil {
 		t.Fatal("WriteFile failed with error: ", err)
 	}
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	req := fuse.RenameRequest{OldName: "a", NewName: "b"}
 
 	if err := d.Rename(context.Background(), &req, d); err != nil {
@@ -489,7 +489,7 @@ func TestDir_RenameInSameDir_ReadWrite_Ok(t *testing.T) {
 	}
 }
 
-func TestDir_RenameInDifferentDir_ReadWrite_Ok(t *testing.T) {
+func TestMappedDir_RenameInDifferentDir_ReadWrite_Ok(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 	dst := dirSetup(t)
@@ -498,8 +498,8 @@ func TestDir_RenameInDifferentDir_ReadWrite_Ok(t *testing.T) {
 		t.Fatal("WriteFile failed with error: ", err)
 	}
 
-	srcDir := newDir(src, DevInoPair{}, true)
-	dstDir := newDir(dst, DevInoPair{}, true)
+	srcDir := newMappedDir(src, DevInoPair{}, true)
+	dstDir := newMappedDir(dst, DevInoPair{}, true)
 
 	req := fuse.RenameRequest{OldName: "a", NewName: "b"}
 	if err := srcDir.Rename(context.Background(), &req, dstDir); err != nil {
@@ -518,11 +518,11 @@ func TestDir_RenameInDifferentDir_ReadWrite_Ok(t *testing.T) {
 	}
 }
 
-func TestDir_Remove_ReadOnly_Error(t *testing.T) {
+func TestMappedDir_Remove_ReadOnly_Error(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
-	d := newDir(src, DevInoPair{}, false)
+	d := newMappedDir(src, DevInoPair{}, false)
 	if err := ioutil.WriteFile(src+"/c", []byte(""), 0644); err != nil {
 		t.Fatal("WriteFile failed with error: ", err)
 	}
@@ -536,14 +536,14 @@ func TestDir_Remove_ReadOnly_Error(t *testing.T) {
 	}
 }
 
-func TestDir_Remove_ReadWrite_Ok(t *testing.T) {
+func TestMappedDir_Remove_ReadWrite_Ok(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 	if err := ioutil.WriteFile(src+"/a", []byte(""), 0644); err != nil {
 		t.Fatal("WriteFile failed with error: ", err)
 	}
 
-	d := newDir(src, DevInoPair{}, true)
+	d := newMappedDir(src, DevInoPair{}, true)
 	req := fuse.RemoveRequest{Name: "a"}
 
 	if err := d.Remove(context.Background(), &req); err != nil {
@@ -554,21 +554,21 @@ func TestDir_Remove_ReadWrite_Ok(t *testing.T) {
 	}
 }
 
-func TestDir_ReleaseTwice(t *testing.T) {
+func TestMappedDir_ReleaseTwice(t *testing.T) {
 	src := dirSetup(t)
 	defer dirTeardown(src, t)
 
 	for _, writable := range []bool{false, true} {
-		d := newDir(src, DevInoPair{}, writable)
+		d := newMappedDir(src, DevInoPair{}, writable)
 
 		handle, err := d.Open(context.Background(), OpenRequestDir, nil)
 		if err != nil {
 			t.Error("Directory open failed with error: ", err)
 		}
-		if err := handle.(*OpenDir).Release(context.Background(), nil); err != nil {
+		if err := handle.(*openMappedDir).Release(context.Background(), nil); err != nil {
 			t.Error("Directory close failed with error: ", err)
 		}
-		err = handle.(*OpenDir).Release(context.Background(), nil)
+		err = handle.(*openMappedDir).Release(context.Background(), nil)
 		if _, ok := err.(fuse.Errno); !ok {
 			t.Errorf("Closing a file twice gave error of type: %T, expected fuse.Errno", err)
 		}

@@ -23,39 +23,39 @@ import (
 	"golang.org/x/net/context"
 )
 
-// File corresponds to files in an in-memory representation of the filesystem
-// tree.
-type File struct {
+// MappedFile is a node that represents a file backed by another file that lives outside of the
+// mount point.
+type MappedFile struct {
 	BaseNode
 }
 
-// OpenFile is a handle returned when a file is opened.
-type OpenFile struct {
+// openMappedFile is a handle returned when a file is opened.
+type openMappedFile struct {
 	nativeFile *os.File
-	file       *File
+	file       *MappedFile
 }
 
-var _ fs.Handle = (*OpenFile)(nil)
+var _ fs.Handle = (*openMappedFile)(nil)
 
-// newFile initializes a new File node with the proper inode number.
-func newFile(path string, id DevInoPair, writable bool) *File {
-	return &File{
+// newMappedFile initializes a new MappedFile node with the proper inode number.
+func newMappedFile(path string, id DevInoPair, writable bool) *MappedFile {
+	return &MappedFile{
 		BaseNode: newBaseNode(path, id, writable),
 	}
 }
 
 // Open opens the file/directory in the underlying filesystem and returns a
 // handle to it.
-func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+func (f *MappedFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
 	openedFile, err := os.OpenFile(f.underlyingPath, int(req.Flags), 0)
 	if err != nil {
 		return nil, fuseErrno(err)
 	}
-	return &OpenFile{openedFile, f}, nil
+	return &openMappedFile{openedFile, f}, nil
 }
 
 // Setattr updates the file metadata and is also used to communicate file size changes.
-func (f *File) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
+func (f *MappedFile) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
 	ok, finalError := f.BaseNode.Setattr(ctx, req)
 	if !ok {
 		return finalError
@@ -73,7 +73,7 @@ func (f *File) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse
 }
 
 // Dirent returns the directory entry corresponding to the file.
-func (f *File) Dirent(name string) fuse.Dirent {
+func (f *MappedFile) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{
 		Inode: f.Inode(),
 		Name:  name,
@@ -83,7 +83,7 @@ func (f *File) Dirent(name string) fuse.Dirent {
 
 // Read sends the read requests to the corresponding file in the underlying
 // filesystem.
-func (o *OpenFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+func (o *openMappedFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	resp.Data = resp.Data[:req.Size]
 	readBytes, err := o.nativeFile.ReadAt(resp.Data, req.Offset)
 	if err != nil && err != io.EOF {
@@ -96,7 +96,7 @@ func (o *OpenFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 
 // Write sends the write requests to the corresponding file in the underlying
 // filesystem.
-func (o *OpenFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
+func (o *openMappedFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
 	if err := o.file.WantToWrite(); err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (o *OpenFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.W
 }
 
 // Fsync flushes the written contents to the backing file.
-func (f *File) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
+func (f *MappedFile) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 	// Fsync is an operation that should be exposed on a fs.Handle, not
 	// on a fs.Node, given that the fsync(2) system call operates on file
 	// descriptors. There actually is a TODO in the FUSE implementation to
@@ -121,13 +121,13 @@ func (f *File) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 }
 
 // Release closes the underlying file/directory handle.
-func (o *OpenFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
+func (o *openMappedFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
 	return fuseErrno(o.nativeFile.Close())
 }
 
 // invalidateRecursively clears the kernel cache corresponding to this node,
 // and children if present.
-func (f *File) invalidateRecursively(server *fs.Server) {
+func (f *MappedFile) invalidateRecursively(server *fs.Server) {
 	err := server.InvalidateNodeData(f)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", f)
 }

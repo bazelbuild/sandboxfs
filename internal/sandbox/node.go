@@ -154,11 +154,11 @@ func (n *BaseNode) UnderlyingID() DevInoPair {
 func newNodeForFileInfo(fileInfo os.FileInfo, path string, id DevInoPair, writable bool) Node {
 	switch fileInfo.Mode() & os.ModeType {
 	case os.ModeDir:
-		return newDir(path, id, writable)
+		return newMappedDir(path, id, writable)
 	case os.ModeSymlink:
-		return newSymlink(path, id, writable)
+		return newMappedSymlink(path, id, writable)
 	default:
-		return newFile(path, id, writable)
+		return newMappedFile(path, id, writable)
 	}
 }
 

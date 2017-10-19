@@ -228,7 +228,7 @@ func TestReadOnly_Access(t *testing.T) {
 	//
 	// Note also that we must mount with "allow=other" so that our unprivileged executions
 	// can access the file system.
-	state := utils.MountSetupWithUser(t, root, "-allow=other", "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/virtual/dir/foo:%ROOT%/foo")
+	state := utils.MountSetupWithUser(t, root, "-allow=other", "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/scaffold/dir/foo:%ROOT%/foo")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("all"), 0777) // Place where "user" can create entries.
@@ -274,19 +274,19 @@ func TestReadOnly_Access(t *testing.T) {
 		{"UserCanReadOwnReadOnly", user, "all/user/everyone-ro", "-r", true},
 		{"UserCannotWriteOwnReadOnly", user, "all/user/everyone-ro", "-w", false},
 
-		{"RootCanLookupVirtualDir", root, "virtual/dir", "-e", true},
-		{"RootCanReadVirtualDir", root, "virtual/dir", "-r", true},
-		// Note that virtual directories are immutable but access tests report them as
+		{"RootCanLookupScaffoldDir", root, "scaffold/dir", "-e", true},
+		{"RootCanReadScaffoldDir", root, "scaffold/dir", "-r", true},
+		// Note that scaffold directories are immutable but access tests report them as
 		// writable to root.  This is an artifact of how permission checks work on read-only
 		// file systems: the permission checks are based on file ownerships and modes, not
 		// on whether the file system is writable.
-		{"RootCanWriteVirtualDir", root, "virtual/dir", "-w", true},
-		{"RootCanExecuteVirtualDir", root, "virtual/dir", "-x", true},
+		{"RootCanWriteScaffoldDir", root, "scaffold/dir", "-w", true},
+		{"RootCanExecuteScaffoldDir", root, "scaffold/dir", "-x", true},
 
-		{"UserCanLookupVirtualDir", user, "virtual/dir", "-e", true},
-		{"UserCanReadVirtualDir", user, "virtual/dir", "-r", true},
-		{"UserCannotWriteVirtualDir", user, "virtual/dir", "-w", false},
-		{"UserCanExecuteVirtualDir", user, "virtual/dir", "-x", true},
+		{"UserCanLookupScaffoldDir", user, "scaffold/dir", "-e", true},
+		{"UserCanReadScaffoldDir", user, "scaffold/dir", "-r", true},
+		{"UserCannotWriteScaffoldDir", user, "scaffold/dir", "-w", false},
+		{"UserCanExecuteScaffoldDir", user, "scaffold/dir", "-x", true},
 	}
 	for _, d := range data {
 		t.Run(d.name, func(t *testing.T) {

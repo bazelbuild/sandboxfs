@@ -24,20 +24,20 @@ import (
 	"golang.org/x/net/context"
 )
 
-func TestVirtualDir_Attr(t *testing.T) {
-	dir := newVirtualDir()
+func TestScaffoldDir_Attr(t *testing.T) {
+	dir := newScaffoldDir()
 	a := new(fuse.Attr)
 	err := dir.Attr(context.Background(), a)
 	if err != nil {
-		t.Errorf("Attr on virtual directory returned error: %v, want: nil", err)
+		t.Errorf("Attr on scaffold directory returned error: %v, want: nil", err)
 	}
 	if want := 0555 | os.ModeDir; a.Mode != want {
-		t.Errorf("Attr on virtual directory returned mode: %#o, want %#o", a.Mode, want)
+		t.Errorf("Attr on scaffold directory returned mode: %#o, want %#o", a.Mode, want)
 	}
 }
 
-func TestVirtualDir_Lookup(t *testing.T) {
-	dir := newVirtualDir()
+func TestScaffoldDir_Lookup(t *testing.T) {
+	dir := newScaffoldDir()
 	node, err := dir.Lookup(context.Background(), "A")
 	if err != fuseErrno(syscall.ENOENT) {
 		t.Errorf("Lookup on empty node returned error: nil, want: syscall.ENOENT")
@@ -46,42 +46,42 @@ func TestVirtualDir_Lookup(t *testing.T) {
 		t.Errorf("Lookup on empty node returned node: %v, want: nil", node)
 	}
 
-	dir.mappedChildren["A"] = newDir("/", DevInoPair{}, false)
+	dir.mappedChildren["A"] = newMappedDir("/", DevInoPair{}, false)
 	node, err = dir.Lookup(context.Background(), "A")
 	if err != nil {
 		t.Errorf("Lookup returned error: %v, want: %v", err, nil)
 	}
-	if _, ok := node.(*Dir); !ok {
-		t.Errorf("Lookup returned node of type: %T, want: *Dir", node)
+	if _, ok := node.(*MappedDir); !ok {
+		t.Errorf("Lookup returned node of type: %T, want: *MappedDir", node)
 	}
 
-	dir.virtualDirs["B"] = newVirtualDir()
+	dir.scaffoldDirs["B"] = newScaffoldDir()
 	node, err = dir.Lookup(context.Background(), "B")
 	if err != nil {
 		t.Errorf("Lookup returned error: %v, want: %v", err, nil)
 	}
-	if _, ok := node.(*VirtualDir); !ok {
-		t.Errorf("Lookup returned node of type: %T, want: *Dir", node)
+	if _, ok := node.(*ScaffoldDir); !ok {
+		t.Errorf("Lookup returned node of type: %T, want: *ScaffoldDir", node)
 	}
 
-	dir.mappedChildren["B"] = newDir("/", DevInoPair{}, false)
+	dir.mappedChildren["B"] = newMappedDir("/", DevInoPair{}, false)
 	node, err = dir.Lookup(context.Background(), "B")
 	if err != nil {
 		t.Errorf("Lookup returned error: %v, want: %v", err, nil)
 	}
-	if _, ok := node.(*Dir); !ok {
-		t.Errorf("Lookup returned node of type: %T, want: *Dir", node)
+	if _, ok := node.(*MappedDir); !ok {
+		t.Errorf("Lookup returned node of type: %T, want: *MappedDir", node)
 	}
 }
 
-func TestOpenVirtualDir_ReadDirAll(t *testing.T) {
-	dir := newVirtualDir()
-	dir.mappedChildren["A"] = newDir("/", DevInoPair{}, false)
-	dir.mappedChildren["C"] = newFile("/", DevInoPair{}, false)
-	dir.virtualDirs["B"] = newVirtualDir()
-	dir.virtualDirs["C"] = newVirtualDir()
+func TestOpenScaffoldDir_ReadDirAll(t *testing.T) {
+	dir := newScaffoldDir()
+	dir.mappedChildren["A"] = newMappedDir("/", DevInoPair{}, false)
+	dir.mappedChildren["C"] = newMappedFile("/", DevInoPair{}, false)
+	dir.scaffoldDirs["B"] = newScaffoldDir()
+	dir.scaffoldDirs["C"] = newScaffoldDir()
 
-	openDir := &OpenVirtualDir{dir}
+	openDir := &OpenScaffoldDir{dir}
 	nodes, err := openDir.ReadDirAll(context.Background())
 	if err != nil {
 		t.Errorf("Lookup returned error: %v, want: %v", err, nil)
@@ -101,30 +101,30 @@ func TestOpenVirtualDir_ReadDirAll(t *testing.T) {
 	}
 }
 
-func TestVirtualDir_VirtualDirChild(t *testing.T) {
-	dir := newVirtualDir()
-	dir.virtualDirs["b"] = newVirtualDir()
-	dir.virtualDirs["c"] = newVirtualDir()
+func TestScaffoldDir_ScaffoldDirChild(t *testing.T) {
+	dir := newScaffoldDir()
+	dir.scaffoldDirs["b"] = newScaffoldDir()
+	dir.scaffoldDirs["c"] = newScaffoldDir()
 
-	if newDir := dir.virtualDirChild("a"); newDir != dir.virtualDirs["a"] {
+	if newDir := dir.scaffoldDirChild("a"); newDir != dir.scaffoldDirs["a"] {
 		t.Errorf("Child returned was not persistent")
 	}
-	if existing := dir.virtualDirs["b"]; existing != dir.virtualDirChild("b") {
-		t.Errorf("Incorrect child was returned for already existing virtual child.")
+	if existing := dir.scaffoldDirs["b"]; existing != dir.scaffoldDirChild("b") {
+		t.Errorf("Incorrect child was returned for already existing scaffold child.")
 	}
 }
 
-func TestVirtualDir_NewNodeChild(t *testing.T) {
-	vd := newVirtualDir()
+func TestScaffoldDir_NewNodeChild(t *testing.T) {
+	vd := newScaffoldDir()
 	writable := true
 	d, err := vd.newNodeChild("a", "/", writable)
 	if err != nil {
 		t.Errorf("newNodeChild returned error: %v, want: nil", err)
 	}
 
-	dir, ok := d.(*Dir)
+	dir, ok := d.(*MappedDir)
 	if !ok {
-		t.Fatalf("Returned node is of type: %T, want (*Dir)", d)
+		t.Fatalf("Returned node is of type: %T, want (*MappedDir)", d)
 	}
 	if got := dir.underlyingPath; got != "/" {
 		t.Errorf("Returned directory node has underlyingPath: %q, want: '/'", got)

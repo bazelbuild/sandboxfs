@@ -22,33 +22,33 @@ import (
 	"golang.org/x/net/context"
 )
 
-// Symlink corresponds to symlinks in an in-memory representation of the
-// filesystem tree.
-type Symlink struct {
+// MappedSymlink is a node that represents a symlink backed by another symlink that lives outside of
+// the mount point.
+type MappedSymlink struct {
 	BaseNode
 }
 
-// newSymlink initializes a new Symlink node with the proper inode number.
-func newSymlink(path string, id DevInoPair, writable bool) *Symlink {
-	return &Symlink{
+// newMappedSymlink initializes a new MappedSymlink node with the proper inode number.
+func newMappedSymlink(path string, id DevInoPair, writable bool) *MappedSymlink {
+	return &MappedSymlink{
 		BaseNode: newBaseNode(path, id, writable),
 	}
 }
 
 // Readlink reads a symlink and returns the string path to its destination.
-func (s *Symlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (string, error) {
+func (s *MappedSymlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (string, error) {
 	link, err := os.Readlink(s.underlyingPath)
 	return link, fuseErrno(err)
 }
 
 // Setattr updates the symlink metadata.
-func (s *Symlink) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
+func (s *MappedSymlink) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
 	_, err := s.BaseNode.Setattr(ctx, req)
 	return err
 }
 
 // Dirent returns the directory entry corresponding to the symlink.
-func (s *Symlink) Dirent(name string) fuse.Dirent {
+func (s *MappedSymlink) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{
 		Inode: s.Inode(),
 		Name:  name,
@@ -58,7 +58,7 @@ func (s *Symlink) Dirent(name string) fuse.Dirent {
 
 // invalidateRecursively clears the kernel cache corresponding to this node,
 // and children if present.
-func (s *Symlink) invalidateRecursively(server *fs.Server) {
+func (s *MappedSymlink) invalidateRecursively(server *fs.Server) {
 	err := server.InvalidateNodeData(s)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", s)
 }

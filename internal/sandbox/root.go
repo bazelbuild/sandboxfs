@@ -31,8 +31,8 @@ type cacheInvalidator interface {
 	invalidateRecursively(*fs.Server)
 }
 
-// dirCommon defines the interfaces satisfied by all directory types.
-type dirCommon interface {
+// Dir defines the interfaces satisfied by all directory types.
+type Dir interface {
 	fs.Node
 	fs.NodeCreater
 	fs.NodeStringLookuper
@@ -50,23 +50,23 @@ type dirCommon interface {
 // Root is the container for all types that are valid to be at the root level
 // of a filesystem tree.
 type Root struct {
-	dirCommon
+	Dir
 }
 
 // NewRoot returns a new instance of Root with the appropriate underlying node.
-func NewRoot(node dirCommon) *Root {
+func NewRoot(node Dir) *Root {
 	return &Root{node}
 }
 
 // Reconfigure resets the filesystem tree to the tree pointed to by root.
-func (r *Root) Reconfigure(server *fs.Server, root dirCommon) {
+func (r *Root) Reconfigure(server *fs.Server, root Dir) {
 	// NOTE: Double invalidation is done because we want to invalidate cache of 2 things.
 	// 1. The things that were present in the previous tree, and are no longer available.
 	// 2. The things that were returning ENOENT previously, but are available now.
 	// The first invalidation is recursively called on the old tree. The second
 	// invalidation is called on the tree when it has been updated.
 	r.invalidateRecursively(server)
-	r.dirCommon = root
+	r.Dir = root
 	r.invalidateRecursively(server)
 }
 
@@ -75,8 +75,8 @@ func (r *Root) Reconfigure(server *fs.Server, root dirCommon) {
 func (r *Root) invalidateRecursively(server *fs.Server) {
 	err := server.InvalidateNodeData(r)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", r)
-	r.dirCommon.invalidateRecursivelyParent(r, server)
-	r.dirCommon.invalidateRecursively(server)
+	r.Dir.invalidateRecursivelyParent(r, server)
+	r.Dir.invalidateRecursively(server)
 }
 
 // Rename delegates the Rename operation to the underlying node.
@@ -84,7 +84,7 @@ func (r *Root) invalidateRecursively(server *fs.Server) {
 // newDir passed to be the underlying type and not the *Root type..
 func (r *Root) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
 	if newDir == r {
-		newDir = r.dirCommon
+		newDir = r.Dir
 	}
-	return r.dirCommon.Rename(ctx, req, newDir)
+	return r.Dir.Rename(ctx, req, newDir)
 }

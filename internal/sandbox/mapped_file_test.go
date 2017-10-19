@@ -53,7 +53,7 @@ func TestFile_Read(t *testing.T) {
 	}
 
 	for _, writable := range []bool{false, true} {
-		d := newFile(src+"/a", DevInoPair{}, writable)
+		d := newMappedFile(src+"/a", DevInoPair{}, writable)
 		h, err := d.Open(context.Background(), OpenRequestFile, nil)
 		if err != nil {
 			t.Error("File open failed with error: ", err)
@@ -67,7 +67,7 @@ func TestFile_Read(t *testing.T) {
 		readResp := &fuse.ReadResponse{
 			Data: make([]byte, readReq.Size),
 		}
-		if err := h.(*OpenFile).Read(context.Background(), readReq, readResp); err != nil {
+		if err := h.(*openMappedFile).Read(context.Background(), readReq, readResp); err != nil {
 			t.Error("Error reading file 'a':", err)
 		}
 		if got := string(readResp.Data); got != contents[3:5] {
@@ -82,7 +82,7 @@ func TestFile_Read(t *testing.T) {
 		readResp = &fuse.ReadResponse{
 			Data: make([]byte, readReq.Size),
 		}
-		if err := h.(*OpenFile).Read(context.Background(), readReq, readResp); err != nil {
+		if err := h.(*openMappedFile).Read(context.Background(), readReq, readResp); err != nil {
 			t.Error("Error reading file 'a':", err)
 		}
 		if got := string(readResp.Data); got != contents[2:6] {
@@ -103,7 +103,7 @@ func TestFile_Write_Error(t *testing.T) {
 	if err := ioutil.WriteFile(src+"/a", []byte(content), 0644); err != nil {
 		t.Fatal("File write failed with error: ", err)
 	}
-	f := newFile(src+"/a", DevInoPair{}, false)
+	f := newMappedFile(src+"/a", DevInoPair{}, false)
 	h, err := f.Open(context.Background(), &fuse.OpenRequest{Dir: false, Flags: fuse.OpenWriteOnly}, nil)
 	if err != nil {
 		t.Error("File open failed with error: ", err)
@@ -115,7 +115,7 @@ func TestFile_Write_Error(t *testing.T) {
 	}
 	writeResp := &fuse.WriteResponse{}
 
-	if err := h.(*OpenFile).Write(context.Background(), writeReq, writeResp); err != fuseErrno(syscall.EPERM) {
+	if err := h.(*openMappedFile).Write(context.Background(), writeReq, writeResp); err != fuseErrno(syscall.EPERM) {
 		t.Errorf("Read-only file write failed with error: %T(%v), want: fuse.Errno(syscall.EPERM)", err, err)
 	}
 	if text, err := ioutil.ReadFile(src + "/a"); err != nil || string(text) != content {
@@ -134,7 +134,7 @@ func TestFile_Write_Ok(t *testing.T) {
 	if err := ioutil.WriteFile(src+"/a", []byte(contents), 0644); err != nil {
 		t.Fatal("File write failed with error: ", err)
 	}
-	f := newFile(src+"/a", DevInoPair{}, true)
+	f := newMappedFile(src+"/a", DevInoPair{}, true)
 	h, err := f.Open(context.Background(), &fuse.OpenRequest{Dir: false, Flags: fuse.OpenWriteOnly}, nil)
 	if err != nil {
 		t.Error("File open failed with error: ", err)
@@ -145,7 +145,7 @@ func TestFile_Write_Ok(t *testing.T) {
 		Data:   []byte(written),
 	}
 	writeResp := &fuse.WriteResponse{}
-	if err := h.(*OpenFile).Write(context.Background(), writeReq, writeResp); err != nil {
+	if err := h.(*openMappedFile).Write(context.Background(), writeReq, writeResp); err != nil {
 		t.Error("File write failed with error: ", err)
 	}
 	got, err := ioutil.ReadFile(src + "/a")

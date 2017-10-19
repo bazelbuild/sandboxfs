@@ -90,7 +90,7 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 	}
 }
 
-func TestLayout_FileMappedOnVirtualDirectory(t *testing.T) {
+func TestLayout_FileMappedOnScaffoldDirectory(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
 		t.Fatalf("Failed to create temporary directory: %v", err)

@@ -68,7 +68,7 @@ type FS struct {
 }
 
 // Reconfigure resets the tree under this node to the new configuration.
-func (f *FS) Reconfigure(server *fs.Server, root dirCommon) {
+func (f *FS) Reconfigure(server *fs.Server, root Dir) {
 	// TODO(pallavag): Right now, we do not reuse inode numbers, because it is
 	// uncertain if doing so would be valid from a correctness perspective.
 	// Once the code has been well tested, it may be worthwile to try resetting
@@ -102,7 +102,7 @@ func readConfig(reader *bufio.Reader) ([]byte, error) {
 // initFromReader initializes a filesystem configuration after reading the config from the passed
 // reader.  Reaching EOF on the reader causes this function to return io.EOF, which the caller
 // must handle gracefully.
-func initFromReader(reader *bufio.Reader) (dirCommon, error) {
+func initFromReader(reader *bufio.Reader) (Dir, error) {
 	configRead, err := readConfig(reader)
 	if err != nil {
 		if err == io.EOF {
@@ -141,7 +141,7 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 }
 
 // Serve sets up the work environment before starting to serve the filesystem.
-func Serve(c *fuse.Conn, node dirCommon, dynamic *DynamicConf) error {
+func Serve(c *fuse.Conn, node Dir, dynamic *DynamicConf) error {
 	f := &FS{NewRoot(node)}
 	server := fs.New(c, nil)
 	if dynamic != nil {
@@ -157,12 +157,12 @@ func Serve(c *fuse.Conn, node dirCommon, dynamic *DynamicConf) error {
 
 // Init initializes a new fs.Node instance to represent a sandboxfs file system
 // rooted in the given directory.
-func Init(mappingsInput []MappingSpec) (dirCommon, error) {
+func Init(mappingsInput []MappingSpec) (Dir, error) {
 	// Clone the list so that we don't modify the passed slice.
 	mappings := append([]MappingSpec(nil), mappingsInput...)
 
 	// This sort helps us ensure that a mapping will only have to be created
-	// where one either does not exist or is a VirtualDir (since the more
+	// where one either does not exist or is a ScaffoldDir (since the more
 	// nested mappings will be handled first).
 	// Note that the order of different paths with the same length doesn't
 	// matter since one can never be a prefix of the other.
@@ -170,13 +170,13 @@ func Init(mappingsInput []MappingSpec) (dirCommon, error) {
 		return len(mappings[i].Mapping) > len(mappings[j].Mapping)
 	})
 
-	root := newVirtualDir()
+	root := newScaffoldDir()
 	for _, mapping := range mappings {
 		curDir := root
 		components := splitPath(mapping.Mapping)
 		for i, component := range components {
 			if i != len(components)-1 {
-				curDir = curDir.virtualDirChild(component)
+				curDir = curDir.scaffoldDirChild(component)
 			} else {
 				if _, err := curDir.newNodeChild(component, mapping.Target, mapping.Writable); err != nil {
 					return nil, fmt.Errorf("mapping %v: %v", mapping.Mapping, err)
@@ -190,7 +190,7 @@ func Init(mappingsInput []MappingSpec) (dirCommon, error) {
 		// If we reach here, it means sandbox config was empty.
 		return root, nil
 	}
-	if n, ok := node.(dirCommon); ok {
+	if n, ok := node.(Dir); ok {
 		return n, nil
 	}
 	return nil, fmt.Errorf("can't map a file at root; must be a directory")

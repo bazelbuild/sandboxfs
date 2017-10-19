@@ -25,7 +25,7 @@ import (
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
-func TestNesting_VirtualIntermediateComponents(t *testing.T) {
+func TestNesting_ScaffoldIntermediateComponents(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/1/2/3/4/5:%ROOT%/subdir")
 	defer state.TearDown(t)
 
@@ -42,19 +42,19 @@ func TestNesting_VirtualIntermediateComponents(t *testing.T) {
 	for _, dir := range []string{"1/2/3/4", "1/2/3", "1/2", "1"} {
 		goldenDir := state.TempPath("golden", dir)
 		if err := os.Chmod(goldenDir, 0555); err != nil {
-			t.Errorf("Failed to set golden dir permissions to 0555 to match virtual dir expectations: %v", err)
+			t.Errorf("Failed to set golden dir permissions to 0555 to match scaffold dir expectations: %v", err)
 		}
 		defer os.Chmod(goldenDir, 0755) // To allow cleanup in tearDown to succeed.
 
-		virtualDir := state.MountPath(dir)
-		if err := utils.DirEquals(goldenDir, virtualDir); err != nil {
+		scaffoldDir := state.MountPath(dir)
+		if err := utils.DirEquals(goldenDir, scaffoldDir); err != nil {
 			t.Error(err)
 		}
 	}
 }
 
-func TestNesting_VirtualIntermediateComponentsAreImmutable(t *testing.T) {
-	// Virtual directories have mode 0555 to signal that they are read-only.  The mode alone
+func TestNesting_ScaffoldIntermediateComponentsAreImmutable(t *testing.T) {
+	// Scaffold directories have mode 0555 to signal that they are read-only.  The mode alone
 	// prevents unprivileged users from writing to those directories, but the mode has no effect
 	// on root accesses.  Therefore, run the test as root to bypass permission checks and
 	// attempt real writes.
@@ -67,11 +67,11 @@ func TestNesting_VirtualIntermediateComponentsAreImmutable(t *testing.T) {
 		err := os.Mkdir(state.MountPath(dir), 0755)
 		pathErr, ok := err.(*os.PathError)
 		if !ok || pathErr.Err != syscall.EPERM {
-			t.Errorf("Want Mkdir to fail inside virtual directory %s with %v; got %v (%v)", dir, syscall.EPERM, err, reflect.TypeOf(err))
+			t.Errorf("Want Mkdir to fail inside scaffold directory %s with %v; got %v (%v)", dir, syscall.EPERM, err, reflect.TypeOf(err))
 		}
 	}
 	if err := os.Mkdir(state.MountPath("1/2/3/foo"), 0755); err != nil {
-		t.Errorf("Want Mkdir to succeed inside non-virtual directory; got %v", err)
+		t.Errorf("Want Mkdir to succeed inside non-scaffold directory; got %v", err)
 	}
 }
 
