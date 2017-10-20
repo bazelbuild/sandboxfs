@@ -217,6 +217,11 @@ func (v *ScaffoldDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDi
 	return fuse.EPERM
 }
 
+// Setattr updates the directory metadata.
+func (v *ScaffoldDir) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
+	return fuse.EPERM
+}
+
 // Symlink creates a new symlink in the given directory.
 func (v *ScaffoldDir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, error) {
 	return nil, fuse.EPERM

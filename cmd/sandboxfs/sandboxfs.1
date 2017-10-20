@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd October 12, 2017
+.Dd October 19, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -194,6 +194,18 @@ Closing the input file causes
 to freeze its configuration and not accept any more requests for
 reconfiguration, but the file system will continue to operate normally until
 it is either unmounted or signaled.
+.Pp
+Reconfiguration requests can be issued at any time.
+However, it is impossible for
+.Nm
+to properly deal with ongoing file system operations or with open file handles
+in a deterministic manner.
+Due to this, the behavior of ongoing file system activity while a
+reconfiguration happens is unspecified but can be assumed to be stable (i.e.
+.Nm
+will not deadlock nor crash).
+As a result, it is highly recommended that you only send reconfiguration
+requests when you know that the file system is quiescent.
 .Pp
 The following flags are recognized by this command:
 .Bl -tag -width XXXX
