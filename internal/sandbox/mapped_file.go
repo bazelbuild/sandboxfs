@@ -125,9 +125,8 @@ func (o *openMappedFile) Release(ctx context.Context, req *fuse.ReleaseRequest) 
 	return fuseErrno(o.nativeFile.Close())
 }
 
-// invalidateRecursively clears the kernel cache corresponding to this node,
-// and children if present.
-func (f *MappedFile) invalidateRecursively(server *fs.Server) {
+// invalidate clears the kernel cache corresponding to this file.
+func (f *MappedFile) invalidate(server *fs.Server) {
 	err := server.InvalidateNodeData(f)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", f)
 }

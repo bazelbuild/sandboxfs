@@ -26,9 +26,11 @@ import (
 	"golang.org/x/net/context"
 )
 
+// cacheInvalidator represents a node with kernel cache invalidation abilities.
 type cacheInvalidator interface {
 	fs.Node
-	invalidateRecursively(*fs.Server)
+
+	invalidate(*fs.Server)
 }
 
 // Dir defines the interfaces satisfied by all directory types.
@@ -43,8 +45,7 @@ type Dir interface {
 	fs.NodeRenamer
 	fs.NodeSymlinker
 
-	invalidateRecursively(*fs.Server)
-	invalidateRecursivelyParent(fs.Node, *fs.Server)
+	invalidateEntries(*fs.Server, fs.Node)
 }
 
 // Root is the container for all types that are valid to be at the root level
@@ -60,23 +61,17 @@ func NewRoot(node Dir) *Root {
 
 // Reconfigure resets the filesystem tree to the tree pointed to by root.
 func (r *Root) Reconfigure(server *fs.Server, root Dir) {
-	// NOTE: Double invalidation is done because we want to invalidate cache of 2 things.
-	// 1. The things that were present in the previous tree, and are no longer available.
-	// 2. The things that were returning ENOENT previously, but are available now.
-	// The first invalidation is recursively called on the old tree. The second
-	// invalidation is called on the tree when it has been updated.
-	r.invalidateRecursively(server)
-	r.Dir = root
-	r.invalidateRecursively(server)
-}
-
-// invalidateRecursively clears kernel cache of itself, the embedded node and all
-// its children recursively.
-func (r *Root) invalidateRecursively(server *fs.Server) {
 	err := server.InvalidateNodeData(r)
-	logCacheInvalidationError(err, "Could not invalidate node cache: ", r)
-	r.Dir.invalidateRecursivelyParent(r, server)
-	r.Dir.invalidateRecursively(server)
+	logCacheInvalidationError(err, "Could not invalidate root: ", r)
+
+	// Invalidate the cache of the entries that are present before reconfiguration. This
+	// essentially gets rid of entries that will be no longer available.
+	r.Dir.invalidateEntries(server, r)
+
+	r.Dir = root
+
+	// Invalidate the cache of entries that were previously returning ENOENT.
+	r.Dir.invalidateEntries(server, r)
 }
 
 // Rename delegates the Rename operation to the underlying node.

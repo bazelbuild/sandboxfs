@@ -164,24 +164,24 @@ func (v *ScaffoldDir) lookup(name string) (fs.Node, error) {
 	return nil, fuseErrno(syscall.ENOENT)
 }
 
-// invalidateRecursively clears the kernel cache corresponding to this node,
-// and children if present.
-func (v *ScaffoldDir) invalidateRecursively(server *fs.Server) {
-	v.invalidateRecursivelyParent(v, server)
-}
-
-// invalidateRecursivelyParent calls cache invalidations, using a different
-// parent for the entry invalidations (since other types like Root may wrap
-// over ScaffoldDir, and would be the true parent as far as the kernel is
-// concerned).
-func (v *ScaffoldDir) invalidateRecursivelyParent(parent fs.Node, server *fs.Server) {
+// invalidate clears the kernel cache for this directory and all of its entries.
+func (v *ScaffoldDir) invalidate(server *fs.Server) {
 	err := server.InvalidateNodeData(v)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", v)
 
+	v.invalidateEntries(server, v)
+}
+
+// invalidateEntries clears the kernel cache for all entries that descend from this directory.
+//
+// The identity parameter indicates who the real owner of the entries is from the point of view of
+// the FUSE API. In the general case, identity will match v, but in the case of the root directory,
+// identity will be that of the Root node.
+func (v *ScaffoldDir) invalidateEntries(server *fs.Server, identity fs.Node) {
 	invalidate := func(name string, node cacheInvalidator) {
-		err := server.InvalidateEntry(parent, name)
-		logCacheInvalidationError(err, "Could not invalidate node entry: ", parent, name)
-		node.invalidateRecursively(server)
+		err := server.InvalidateEntry(identity, name)
+		logCacheInvalidationError(err, "Could not invalidate node entry: ", identity, name)
+		node.invalidate(server)
 	}
 
 	for name, node := range v.mappedChildren {

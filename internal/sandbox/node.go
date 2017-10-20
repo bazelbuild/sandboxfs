@@ -36,26 +36,29 @@ type BaseNode struct {
 // Node defines the properties common to every node in the filesystem tree.
 type Node interface {
 	fs.Node
+
 	// Inode returns the inode number for the given node.
 	Inode() uint64
+
 	// UnderlyingID returns the pair {device number, inode} for the
 	// file/directory corresponding to the node in the underlying filesystem.
 	UnderlyingID() DevInoPair
+
 	// Dirent returns the directory entry for the node on which it is
 	// called.
 	// The node's name is the basename of the directory entry (no path components),
 	// and needs to be passed in because it is not stored within the node itself.
 	Dirent(name string) fuse.Dirent
+
 	// SetUnderlyingPath changes the Node's underlying path to the specified
 	// value.
 	SetUnderlyingPath(path string)
+
 	// UnderlyingPath returns the Node's path in the underlying filesystem.
 	UnderlyingPath() string
-	// invalidateRecursively sends kernel request to clear cache corresponding to
-	// this node, and children if present.
-	// NOTE: invalidateRecursively ignores errors because we can't do anything if
-	// the node is not cached or if kernel doesn't support cache invalidation.
-	invalidateRecursively(*fs.Server)
+
+	// invalidate clears the kernel cache for this node.
+	invalidate(*fs.Server)
 }
 
 // DevInoPair uniquely identifies a file outside the sandboxfs.

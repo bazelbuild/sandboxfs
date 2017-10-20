@@ -56,9 +56,8 @@ func (s *MappedSymlink) Dirent(name string) fuse.Dirent {
 	}
 }
 
-// invalidateRecursively clears the kernel cache corresponding to this node,
-// and children if present.
-func (s *MappedSymlink) invalidateRecursively(server *fs.Server) {
+// invalidate clears the kernel cache corresponding to this symlink.
+func (s *MappedSymlink) invalidate(server *fs.Server) {
 	err := server.InvalidateNodeData(s)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", s)
 }

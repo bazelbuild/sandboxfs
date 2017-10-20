@@ -387,19 +387,20 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 	return baseChild
 }
 
-// invalidateRecursively clears the kernel cache corresponding to this node,
-// and children if present.
-func (d *MappedDir) invalidateRecursively(server *fs.Server) {
-	d.invalidateRecursivelyParent(d, server)
-}
-
-// invalidateRecursivelyParent calls cache invalidations, using a different
-// parent for the entry invalidations (since other types like Root may wrap
-// over MappedDir, and would be the true parent as far as the kernel is concerned).
-func (d *MappedDir) invalidateRecursivelyParent(parent fs.Node, server *fs.Server) {
+// invalidate clears the kernel cache for this directory and all of its entries.
+func (d *MappedDir) invalidate(server *fs.Server) {
 	err := server.InvalidateNodeData(d)
 	logCacheInvalidationError(err, "Could not invalidate node cache: ", d)
 
+	d.invalidateEntries(server, d)
+}
+
+// invalidateEntries clears the kernel cache for all entries that descend from this directory.
+//
+// The identity parameter indicates who the real owner of the entries is from the point of view of
+// the FUSE API. In the general case, identity will match v, but in the case of the root directory,
+// identity will be that of the Root node.
+func (d *MappedDir) invalidateEntries(server *fs.Server, identity fs.Node) {
 	d.mu.Lock()
 	entries := make(map[string]cacheInvalidator)
 	for name, node := range d.mappedChildren {
@@ -414,8 +415,8 @@ func (d *MappedDir) invalidateRecursivelyParent(parent fs.Node, server *fs.Serve
 	d.mu.Unlock()
 
 	for name, node := range entries {
-		err := server.InvalidateEntry(parent, name)
-		logCacheInvalidationError(err, "Could not invalidate node entry: ", parent, name)
-		node.invalidateRecursively(server)
+		err := server.InvalidateEntry(identity, name)
+		logCacheInvalidationError(err, "Could not invalidate node entry: ", identity, name)
+		node.invalidate(server)
 	}
 }
