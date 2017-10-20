@@ -15,9 +15,12 @@
 package integration
 
 import (
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
+	"sort"
 	"syscall"
 	"testing"
 
@@ -136,6 +139,59 @@ func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 	}
 	if !utils.MatchesRegexp(wantStderr, stderr) {
 		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
+	}
+}
+
+func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/dir:%ROOT%/dir", "-read_only_mapping=/scaffold/abc:%ROOT%/dir")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("mapped-dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("mapped-file"), 0644, "")
+	utils.MustMkdirAll(t, state.RootPath("dir/mapped-dir-2"), 0755)
+	utils.MustWriteFile(t, state.RootPath("dir/mapped-file-2"), 0644, "")
+
+	data := []struct {
+		name string
+
+		dir       string
+		wantNames []string // Must be lexicographically sorted.
+	}{
+		{"Root", "/", []string{"dir", "mapped-dir", "mapped-file", "scaffold"}},
+		{"MappedDir", "/dir", []string{"mapped-dir-2", "mapped-file-2"}},
+		{"ScaffoldDir", "/scaffold", []string{"abc"}},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := state.MountPath(d.dir)
+
+			handle, err := os.OpenFile(path, os.O_RDONLY, 0)
+			if err != nil {
+				t.Fatalf("Failed to open directory %s: %v", path, err)
+			}
+			defer handle.Close()
+
+			// Read the contents of the directory a few times and ensure they are valid
+			// every time.  Keeping the handle open used to cause subsequent reads to be
+			// incomplete because the open file descriptor wouldn't be rewound. Trying
+			// twice should be sufficient but it doesn't hurt to try a few more times.
+			for i := 0; i < 5; i++ {
+				dirents, err := ioutil.ReadDir(path)
+				if err != nil {
+					t.Fatalf("Failed to read contents of directory %s: %v", path, err)
+				}
+
+				var names []string
+				for _, dirent := range dirents {
+					names = append(names, dirent.Name())
+				}
+				sort.Strings(names)
+
+				if !reflect.DeepEqual(names, d.wantNames) {
+					t.Errorf("Got entries %v for directory %s during iteration %d; want %v", names, path, i, d.wantNames)
+				}
+			}
+		})
 	}
 }
 

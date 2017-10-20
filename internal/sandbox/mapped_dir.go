@@ -50,9 +50,29 @@ type MappedDir struct {
 }
 
 // openMappedDir is a handle returned when a directory is opened.
+//
+// Note that the kernel can share open directory handles to serve different Readdir requests (even
+// from different processes). In particular, this behavior was observed on macOS: if the directory
+// is kept open while doing Readdir operations, those Readdir requests will reuse the same file
+// handle. This poses difficulties because os.Readdir does not read from the beginning of the
+// directory: we must make sure to rewind the handle before actually reading from it (and thus
+// perform both operations exclusively). Failure to do so causes repeated Readdir operations to
+// return incomplete data.
 type openMappedDir struct {
+	// dir holds a pointer to the node from which this handle was opened.
+	dir *MappedDir
+
+	// mu synchronizes seeks and reads to the underlying directory so that we can always offer a
+	// consistent view of its contents.
+	mu sync.Mutex
+
+	// nativeDir represents the OS-level open file handle for the directory.
 	nativeDir *os.File
-	dir       *MappedDir
+
+	// needRewind is true when we have already read the contents of the directory at least once.
+	// We track this to avoid an unnecessary Seek system call on the file descriptor when the
+	// descriptor is used exactly once, which is the vast majority of the cases.
+	needRewind bool
 }
 
 var _ fs.Handle = (*openMappedDir)(nil)
@@ -86,7 +106,10 @@ func (d *MappedDir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.Op
 	if err != nil {
 		return nil, fuseErrno(err)
 	}
-	return &openMappedDir{openedDir, d}, nil
+	return &openMappedDir{
+		dir:       d,
+		nativeDir: openedDir,
+	}, nil
 }
 
 // Setattr updates the directory metadata.
@@ -151,10 +174,17 @@ func (d *MappedDir) Dirent(name string) fuse.Dirent {
 
 // ReadDirAll lists all files/directories inside a directory.
 func (o *openMappedDir) ReadDirAll(context.Context) ([]fuse.Dirent, error) {
+	o.mu.Lock()
+	if o.needRewind {
+		o.nativeDir.Seek(0, os.SEEK_SET)
+	}
 	dirents, err := o.nativeDir.Readdir(-1)
 	if err != nil {
+		o.mu.Unlock()
 		return nil, fuseErrno(err)
 	}
+	o.needRewind = true
+	o.mu.Unlock()
 
 	done := make(map[string]bool)
 

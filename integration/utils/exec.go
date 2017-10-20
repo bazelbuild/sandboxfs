@@ -366,6 +366,14 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 	} else {
 		MustWriteFile(t, filepath.Join(root, ".cookie"), 0444, "")
 		cmd, stdin, err = startBackground(".cookie", stdout, stderr, user, realArgs...)
+		if err := os.Remove(filepath.Join(root, ".cookie")); err != nil {
+			t.Errorf("Failed to delete the startup cookie file: %v", err)
+			// Continue text execution.  Failing hard here is a difficult condition to
+			// handle because sandboxfs is already running and we'd need to clean it up.
+			// It's easier to just let the test run, and it's actually beneficial to do
+			// so: many tests will work even if the removal failed, so the few tests
+			// that fail will hint at to what may be wrong.
+		}
 	}
 	if err != nil {
 		t.Fatalf("Failed to start sandboxfs: %v", err)
