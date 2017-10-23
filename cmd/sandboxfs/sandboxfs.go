@@ -397,7 +397,11 @@ Flags:
 		// TODO(jmmv): Should be user-customizable.
 		fuse.FSName("sandboxfs"),
 		fuse.Subtype("sandboxfs"),
-		fuse.LocalVolume(),
+
+		// Do not enable fuse.LocalVolume(): doing so causes macOS to issue additional
+		// operations on the file system (e.g. stats on hidden files and tree indexing),
+		// which are detrimental to performance. If you feel like you have to add this
+		// option, it should probably be user-customizable.
 	}
 	if allow.Option != nil {
 		options = append(options, allow.Option)
