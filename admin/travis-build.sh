@@ -17,7 +17,6 @@ set -e -u -x
 
 go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
-go test -v -timeout 60s github.com/bazelbuild/sandboxfs/internal/sandbox
 SANDBOXFS="$(pwd)/sandboxfs" \
     go test -v -timeout 600s github.com/bazelbuild/sandboxfs/integration
 
