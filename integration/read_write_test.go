@@ -532,4 +532,45 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	})
 }
 
-// TODO(jmmv): Implement and test hard links.
+func TestReadWrite_HardLinksNotSupported(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%", "-read_write_mapping=/dir:%ROOT%/dir", "-read_write_mapping=/scaffold/name3:%ROOT%/dir2")
+	defer state.TearDown(t)
+
+	utils.MustWriteFile(t, state.RootPath("name1"), 0644, "")
+	utils.MustWriteFile(t, state.RootPath("dir/name2"), 0644, "")
+
+	data := []struct {
+		name string
+
+		dir       string // Directory on which to try the link operation.
+		entryName string // Name of the entry to link.
+	}{
+		{"Root", "", "name1"},
+		{"MappedDir", "dir", "name2"},
+		{"ScaffoldDir", "scaffold", "name3"},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := state.MountPath(d.dir, d.entryName)
+
+			fileInfo, err := os.Lstat(path)
+			if err != nil {
+				t.Fatalf("Failed to stat %s before link attempt: %v", path, err)
+			}
+			wantNlink := fileInfo.Sys().(*syscall.Stat_t).Nlink
+
+			if err := os.Link(path, state.MountPath(d.dir, "new-name")); !os.IsPermission(err) {
+				t.Errorf("Want Link of %s to fail with permission error; got %v", path, err)
+			}
+
+			fileInfo, err = os.Lstat(path)
+			if err != nil {
+				t.Fatalf("Failed to stat %s after link attempt: %v", path, err)
+			}
+			stat := fileInfo.Sys().(*syscall.Stat_t)
+			if stat.Nlink != wantNlink {
+				t.Errorf("Want hard link count for %s to remain %d after failed link operation; got %d", path, wantNlink, stat.Nlink)
+			}
+		})
+	}
+}

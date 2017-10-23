@@ -219,6 +219,11 @@ func (o *openMappedDir) Release(_ context.Context, req *fuse.ReleaseRequest) err
 	return fuseErrno(o.nativeDir.Close())
 }
 
+// Link creates a hard link.
+func (d *MappedDir) Link(ctx context.Context, req *fuse.LinkRequest, old fs.Node) (fs.Node, error) {
+	return nil, fuseErrno(fuse.EPERM)
+}
+
 // Mkdir creates a new directory in the underlying file system.
 func (d *MappedDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
 	if err := d.BaseNode.WantToWrite(); err != nil {

@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd October 19, 2017
+.Dd October 22, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -323,6 +323,8 @@ and
 The following are known limitations of
 .Nm :
 .Bl -bullet
+.It
+Hard links are not supported.
 .It
 On macOS, mapping the same external file or directory under two different
 locations within the mount point results in undefined behavior.

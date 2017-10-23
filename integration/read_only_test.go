@@ -232,6 +232,8 @@ func TestReadOnly_Attributes(t *testing.T) {
 			t.Errorf("Got ctime %v for %s, want %v", sandbox.Ctime(innerStat), innerPath, sandbox.Ctime(outerStat))
 		}
 
+		// Even though we ignore underlying link counts, we expect these internal files to
+		// match the external ones because we did not create additional hard links for them.
 		if innerStat.Nlink != outerStat.Nlink {
 			t.Errorf("Got nlink %v for %s, want %v", innerStat.Nlink, innerPath, outerStat.Nlink)
 		}
@@ -356,6 +358,42 @@ func TestReadOnly_Access(t *testing.T) {
 	}
 }
 
+func TestReadOnly_HardLinkCountsAreFixed(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/scaffold/dir:%ROOT%/dir")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("no-links"), 0644, "")
+	utils.MustWriteFile(t, state.RootPath("name1"), 0644, "")
+	if err := os.Link(state.RootPath("name1"), state.RootPath("name2")); err != nil {
+		t.Fatalf("Failed to create hard link in underlying file system: %v", err)
+	}
+
+	data := []struct {
+		name string
+
+		file      string
+		wantNlink int
+	}{
+		{"MappedDir", "dir", 2},
+		{"FileWithOnlyOneName", "no-links", 1},
+		{"FileWithManyNames", "name1", 1},
+		{"ScaffoldDir", "scaffold", 2},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			fileInfo, err := os.Lstat(state.MountPath(d.file))
+			if err != nil {
+				t.Fatalf("Failed to stat %s in mount point: %v", d.file, err)
+			}
+			stat := fileInfo.Sys().(*syscall.Stat_t)
+			if int(stat.Nlink) != d.wantNlink {
+				t.Errorf("Want hard link count for %s to be %d; got %d", d.file, d.wantNlink, stat.Nlink)
+			}
+		})
+	}
+}
+
 // TODO(jmmv): Must have tests to ensure that read-only mappings are, well, read only.
 
 // TODO(jmmv): Should have tests to check what happens when the underlying files are modified
@@ -364,3 +402,7 @@ func TestReadOnly_Access(t *testing.T) {
 
 // TODO(jmmv): Must have tests to verify that files are valid mapping targets, which is what we
 // promise users in the documentation.
+
+// TODO(jmmv): Need to have a test to verify all stat(2) properties of a ScaffoldDir.  The addition
+// of the HardLinkCountsAreFixed test above showed that the data was bogus for the link count, so
+// it's likely other details are bogus as well.

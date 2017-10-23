@@ -209,19 +209,24 @@ func fillAttrInfo(a *fuse.Attr, f os.FileInfo) {
 	a.Uid = s.Uid
 	a.Gid = s.Gid
 
+	if f.IsDir() {
+		// Directories need to have their link count explicitly set to 2 (and no more than 2
+		// because we don't support hard links on directories) to represent the "." and ".."
+		// names. FUSE handles those two names internally which means that we never get
+		// called back to handle their "creation".
+		a.Nlink = 2
+	} else {
+		a.Nlink = 1
+	}
+
 	// Casting before comparison is necessary below because the type of some stat
 	// fields have different types on different platforms.
-	// For example: Nlink is uint16 on Darwin and MaxUint32 is a constant (untyped).
+	// For example: Rdev is uint16 on Darwin and MaxUint32 is a constant (untyped).
 	// So, before comparison, Go tries to convert MaxUint32 to an uint16 and, since
 	// that is not possible, compilation fails.
 	//
 	// Because uint64 has the maximum range of positive integers, casting to uint64
 	// before comparison is safe in all cases.
-
-	if uint64(s.Nlink) > math.MaxUint32 { // See comment above for cast details.
-		panic(fmt.Sprintf("Nlink derived from filesystem was larger than MaxUint32: %v", s.Nlink))
-	}
-	a.Nlink = uint32(s.Nlink) // uint64 -> uint32
 
 	if uint64(s.Rdev) > math.MaxUint32 { // See comment above for cast details.
 		panic(fmt.Sprintf("Rdev derived from filesystem was larger than MaxUint32: %v", s.Rdev))

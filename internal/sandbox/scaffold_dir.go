@@ -60,6 +60,13 @@ func newScaffoldDir() *ScaffoldDir {
 func (v *ScaffoldDir) Attr(_ context.Context, a *fuse.Attr) error {
 	a.Inode = v.inode
 	a.Mode = 0555 | os.ModeDir
+
+	// Directories need to have their link count explicitly set to 2 (and no more than 2 because
+	// we don't support hard links on directories) to represent the "." and ".."  names. FUSE
+	// handles those two names internally which means that we never get called back to handle
+	// their "creation".
+	a.Nlink = 2
+
 	return nil
 }
 
@@ -195,6 +202,11 @@ func (v *ScaffoldDir) invalidateEntries(server *fs.Server, identity fs.Node) {
 // Create creates a new file in the given directory.
 func (v *ScaffoldDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
 	return nil, nil, fuse.EPERM
+}
+
+// Link creates a hard link.
+func (v *ScaffoldDir) Link(ctx context.Context, req *fuse.LinkRequest, old fs.Node) (fs.Node, error) {
+	return nil, fuseErrno(fuse.EPERM)
 }
 
 // Mkdir creates a new directory in the given directory.

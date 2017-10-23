@@ -33,13 +33,14 @@ type cacheInvalidator interface {
 type Dir interface {
 	fs.Node
 	fs.NodeCreater
-	fs.NodeStringLookuper
+	fs.NodeLinker
 	fs.NodeMkdirer
 	fs.NodeMknoder
 	fs.NodeOpener
 	fs.NodeRemover
 	fs.NodeRenamer
 	fs.NodeSetattrer
+	fs.NodeStringLookuper
 	fs.NodeSymlinker
 
 	invalidateEntries(*fs.Server, fs.Node)
@@ -120,6 +121,11 @@ func (r *Root) Attr(ctx context.Context, a *fuse.Attr) error {
 // Create delegates the Create operation to the backing directory node.
 func (r *Root) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
 	return r.getDir().Create(ctx, req, resp)
+}
+
+// Link creates a hard link.
+func (r *Root) Link(ctx context.Context, req *fuse.LinkRequest, old fs.Node) (fs.Node, error) {
+	return r.getDir().Link(ctx, req, old)
 }
 
 // Lookup delegates the Lookup operation to the backing directory node.
