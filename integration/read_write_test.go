@@ -48,6 +48,61 @@ func TestReadWrite_CreateFile(t *testing.T) {
 	}
 }
 
+func TestReadWrite_Remove(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%", "-read_write_mapping=/mapped-dir:%ROOT%/mapped-dir", "-read_write_mapping=/scaffold/dir:%ROOT%/scaffold-dir")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
+	utils.MustMkdirAll(t, state.RootPath("mapped-dir"), 0755) // Clobbered by mapping.
+
+	t.Run("MappedDirCannotBeRemoved", func(t *testing.T) {
+		if err := os.Remove(state.MountPath("mapped-dir")); !os.IsPermission(err) {
+			t.Errorf("Want removal of mapped directory to return permission error; got %v", err)
+		}
+
+		if _, err := os.Lstat(state.MountPath("mapped-dir")); err != nil {
+			t.Errorf("Want mapped directory to remain within the mount point; got %v", err)
+		}
+
+		if _, err := os.Lstat(state.RootPath("mapped-dir")); err != nil {
+			t.Errorf("Want entry clobbered by mapping to remain on disk (no Lstat error); got %v", err)
+		}
+	})
+
+	t.Run("ScaffoldDirCannotBeRemoved", func(t *testing.T) {
+		if err := os.Remove(state.MountPath("scaffold")); !os.IsPermission(err) {
+			t.Errorf("Want removal of scaffold directory to return permission error; got %v", err)
+		}
+
+		if _, err := os.Lstat(state.MountPath("scaffold")); err != nil {
+			t.Errorf("Want scaffold directory to remain within the mount point; got %v", err)
+		}
+	})
+
+	t.Run("FileDoesNotExist", func(t *testing.T) {
+		if err := os.Remove(state.MountPath("non-existent")); !os.IsNotExist(err) {
+			t.Errorf("Want removal of non-existent file to return non-existence error; got %v", err)
+		}
+	})
+
+	t.Run("EntryExists", func(t *testing.T) {
+		for _, name := range []string{"dir", "file"} {
+			if err := os.Remove(state.MountPath(name)); err != nil {
+				t.Errorf("Want removal of existent file to succeed; got %v", err)
+			}
+
+			if _, err := os.Lstat(state.MountPath(name)); !os.IsNotExist(err) {
+				t.Errorf("Want stat of removed file within mount point to report non-existence error; got %v", err)
+			}
+
+			if _, err := os.Lstat(state.RootPath(name)); !os.IsNotExist(err) {
+				t.Errorf("Want stat of removed file in the underlying directory to report non-existence error; got %v", err)
+			}
+		}
+	})
+}
+
 func TestReadWrite_RewriteFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)

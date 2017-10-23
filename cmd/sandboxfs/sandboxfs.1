@@ -350,4 +350,15 @@ and fatal signals will cause
 .Nm
 to leak the mount point (possibly irrecoverably without a reboot because of
 kernel bugs).
+.It
+Any explicitly-mapped directories and any scaffold directories (those
+directories that appear to represent intermediate path components that do not
+exist anywhere else in the file system) cannot be removed.
+Attempts to remove them will result in a
+.Dq permission denied
+error.
+While it could be possible to implement some different behavior, this is what
+.Nm
+currently exposes.
+You may or may not consider this to be a bug.
 .El

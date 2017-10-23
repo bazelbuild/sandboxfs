@@ -374,7 +374,24 @@ func (d *MappedDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 		return err
 	}
 
-	return fuseErrno(os.Remove(filepath.Join(d.underlyingPath, req.Name)))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if _, ok := d.mappedChildren[req.Name]; ok {
+		return fuse.EPERM
+	}
+	if _, ok := d.baseChildren[req.Name]; ok {
+		err := os.Remove(filepath.Join(d.underlyingPath, req.Name))
+		if err == nil {
+			delete(d.baseChildren, req.Name)
+		}
+		return fuseErrno(err)
+	}
+	if _, ok := d.scaffoldDirs[req.Name]; ok {
+		return fuse.EPERM
+	}
+
+	return fuse.ENOENT
 }
 
 // childForNodeType intializes a new child node based on the type in mode.
