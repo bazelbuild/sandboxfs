@@ -41,12 +41,6 @@ func (s *MappedSymlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (
 	return link, fuseErrno(err)
 }
 
-// Setattr updates the symlink metadata.
-func (s *MappedSymlink) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
-	_, err := s.BaseNode.Setattr(ctx, req)
-	return err
-}
-
 // Dirent returns the directory entry corresponding to the symlink.
 func (s *MappedSymlink) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{

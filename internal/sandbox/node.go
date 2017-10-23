@@ -18,19 +18,71 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sync"
 	"syscall"
+	"time"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
 )
 
+const (
+	// attrValidTime is the default node validity period.
+	//
+	// TODO(jmmv): This should probably be customizable but, for now, just use the same default
+	// as the FUSE library uses when Getattr is not implemented.
+	attrValidTime = 1 * time.Minute
+)
+
 // BaseNode is a common type for all nodes: files, directories, pipes, symlinks, etc.
 type BaseNode struct {
-	inode          uint64
+	// underlyingPath contains the path on the file system that backs this node.
 	underlyingPath string
-	underlyingID   DevInoPair
-	writable       bool
+
+	// underlyingID is a unique identifier for the underlying file that backs this node.
+	underlyingID DevInoPair
+
+	// writable indicates whether this is a node for a read-only mapping or for a read/write
+	// one.
+	//
+	// TODO(jmmv): It'd be nice if this property was represented by different nodes
+	// (e.g. separate ReadOnlyMappedDir and ReadWriteMappedDir) so that, after instantiation,
+	// the node wouldn't need to keep checking if it's writable or not.
+	writable bool
+
+	// mu protects accesses and updates to the node's metadata below.
+	mu sync.Mutex
+
+	// attr contains the node metadata.
+	//
+	// The node metadata is first populated with details from the underlying file system but is
+	// then kept up-to-date in-memory with any updates that happen to the file
+	// system. Maintaining this data in memory is necessary so that Setattr can apply partial
+	// updates to node ownerships and times.
+	//
+	// It is possible to access the inode number (through the Inode member function) without
+	// holding "mu" because the inode number is immutable throughout the lifetime of the node.
+	attr fuse.Attr
+
+	// deleted tracks whether the node has been deleted or not.
+	//
+	// We need to track this explicitly because nodes can be alive when open handles exist for
+	// them even when all the directory entries pointing at them are unlinked. In that case,
+	// further node updates must happen in-memory only and cannot be propagated to the
+	// underlying file system -- because the entry there is gone.
+	//
+	// TODO(jmmv): This is insufficient to implement fully-correct semantics. Consider the case
+	// of a file with two hard links in the underlying file system, one mapped through sandboxfs
+	// and one not. If the file within the sandbox was opened, then deleted, and then updated
+	// via any of the f* system calls, the updates should be reflected on disk because the file
+	// is still reachable. Fixing this would involve tracking open handles for every node, which
+	// adds some overhead and needs to be benchmarked before implementing it.
+	//
+	// TODO(jmmv): It *should* be possible to track this using attr.Nlink==0, but: first, an
+	// attempt at doing so didn't work; and, second, macOS doesn't seem to report Nlink as 0
+	// even for real file systems... so maybe this is not true.
+	deleted bool
 }
 
 // Node defines the properties common to every node in the filesystem tree.
@@ -57,6 +109,9 @@ type Node interface {
 	// UnderlyingPath returns the Node's path in the underlying filesystem.
 	UnderlyingPath() string
 
+	// delete tells the node that a directory entry pointing to it has been removed.
+	delete()
+
 	// invalidate clears the kernel cache for this node.
 	invalidate(*fs.Server)
 }
@@ -78,75 +133,161 @@ func fileInfoToID(info os.FileInfo) DevInoPair {
 
 // newBaseNode initializes a new BaseNode with a new inode number.
 func newBaseNode(path string, fileInfo os.FileInfo, writable bool) BaseNode {
+	var attr fuse.Attr
+	attr.Inode = nextInodeNumber()
+	attr.Nlink = 1
+	attr.Valid = attrValidTime
+	fillAttrInfoFromStat(&attr, fileInfo)
+
 	return BaseNode{
-		inode:          nextInodeNumber(),
 		underlyingPath: path,
 		underlyingID:   fileInfoToID(fileInfo),
 		writable:       writable,
+		deleted:        false,
+		attr:           attr,
 	}
 }
 
 // Attr populates 'a' with the file/directory metadata.
 func (n *BaseNode) Attr(_ context.Context, a *fuse.Attr) error {
-	info, err := os.Lstat(n.underlyingPath)
-	if err != nil {
-		return fuseErrno(err)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if !n.deleted {
+		fileInfo, err := os.Lstat(n.underlyingPath)
+		if err != nil {
+			return fuseErrno(err)
+		}
+		fillAttrInfoFromStat(&n.attr, fileInfo)
 	}
-	a.Inode = n.inode
-	fillAttrInfo(a, info)
+	*a = n.attr
 	return nil
 }
 
-// Setattr updates the file metadata. While this is also used by the kernel to communicate file size
-// changes, there is no concept of a size in the base node. As a result, the caller is responsible
-// for handling the size.
-//
-// This function returns two values: the first is a boolean indicating whether the caller should
-// continue trying to apply any attribute changes, and the second carries the first error
-// encountered when doing such changes. (A consequence is that if the first value is false, then
-// the error must be set, but if the first value is true, the error may not be set.)
+// delete tells the node that a directory entry pointing to it has been removed.
+func (n *BaseNode) delete() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.deleted {
+		panic("Cannot delete a node twice; there currently is no support for hard links so this should not have happened")
+	}
+	n.deleted = true
+}
+
+// setattrMode is a helper function for Setattr to handle setting the node's mode.
+// The "mu" lock must be held by the caller.
+func (n *BaseNode) setattrMode(req *fuse.SetattrRequest) error {
+	if !n.deleted {
+		if err := os.Chmod(n.underlyingPath, req.Mode&os.ModePerm); err != nil {
+			return err
+		}
+	}
+	n.attr.Mode = req.Mode
+	return nil
+}
+
+// setattrOwnership is a helper function for Setattr to handle setting the node's UID and GID.
+// The "mu" lock must be held by the caller.
+func (n *BaseNode) setattrOwnership(req *fuse.SetattrRequest) error {
+	var uid uint32
+	if req.Valid.Uid() {
+		uid = req.Uid
+	} else {
+		uid = n.attr.Uid
+	}
+
+	var gid uint32
+	if req.Valid.Gid() {
+		gid = req.Gid
+	} else {
+		gid = n.attr.Gid
+	}
+
+	if !n.deleted {
+		if err := os.Lchown(n.underlyingPath, int(uid), int(gid)); err != nil {
+			return err
+		}
+	}
+	n.attr.Uid = uid
+	n.attr.Gid = gid
+	return nil
+}
+
+// setattrTimes is a helper function for Setattr to handle setting the node's atime and mtime.
+// The "mu" lock must be held by the caller.
+func (n *BaseNode) setattrTimes(req *fuse.SetattrRequest) error {
+	var atime time.Time
+	if req.Valid.Atime() {
+		atime = req.Atime
+	} else {
+		atime = n.attr.Atime
+	}
+
+	var mtime time.Time
+	if req.Valid.Mtime() {
+		mtime = req.Mtime
+	} else {
+		mtime = n.attr.Mtime
+	}
+
+	if !n.deleted {
+		if err := os.Chtimes(n.underlyingPath, atime, mtime); err != nil {
+			return err
+		}
+	}
+	n.attr.Atime = atime
+	n.attr.Mtime = mtime
+	return nil
+}
+
+// setattrSize is a helper function for Setattr to handle setting the node's size.
+// The "mu" lock must be held by the caller.
+func (n *BaseNode) setattrSize(req *fuse.SetattrRequest) error {
+	if !n.deleted {
+		if err := os.Truncate(n.underlyingPath, int64(req.Size)); err != nil {
+			return err
+		}
+	}
+	n.attr.Size = req.Size
+	return nil
+}
+
+// Setattr updates the file metadata.
 //
 // Given how Setattr is used to apply one or more attribute changes to a node, it is impossible to
 // report all encountered errors back to the kernel. As a result, we just capture the first error
-// and return that, ignoring the rest. The caller should do the same when the boolean return value
-// is true.
-func (n *BaseNode) Setattr(_ context.Context, req *fuse.SetattrRequest) (bool, error) {
+// and return that, ignoring the rest.
+func (n *BaseNode) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
 	if err := n.WantToWrite(); err != nil {
-		return false, err
+		return err
 	}
 
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
 	var finalError error
-	setError := func(err error) {
-		if finalError == nil {
+	if req.Valid.Mode() {
+		if err := n.setattrMode(req); err != nil && finalError == nil {
 			finalError = err
 		}
 	}
-
-	if req.Valid.Mode() {
-		if err := os.Chmod(n.underlyingPath, req.Mode&os.ModePerm); err != nil {
-			setError(err)
-		}
-	}
-
 	if req.Valid.Uid() || req.Valid.Gid() {
-		if !(req.Valid.Uid() && req.Valid.Gid()) {
-			panic("don't know how to handle setting only Uid or Gid")
-		}
-		if err := os.Lchown(n.underlyingPath, int(req.Uid), int(req.Gid)); err != nil {
-			setError(err)
+		if err := n.setattrOwnership(req); err != nil && finalError == nil {
+			finalError = err
 		}
 	}
-
 	if req.Valid.Atime() || req.Valid.Mtime() {
-		if !(req.Valid.Atime() && req.Valid.Mtime()) {
-			panic("don't know how to handle setting only atime or mtime")
-		}
-		if err := os.Chtimes(n.underlyingPath, req.Atime, req.Mtime); err != nil {
-			setError(err)
+		if err := n.setattrTimes(req); err != nil && finalError == nil {
+			finalError = err
 		}
 	}
-
-	return true, fuseErrno(finalError)
+	if req.Valid.Size() {
+		if err := n.setattrSize(req); err != nil && finalError == nil {
+			finalError = err
+		}
+	}
+	return fuseErrno(finalError)
 }
 
 // UnderlyingID returns the node's {deviceID, inodeNum} in the underlying filesystem.
@@ -168,7 +309,8 @@ func newNodeForFileInfo(path string, fileInfo os.FileInfo, writable bool) Node {
 
 // Inode returns the node's inode number.
 func (n *BaseNode) Inode() uint64 {
-	return n.inode
+	// Given that the inode is immutable, it's OK to access this property without holding mu.
+	return n.attr.Inode
 }
 
 // WantToWrite returns nil if the node is writable or the error to report back to the kernel
@@ -194,8 +336,12 @@ func (n *BaseNode) UnderlyingPath() string {
 	return n.underlyingPath
 }
 
-// fillAttrInfo manually copies the data from one structure to another.
-func fillAttrInfo(a *fuse.Attr, f os.FileInfo) {
+// fillAttrInfoFromStat populates a fuse.Attr instance with the results of a Stat operation.
+//
+// This does not copy the properties of the node that do not make sense in the sandboxfs context.
+// For example: the inode value and the number of links are details that are internally maintained
+// by sandboxfs and the underlying values have no meaning here.
+func fillAttrInfoFromStat(a *fuse.Attr, f os.FileInfo) {
 	if f.Size() < 0 {
 		panic(fmt.Sprintf("Size derived from filesystem was negative: %v", f.Size()))
 	}

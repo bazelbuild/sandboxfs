@@ -54,24 +54,6 @@ func (f *MappedFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse
 	return &openMappedFile{openedFile, f}, nil
 }
 
-// Setattr updates the file metadata and is also used to communicate file size changes.
-func (f *MappedFile) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
-	ok, finalError := f.BaseNode.Setattr(ctx, req)
-	if !ok {
-		return finalError
-	}
-
-	if req.Valid.Size() {
-		if err := os.Truncate(f.underlyingPath, int64(req.Size)); err != nil {
-			if finalError == nil {
-				finalError = err
-			}
-		}
-	}
-
-	return fuseErrno(finalError)
-}
-
 // Dirent returns the directory entry corresponding to the file.
 func (f *MappedFile) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{

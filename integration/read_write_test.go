@@ -32,6 +32,21 @@ import (
 // read/write mappings are implemented in the same way as read-only mappings, we "cheat" and only
 // test here for the write-specific behaviors.
 
+// openAndDelete opens the given file with the given mode, deletes it, and returns the open file
+// handle.
+func openAndDelete(path string, mode int) (int, error) {
+	fd, err := syscall.Open(path, mode, 0)
+	if err != nil {
+		return -1, fmt.Errorf("failed to open %s: %v", path, err)
+	}
+
+	if err := os.Remove(path); err != nil {
+		return -1, fmt.Errorf("failed to remove %s: %v", path, err)
+	}
+
+	return fd, nil
+}
+
 func TestReadWrite_CreateFile(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
@@ -129,6 +144,52 @@ func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
 	}
 }
 
+func TestReadWrite_FstatOnDeletedNode(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
+
+	data := []struct {
+		name         string
+		relativePath string
+	}{
+		{"MappedDir", "dir"},
+		{"MappedFile", "file"},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := state.MountPath(d.relativePath)
+
+			var wantStat syscall.Stat_t
+			if err := syscall.Stat(path, &wantStat); err != nil {
+				t.Fatalf("Fstat failed on golden entry: %v", err)
+			}
+
+			fd, err := openAndDelete(path, syscall.O_RDONLY)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fd)
+
+			var stat syscall.Stat_t
+			if err := syscall.Fstat(fd, &stat); err != nil {
+				t.Fatalf("Fstat failed on deleted entry: %v", err)
+			}
+			// TODO(jmmv): It's not true that the stats should be fully equal.  In
+			// particular, Nlink should have decreased to zero after deletion... but we
+			// currently do not explicitly do this and the behavior seems to be
+			// system-dependent.  So, for now, just ignore that field.
+			stat.Nlink = 0
+			wantStat.Nlink = 0
+			if stat != wantStat {
+				t.Errorf("Got stat %v; want %v", stat, wantStat)
+			}
+		})
+	}
+}
+
 func TestReadWrite_Truncate(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
@@ -142,6 +203,38 @@ func TestReadWrite_Truncate(t *testing.T) {
 
 	if err := utils.FileEquals(state.MountPath("file"), wantContent); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestReadWrite_FtruncateOnDeletedFile(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	originalContent := "very long contents"
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, originalContent)
+
+	fd, err := openAndDelete(state.MountPath("file"), syscall.O_RDWR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+
+	wantContent := "very"
+	if err := syscall.Ftruncate(fd, int64(len(wantContent))); err != nil {
+		t.Fatalf("Ftruncate on deleted file failed: %v", err)
+	}
+
+	buf := make([]byte, len(originalContent))
+	n, err := syscall.Read(fd, buf)
+	if err != nil {
+		t.Fatalf("Failed to read from truncated file: %v", err)
+	}
+	if n != len(wantContent) {
+		t.Errorf("Got %d bytes from truncated file; want %d", n, len(wantContent))
+	}
+	buf = buf[:n]
+	if string(buf) != wantContent {
+		t.Errorf("Got content %s; want %s", string(buf), wantContent)
 	}
 }
 
@@ -410,6 +503,45 @@ func TestReadWrite_Chmod(t *testing.T) {
 	})
 }
 
+func TestReadWrite_FchmodOnDeletedNode(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
+
+	data := []struct {
+		name         string
+		relativePath string
+	}{
+		{"MappedDir", "dir"},
+		{"MappedFile", "file"},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := state.MountPath(d.relativePath)
+
+			fd, err := openAndDelete(path, syscall.O_RDONLY)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fd)
+
+			if err := syscall.Fchmod(fd, 0444); err != nil {
+				t.Fatalf("Fchmod failed on deleted entry: %v", err)
+			}
+
+			var stat syscall.Stat_t
+			if err := syscall.Fstat(fd, &stat); err != nil {
+				t.Fatalf("Fstat failed on deleted entry: %v", err)
+			}
+			if stat.Mode&^syscall.S_IFMT != 0444 {
+				t.Errorf("Want file mode %o, got %o", 0444, stat.Mode&^syscall.S_IFMT)
+			}
+		})
+	}
+}
+
 func TestReadWrite_Chown(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to change test file ownership")
 
@@ -474,6 +606,47 @@ func TestReadWrite_Chown(t *testing.T) {
 
 	if err := checkOwners("target", targetStat.Uid, targetStat.Gid); err != nil {
 		t.Errorf("Ownership of symlink target was modified but shouldn't have been: %v", err)
+	}
+}
+
+func TestReadWrite_FchownOnDeletedNode(t *testing.T) {
+	utils.RequireRoot(t, "Requires root privileges to change test file ownership")
+
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
+
+	data := []struct {
+		name         string
+		relativePath string
+	}{
+		{"MappedDir", "dir"},
+		{"MappedFile", "file"},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := state.MountPath(d.relativePath)
+
+			fd, err := openAndDelete(path, syscall.O_RDONLY)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fd)
+
+			if err := syscall.Fchown(fd, 10, 20); err != nil {
+				t.Fatalf("Fchown failed on deleted entry: %v", err)
+			}
+
+			var stat syscall.Stat_t
+			if err := syscall.Fstat(fd, &stat); err != nil {
+				t.Fatalf("Fstat failed on deleted entry: %v", err)
+			}
+			if stat.Uid != 10 || stat.Gid != 20 {
+				t.Errorf("Want uid 10, gid 20; got uid %d, gid %d", stat.Uid, stat.Gid)
+			}
+		})
 	}
 }
 
@@ -585,6 +758,52 @@ func TestReadWrite_Chtimes(t *testing.T) {
 			t.Error(err)
 		}
 	})
+}
+
+func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
+
+	someAtime := time.Date(2010, 2, 20, 10, 30, 0, 0, time.UTC)
+	someMtime := time.Date(1980, 3, 26, 12, 10, 0, 0, time.UTC)
+
+	data := []struct {
+		name         string
+		relativePath string
+	}{
+		{"MappedDir", "dir"},
+		{"MappedFile", "file"},
+	}
+	for _, d := range data {
+		t.Run(d.name, func(t *testing.T) {
+			path := state.MountPath(d.relativePath)
+
+			fd, err := openAndDelete(path, syscall.O_RDONLY)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fd)
+
+			tv := []syscall.Timeval{
+				syscall.Timeval{Sec: int64(someAtime.Unix())},
+				syscall.Timeval{Sec: int64(someMtime.Unix())},
+			}
+			if err := syscall.Futimes(fd, tv); err != nil {
+				t.Fatalf("Fchown failed on deleted entry: %v", err)
+			}
+
+			var stat syscall.Stat_t
+			if err := syscall.Fstat(fd, &stat); err != nil {
+				t.Fatalf("Fstat failed on deleted entry: %v", err)
+			}
+			if !someAtime.Equal(sandbox.Atime(&stat)) || !someMtime.Equal(sandbox.Mtime(&stat)) {
+				t.Errorf("Want atime %v, mtime %v; got atime %v, mtime %v", someAtime, someMtime, sandbox.Atime(&stat), sandbox.Mtime(&stat))
+			}
+		})
+	}
 }
 
 func TestReadWrite_HardLinksNotSupported(t *testing.T) {

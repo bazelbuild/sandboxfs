@@ -112,12 +112,6 @@ func (d *MappedDir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.Op
 	}, nil
 }
 
-// Setattr updates the directory metadata.
-func (d *MappedDir) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *fuse.SetattrResponse) error {
-	_, err := d.BaseNode.Setattr(ctx, req)
-	return err
-}
-
 // lookup looks for a particular node in all the children of d.
 // NOTE: lookup assumes that the caller function does not hold lock mu on MappedDir.
 func (d *MappedDir) lookup(name string) (fs.Node, error) {
@@ -346,7 +340,7 @@ func (d *MappedDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir 
 
 	// Ensure lock ordering to prevent deadlocks.
 	first, second := d, nd
-	if first.inode > second.inode {
+	if first.Inode() > second.Inode() {
 		first, second = second, first
 	}
 	first.mu.Lock()
@@ -383,6 +377,7 @@ func (d *MappedDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	if _, ok := d.baseChildren[req.Name]; ok {
 		err := os.Remove(filepath.Join(d.underlyingPath, req.Name))
 		if err == nil {
+			d.baseChildren[req.Name].delete()
 			delete(d.baseChildren, req.Name)
 		}
 		return fuseErrno(err)

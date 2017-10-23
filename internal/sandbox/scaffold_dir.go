@@ -60,6 +60,7 @@ func newScaffoldDir() *ScaffoldDir {
 func (v *ScaffoldDir) Attr(_ context.Context, a *fuse.Attr) error {
 	a.Inode = v.inode
 	a.Mode = 0555 | os.ModeDir
+	a.Valid = attrValidTime
 
 	// Directories need to have their link count explicitly set to 2 (and no more than 2 because
 	// we don't support hard links on directories) to represent the "." and ".."  names. FUSE

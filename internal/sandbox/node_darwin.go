@@ -28,3 +28,8 @@ func Atime(s *syscall.Stat_t) time.Time {
 func Ctime(s *syscall.Stat_t) time.Time {
 	return timespecToTime(s.Ctimespec)
 }
+
+// Mtime obtains the modification time from a system-specific stat structure.
+func Mtime(s *syscall.Stat_t) time.Time {
+	return timespecToTime(s.Mtimespec)
+}
