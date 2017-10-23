@@ -77,11 +77,11 @@ func fileInfoToID(info os.FileInfo) DevInoPair {
 }
 
 // newBaseNode initializes a new BaseNode with a new inode number.
-func newBaseNode(path string, id DevInoPair, writable bool) BaseNode {
+func newBaseNode(path string, fileInfo os.FileInfo, writable bool) BaseNode {
 	return BaseNode{
 		inode:          nextInodeNumber(),
 		underlyingPath: path,
-		underlyingID:   id,
+		underlyingID:   fileInfoToID(fileInfo),
 		writable:       writable,
 	}
 }
@@ -154,14 +154,15 @@ func (n *BaseNode) UnderlyingID() DevInoPair {
 	return n.underlyingID
 }
 
-func newNodeForFileInfo(fileInfo os.FileInfo, path string, id DevInoPair, writable bool) Node {
+// newNodeForFileInfo creates a new node based on the stat information of an underlying file.
+func newNodeForFileInfo(path string, fileInfo os.FileInfo, writable bool) Node {
 	switch fileInfo.Mode() & os.ModeType {
 	case os.ModeDir:
-		return newMappedDir(path, id, writable)
+		return newMappedDir(path, fileInfo, writable)
 	case os.ModeSymlink:
-		return newMappedSymlink(path, id, writable)
+		return newMappedSymlink(path, fileInfo, writable)
 	default:
-		return newMappedFile(path, id, writable)
+		return newMappedFile(path, fileInfo, writable)
 	}
 }
 

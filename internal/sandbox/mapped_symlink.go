@@ -29,9 +29,9 @@ type MappedSymlink struct {
 }
 
 // newMappedSymlink initializes a new MappedSymlink node with the proper inode number.
-func newMappedSymlink(path string, id DevInoPair, writable bool) *MappedSymlink {
+func newMappedSymlink(path string, fileInfo os.FileInfo, writable bool) *MappedSymlink {
 	return &MappedSymlink{
-		BaseNode: newBaseNode(path, id, writable),
+		BaseNode: newBaseNode(path, fileInfo, writable),
 	}
 }
 

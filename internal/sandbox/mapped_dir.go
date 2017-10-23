@@ -78,9 +78,9 @@ type openMappedDir struct {
 var _ fs.Handle = (*openMappedDir)(nil)
 
 // newMappedDir initializes a new directory node with the proper inode number.
-func newMappedDir(path string, id DevInoPair, writable bool) *MappedDir {
+func newMappedDir(path string, fileInfo os.FileInfo, writable bool) *MappedDir {
 	return &MappedDir{
-		BaseNode:       newBaseNode(path, id, writable),
+		BaseNode:       newBaseNode(path, fileInfo, writable),
 		mappedChildren: make(map[string]Node),
 		baseChildren:   make(map[string]Node),
 		scaffoldDirs:   make(map[string]*ScaffoldDir),
@@ -90,9 +90,9 @@ func newMappedDir(path string, id DevInoPair, writable bool) *MappedDir {
 // newMappedDirFromExisting returns a *MappedDir instance that shares scaffoldDirs and
 // mappedChildren with an existing node.
 func newMappedDirFromExisting(mappedChildren map[string]Node,
-	scaffoldDirs map[string]*ScaffoldDir, path string, id DevInoPair, writable bool) *MappedDir {
+	scaffoldDirs map[string]*ScaffoldDir, path string, fileInfo os.FileInfo, writable bool) *MappedDir {
 	return &MappedDir{
-		BaseNode:       newBaseNode(path, id, writable),
+		BaseNode:       newBaseNode(path, fileInfo, writable),
 		mappedChildren: mappedChildren,
 		baseChildren:   make(map[string]Node),
 		scaffoldDirs:   scaffoldDirs,
@@ -395,16 +395,16 @@ func (d *MappedDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 }
 
 // childForNodeType intializes a new child node based on the type in mode.
-func childForNodeType(underlyingPath, name string, id DevInoPair, mode os.FileMode, writable bool) Node {
-	switch mode & os.ModeType {
+func childForNodeType(underlyingPath, name string, fileInfo os.FileInfo, writable bool) Node {
+	switch fileInfo.Mode() & os.ModeType {
 	case os.ModeDir:
-		return newMappedDir(filepath.Join(underlyingPath, name), id, writable)
+		return newMappedDir(filepath.Join(underlyingPath, name), fileInfo, writable)
 	case os.ModeSymlink:
-		return newMappedSymlink(filepath.Join(underlyingPath, name), id, writable)
+		return newMappedSymlink(filepath.Join(underlyingPath, name), fileInfo, writable)
 	default:
 		// Everything else behaves like a regular file because there are no
 		// FUSE-specific operations to be implemented for them.
-		return newMappedFile(filepath.Join(underlyingPath, name), id, writable)
+		return newMappedFile(filepath.Join(underlyingPath, name), fileInfo, writable)
 	}
 }
 
@@ -422,7 +422,7 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 		// We need to check if the node is still same type as before, since we
 		// don't want to create a new node (and hence a new indode number) if it is.
 		if !baseOK || baseChild.UnderlyingID() != id {
-			baseChild = childForNodeType(d.underlyingPath, name, id, fileInfo.Mode(), d.BaseNode.writable)
+			baseChild = childForNodeType(d.underlyingPath, name, fileInfo, d.BaseNode.writable)
 		}
 	} else {
 		// Control reaches here if there's an entry in scaffoldDirs, as well as
@@ -433,7 +433,7 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 			return nil
 		}
 		if !baseOK || baseChild.UnderlyingID() != id {
-			baseChild = scaffoldChild.EquivalentDir(filepath.Join(d.underlyingPath, name), id, d.BaseNode.writable)
+			baseChild = scaffoldChild.EquivalentDir(filepath.Join(d.underlyingPath, name), fileInfo, d.BaseNode.writable)
 		}
 	}
 	return baseChild

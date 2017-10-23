@@ -116,8 +116,8 @@ func (v *ScaffoldDir) Dirent(name string) fuse.Dirent {
 
 // EquivalentDir returns a *Dir instance that shares its children with the ScaffoldDir
 // instance.
-func (v *ScaffoldDir) EquivalentDir(path string, id DevInoPair, writable bool) *MappedDir {
-	return newMappedDirFromExisting(v.mappedChildren, v.scaffoldDirs, path, id, writable)
+func (v *ScaffoldDir) EquivalentDir(path string, fileInfo os.FileInfo, writable bool) *MappedDir {
+	return newMappedDirFromExisting(v.mappedChildren, v.scaffoldDirs, path, fileInfo, writable)
 }
 
 // scaffoldDirChild returns a ScaffoldDir child for the current scaffoldDir,
@@ -147,15 +147,14 @@ func (v *ScaffoldDir) newNodeChild(name, target string, writable bool) (Node, er
 	if err != nil {
 		return nil, fmt.Errorf("creating node for path %q failed: %v", target, err)
 	}
-	id := fileInfoToID(fileInfo)
 
 	if scaffold, ok := v.scaffoldDirs[name]; ok {
 		if !fileInfo.IsDir() {
 			return nil, fmt.Errorf("file %q mapped over existing directory", target)
 		}
-		v.mappedChildren[name] = scaffold.EquivalentDir(target, id, writable)
+		v.mappedChildren[name] = scaffold.EquivalentDir(target, fileInfo, writable)
 	} else {
-		v.mappedChildren[name] = newNodeForFileInfo(fileInfo, target, id, writable)
+		v.mappedChildren[name] = newNodeForFileInfo(target, fileInfo, writable)
 	}
 	return v.mappedChildren[name], nil
 }

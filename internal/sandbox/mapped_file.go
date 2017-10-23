@@ -38,9 +38,9 @@ type openMappedFile struct {
 var _ fs.Handle = (*openMappedFile)(nil)
 
 // newMappedFile initializes a new MappedFile node with the proper inode number.
-func newMappedFile(path string, id DevInoPair, writable bool) *MappedFile {
+func newMappedFile(path string, fileInfo os.FileInfo, writable bool) *MappedFile {
 	return &MappedFile{
-		BaseNode: newBaseNode(path, id, writable),
+		BaseNode: newBaseNode(path, fileInfo, writable),
 	}
 }
 
