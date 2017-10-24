@@ -40,9 +40,6 @@ type BaseNode struct {
 	// underlyingPath contains the path on the file system that backs this node.
 	underlyingPath string
 
-	// underlyingID is a unique identifier for the underlying file that backs this node.
-	underlyingID DevInoPair
-
 	// writable indicates whether this is a node for a read-only mapping or for a read/write
 	// one.
 	//
@@ -92,10 +89,6 @@ type Node interface {
 	// Inode returns the inode number for the given node.
 	Inode() uint64
 
-	// UnderlyingID returns the pair {device number, inode} for the
-	// file/directory corresponding to the node in the underlying filesystem.
-	UnderlyingID() DevInoPair
-
 	// Dirent returns the directory entry for the node on which it is
 	// called.
 	// The node's name is the basename of the directory entry (no path components),
@@ -116,21 +109,6 @@ type Node interface {
 	invalidate(*fs.Server)
 }
 
-// DevInoPair uniquely identifies a file outside the sandboxfs.
-type DevInoPair struct {
-	Device uint64
-	Inode  uint64
-}
-
-// fileInfoToID retrieves a Device/Inode number pair from info.
-func fileInfoToID(info os.FileInfo) DevInoPair {
-	stat := info.Sys().(*syscall.Stat_t)
-	return DevInoPair{
-		Device: uint64(stat.Dev), // Cast required on some platforms (e.g. macOS).
-		Inode:  uint64(stat.Ino),
-	}
-}
-
 // newBaseNode initializes a new BaseNode with a new inode number.
 func newBaseNode(path string, fileInfo os.FileInfo, writable bool) BaseNode {
 	var attr fuse.Attr
@@ -141,7 +119,6 @@ func newBaseNode(path string, fileInfo os.FileInfo, writable bool) BaseNode {
 
 	return BaseNode{
 		underlyingPath: path,
-		underlyingID:   fileInfoToID(fileInfo),
 		writable:       writable,
 		deleted:        false,
 		attr:           attr,
@@ -288,11 +265,6 @@ func (n *BaseNode) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *
 		}
 	}
 	return fuseErrno(finalError)
-}
-
-// UnderlyingID returns the node's {deviceID, inodeNum} in the underlying filesystem.
-func (n *BaseNode) UnderlyingID() DevInoPair {
-	return n.underlyingID
 }
 
 // newNodeForFileInfo creates a new node based on the stat information of an underlying file.

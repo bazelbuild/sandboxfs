@@ -411,12 +411,9 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 	name := fileInfo.Name()
 	baseChild, baseOK := d.baseChildren[name]
 	scaffoldChild, scaffoldOK := d.scaffoldDirs[name]
-	id := fileInfoToID(fileInfo)
 
 	if !scaffoldOK {
-		// We need to check if the node is still same type as before, since we
-		// don't want to create a new node (and hence a new indode number) if it is.
-		if !baseOK || baseChild.UnderlyingID() != id {
+		if !baseOK {
 			baseChild = childForNodeType(d.underlyingPath, name, fileInfo, d.BaseNode.writable)
 		}
 	} else {
@@ -427,7 +424,7 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 		if !fileInfo.IsDir() {
 			return nil
 		}
-		if !baseOK || baseChild.UnderlyingID() != id {
+		if !baseOK {
 			baseChild = scaffoldChild.EquivalentDir(filepath.Join(d.underlyingPath, name), fileInfo, d.BaseNode.writable)
 		}
 	}
