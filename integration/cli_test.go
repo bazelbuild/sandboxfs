@@ -67,7 +67,7 @@ Flags:
     	read/write mapping of the form MAPPING:TARGET
 `
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		args       []string
@@ -77,7 +77,7 @@ Flags:
 		{"Dynamic", []string{"dynamic", "--help"}, dynamicHelp},
 		{"Static", []string{"static", "--help"}, staticHelp},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(0, d.args...)
 			if err != nil {
@@ -94,7 +94,7 @@ Flags:
 }
 
 func TestCli_Syntax(t *testing.T) {
-	data := []struct {
+	testData := []struct {
 		name string
 
 		args       []string
@@ -121,7 +121,7 @@ func TestCli_Syntax(t *testing.T) {
 		// into a command of its own for consistency.
 		// {"InvalidArgumentsWinOverHelp", []string{"--help", "foo"}, "number of arguments"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(2, d.args...)
 			if err != nil {
@@ -141,7 +141,7 @@ func TestCli_Syntax(t *testing.T) {
 }
 
 func TestCli_StaticMappingsSyntax(t *testing.T) {
-	data := []struct {
+	testData := []struct {
 		name string
 
 		flagName   string
@@ -154,7 +154,7 @@ func TestCli_StaticMappingsSyntax(t *testing.T) {
 		{"RelativeTargetRO", "read_only_mapping", "/:relative/path", `invalid value "/:relative/path" for flag -read_only_mapping: path "relative/path": target must be an absolute path` + "\n"},
 		{"RelativeTargetRW", "read_write_mapping", "/:other", `invalid value "/:other" for flag -read_write_mapping: path "other": target must be an absolute path` + "\n"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(2, "static", fmt.Sprintf("--%s=%s", d.flagName, d.flagValue), "irrelevant-mount-point")
 			if err != nil {

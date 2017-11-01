@@ -151,7 +151,7 @@ func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
 	utils.MustMkdirAll(t, state.RootPath("dir/mapped-dir-2"), 0755)
 	utils.MustWriteFile(t, state.RootPath("dir/mapped-file-2"), 0644, "")
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		dir       string
@@ -161,7 +161,7 @@ func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
 		{"MappedDir", "/dir", []string{"mapped-dir-2", "mapped-file-2"}},
 		{"ScaffoldDir", "/scaffold", []string{"abc"}},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.dir)
 
@@ -300,7 +300,7 @@ func TestReadOnly_Access(t *testing.T) {
 	mustMkdirAs(user, state.RootPath("all/user/self/hidden"), 0500)
 	mustMkdirAs(user, state.RootPath("all/user/everyone-ro"), 0555)
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		runAs    *utils.UnixUser
@@ -346,7 +346,7 @@ func TestReadOnly_Access(t *testing.T) {
 		{"UserCannotWriteScaffoldDir", user, "scaffold/dir", "-w", false},
 		{"UserCanExecuteScaffoldDir", user, "scaffold/dir", "-x", true},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			err := testAs(d.runAs, state.MountPath(d.testFile), d.testOp)
 			if d.wantOk && err != nil {
@@ -369,7 +369,7 @@ func TestReadOnly_HardLinkCountsAreFixed(t *testing.T) {
 		t.Fatalf("Failed to create hard link in underlying file system: %v", err)
 	}
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		file      string
@@ -380,7 +380,7 @@ func TestReadOnly_HardLinkCountsAreFixed(t *testing.T) {
 		{"FileWithManyNames", "name1", 1},
 		{"ScaffoldDir", "scaffold", 2},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			fileInfo, err := os.Lstat(state.MountPath(d.file))
 			if err != nil {

@@ -234,7 +234,7 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 
 	nonExistentFile := filepath.Join(tempDir, "non-existent/file")
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		flag       string
@@ -251,7 +251,7 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 			fmt.Sprintf("unable to open file \"%s\" for writing: open %s: no such file or directory", nonExistentFile, nonExistentFile),
 		},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(1, "dynamic", d.flag, filepath.Join(tempDir, "mnt"))
 			if err != nil {

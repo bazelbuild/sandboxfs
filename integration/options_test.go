@@ -52,7 +52,7 @@ func TestOptions_Allow(t *testing.T) {
 		t.Fatalf("Don't know how this test behaves in this platform")
 	}
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		allowFlag   string
@@ -65,7 +65,7 @@ func TestOptions_Allow(t *testing.T) {
 		{"Root", "--allow=root", allowRootWorks, []*utils.UnixUser{user, root}, []*utils.UnixUser{other}},
 		{"Self", "--allow=self", true, []*utils.UnixUser{user}, []*utils.UnixUser{root, other}},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			if !d.wantMountOk {
 				tempDir, err := ioutil.TempDir("", "test")
@@ -112,7 +112,7 @@ func TestOptions_Allow(t *testing.T) {
 }
 
 func TestOptions_Syntax(t *testing.T) {
-	data := []struct {
+	testData := []struct {
 		name string
 
 		args       []string
@@ -120,7 +120,7 @@ func TestOptions_Syntax(t *testing.T) {
 	}{
 		{"AllowBadValue", []string{"--allow=foo"}, "foo.*must be one of.*other"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(2, d.args...)
 			if err != nil {

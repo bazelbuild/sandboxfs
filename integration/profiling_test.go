@@ -71,7 +71,7 @@ func TestProfiling_FileProfiles(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		args         []string
@@ -81,7 +81,7 @@ func TestProfiling_FileProfiles(t *testing.T) {
 		{"MemProfile", []string{"--mem_profile=" + tempDir + "/mem.prof"}, []string{"mem.prof"}},
 		{"CpuAndMemProfile", []string{"--cpu_profile=" + tempDir + "/cpu2.prof", "--mem_profile=" + tempDir + "/mem2.prof"}, []string{"cpu2.prof", "mem2.prof"}},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			state := utils.MountSetup(t, append(d.args, "static", "-read_only_mapping=/:%ROOT%")...)
 			// Explicitly stop sandboxfs (which is different to what most other tests do).  We need
@@ -109,7 +109,7 @@ func TestProfiling_FileProfiles(t *testing.T) {
 func TestProfiling_BadConfiguration(t *testing.T) {
 	incompatibleSettings := "invalid profiling settings: file-based CPU or memory profiling are incompatible with a listening address\n"
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		args         []string
@@ -125,7 +125,7 @@ func TestProfiling_BadConfiguration(t *testing.T) {
 		{"MemAndListenAddress", []string{"--mem_profile=foo", "--listen_address=host:1234"}, 2, incompatibleSettings},
 		{"CpuAndMemAndListenAddress", []string{"--cpu_profile=foo", "--listen_address=host:1234", "--mem_profile=bar"}, 2, incompatibleSettings},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(d.wantExitCode, append(d.args, "static", "/non-existent")...)
 			if err != nil {

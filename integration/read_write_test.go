@@ -151,14 +151,14 @@ func TestReadWrite_FstatOnDeletedNode(t *testing.T) {
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
 	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
 
-	data := []struct {
+	testData := []struct {
 		name         string
 		relativePath string
 	}{
 		{"MappedDir", "dir"},
 		{"MappedFile", "file"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.relativePath)
 
@@ -367,7 +367,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 		t.Fatalf("Don't know how this test behaves in this platform")
 	}
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		filename  string
@@ -392,7 +392,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 		{"CharDevice", "chrdev", 0400, syscall.S_IFCHR, 5678, os.ModeDevice | os.ModeCharDevice, allOSes},
 		{"NamedPipe", "fifo", 0640, syscall.S_IFIFO, 0, os.ModeNamedPipe, allOSes},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.filename)
 
@@ -510,14 +510,14 @@ func TestReadWrite_FchmodOnDeletedNode(t *testing.T) {
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
 	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
 
-	data := []struct {
+	testData := []struct {
 		name         string
 		relativePath string
 	}{
 		{"MappedDir", "dir"},
 		{"MappedFile", "file"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.relativePath)
 
@@ -580,7 +580,7 @@ func TestReadWrite_Chown(t *testing.T) {
 	}
 	targetStat := targetFileInfo.Sys().(*syscall.Stat_t)
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		filename string
@@ -592,7 +592,7 @@ func TestReadWrite_Chown(t *testing.T) {
 		{"DanglingSymlink", "dangling-symlink", 5, 6},
 		{"GoodSymlink", "good-symlink", 7, 8},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.filename)
 			if err := os.Lchown(path, d.wantUID, d.wantGID); err != nil {
@@ -618,14 +618,14 @@ func TestReadWrite_FchownOnDeletedNode(t *testing.T) {
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
 	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
 
-	data := []struct {
+	testData := []struct {
 		name         string
 		relativePath string
 	}{
 		{"MappedDir", "dir"},
 		{"MappedFile", "file"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.relativePath)
 
@@ -770,14 +770,14 @@ func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
 	someAtime := time.Date(2010, 2, 20, 10, 30, 0, 0, time.UTC)
 	someMtime := time.Date(1980, 3, 26, 12, 10, 0, 0, time.UTC)
 
-	data := []struct {
+	testData := []struct {
 		name         string
 		relativePath string
 	}{
 		{"MappedDir", "dir"},
 		{"MappedFile", "file"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.relativePath)
 
@@ -813,7 +813,7 @@ func TestReadWrite_HardLinksNotSupported(t *testing.T) {
 	utils.MustWriteFile(t, state.RootPath("name1"), 0644, "")
 	utils.MustWriteFile(t, state.RootPath("dir/name2"), 0644, "")
 
-	data := []struct {
+	testData := []struct {
 		name string
 
 		dir       string // Directory on which to try the link operation.
@@ -823,7 +823,7 @@ func TestReadWrite_HardLinksNotSupported(t *testing.T) {
 		{"MappedDir", "dir", "name2"},
 		{"ScaffoldDir", "scaffold", "name3"},
 	}
-	for _, d := range data {
+	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			path := state.MountPath(d.dir, d.entryName)
 
