@@ -165,6 +165,106 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 	doReconfigurationTest(t, state, input, output)
 }
 
+func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
+	// inodeOf obtains the inode number of a file.
+	inodeOf := func(path string) uint64 {
+		fileInfo, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("Failed to get inode number of %s: %v", path, err)
+		}
+		return fileInfo.Sys().(*syscall.Stat_t).Ino
+	}
+
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	output := bufio.NewScanner(stdoutReader)
+
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("dir3"), 0755)
+	utils.MustWriteFile(t, state.RootPath("dir1/file"), 0644, "Hello")
+	utils.MustWriteFile(t, state.RootPath("dir2/file"), 0644, "Hello")
+	utils.MustWriteFile(t, state.RootPath("dir3/file"), 0644, "Hello")
+
+	wantInodes := make(map[string]uint64)
+
+	firstConfig := jsonConfig([]sandbox.MappingSpec{
+		sandbox.MappingSpec{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: false},
+		sandbox.MappingSpec{Mapping: "/dir3", Target: state.RootPath("dir3"), Writable: false},
+	})
+	if err := reconfigure(state.Stdin, output, firstConfig); err != nil {
+		t.Fatalf("First configuration failed: %v", err)
+	}
+	wantInodes["dir1"] = inodeOf(state.MountPath("dir1"))
+	wantInodes["dir1/file"] = inodeOf(state.MountPath("dir1/file"))
+	wantInodes["dir3"] = inodeOf(state.MountPath("dir3"))
+	wantInodes["dir3/file"] = inodeOf(state.MountPath("dir3/file"))
+
+	secondConfig := jsonConfig([]sandbox.MappingSpec{
+		sandbox.MappingSpec{Mapping: "/dir2", Target: state.RootPath("dir2"), Writable: false},
+	})
+	if err := reconfigure(state.Stdin, output, secondConfig); err != nil {
+		t.Fatalf("Failed to replace all mappings with new configuration: %v", err)
+	}
+	wantInodes["dir2"] = inodeOf(state.MountPath("dir2"))
+	wantInodes["dir2/file"] = inodeOf(state.MountPath("dir2/file"))
+
+	if err := reconfigure(state.Stdin, output, firstConfig); err != nil {
+		t.Fatalf("Failed to restore all mappings from first configuration: %v", err)
+	}
+
+	for _, name := range []string{"dir1", "dir1/file", "dir3", "dir3/file"} {
+		inode := inodeOf(state.MountPath(name))
+		if wantInodes[name] != inode {
+			t.Errorf("Inode for %s was not respected across reconfigurations: got %d, want %d", name, inode, wantInodes[name])
+		}
+	}
+
+	for name, inode := range wantInodes {
+		if name != "dir2/file" && inode == wantInodes["dir2/file"] {
+			t.Errorf("Inode of dir2/file (%d) was reused for some unrelated file %s", inode, name)
+		}
+	}
+}
+
+func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	output := bufio.NewScanner(stdoutReader)
+
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
+
+	config := jsonConfig([]sandbox.MappingSpec{
+		sandbox.MappingSpec{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: true},
+	})
+	if err := reconfigure(state.Stdin, output, config); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Mkdir(state.MountPath("dir1/dir2"), 0755); err != nil {
+		t.Errorf("Failed to create entry in writable directory: %v", err)
+	}
+
+	config = jsonConfig([]sandbox.MappingSpec{
+		sandbox.MappingSpec{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: false},
+	})
+	if err := reconfigure(state.Stdin, output, config); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Mkdir(state.MountPath("dir1/dir3"), 0755); !os.IsPermission(err) {
+		t.Errorf("Writable mapping was not properly downgraded to read-only: got %v; want permission error", err)
+	}
+}
+
 func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	// grepStderr reads from a pipe connected to stderr looking for the given pattern and writes
 	// to the found channel when the pattern is found.  Any contents read from the pipe are

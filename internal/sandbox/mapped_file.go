@@ -37,7 +37,10 @@ type openMappedFile struct {
 
 var _ fs.Handle = (*openMappedFile)(nil)
 
-// newMappedFile initializes a new MappedFile node with the proper inode number.
+// newMappedFile creates a new file node to represent the given underlying path.
+//
+// This function should never be called to explicitly create nodes. Instead, use the getOrCreateNode
+// function, which respects the global node cache.
 func newMappedFile(path string, fileInfo os.FileInfo, writable bool) *MappedFile {
 	return &MappedFile{
 		BaseNode: newBaseNode(path, fileInfo, writable),
@@ -109,6 +112,7 @@ func (o *openMappedFile) Release(ctx context.Context, req *fuse.ReleaseRequest) 
 
 // invalidate clears the kernel cache corresponding to this file.
 func (f *MappedFile) invalidate(server *fs.Server) {
-	err := server.InvalidateNodeData(f)
-	logCacheInvalidationError(err, "Could not invalidate node cache: ", f)
+	// We assume that, as long as a MappedFile object is alive, the node corresponds to a
+	// non-deleted underlying file. Therefore, do not invalidate the node itself. This is
+	// important to keep entries alive across reconfigurations, which helps performance.
 }

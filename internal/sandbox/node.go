@@ -16,6 +16,7 @@ package sandbox
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"sync"
@@ -33,6 +34,44 @@ const (
 	// TODO(jmmv): This should probably be customizable but, for now, just use the same default
 	// as the FUSE library uses when Getattr is not implemented.
 	attrValidTime = 1 * time.Minute
+)
+
+var (
+	// nodeCacheLock is the mutex that protects all accesses to nodeCache.
+	//
+	// Given that the cache is accessed on every node creation, the critical sections protected
+	// by this lock should be as short as possible. In particular, do not hold this lock before
+	// holding each node's lock, as the latter can be held while system calls are in progress.
+	// This is an ordering restriction that also helps avoid deadlocks.
+	nodeCacheLock sync.Mutex
+
+	// nodeCache holds a cache of sandboxfs nodes indexed by their underlying path.
+	//
+	// This cache is critical to offer good performance during reconfigurations: if the identity
+	// of an underlying file changes across reconfigurations, the kernel will think it's a
+	// different file (even if it may not be) and will therefore not be able to take advantage
+	// of any caches. You would think that avoiding kernel cache invalidations during the
+	// reconfiguration itself (e.g. if file "A" was mapped and is still mapped now, don't
+	// invalidate it) would be sufficient to avoid this problem, but it's not: "A" could be
+	// mapped, then unmapped, and then remapped again in three different reconfigurations, and
+	// we'd still not want to lose track of it.
+	//
+	// The cache is a property specific to each sandboxfs instance and, as such, it should live
+	// within the FS object that represents a mount point. However, doing so would require each
+	// node to hold a pointer to the FS, and as we only support a single instance at once, we
+	// can save some overhead by just declaring this as a global.
+	//
+	// Nodes should be inserted in this map at creation time and removed from it when explicitly
+	// deleted by the user (because there is a chance they'll be recreated, and at that point we
+	// truly want to reload the data from disk).
+	//
+	// TODO(jmmv): There currently is no cache expiration, which means that memory usage can
+	// grow unboundedly. A preliminary attempt at expiring cache entries on a node's Forget
+	// handler sounded promising (because then cache expiration would be delegated to the
+	// kernel)... but, on Linux, the kernel seems to be calling this very eagerly, rendering our
+	// cache useless. I did not track down what exactly triggered the Forget notifications
+	// though.
+	nodeCache = make(map[string]Node)
 )
 
 // BaseNode is a common type for all nodes: files, directories, pipes, symlinks, etc.
@@ -102,6 +141,9 @@ type Node interface {
 	// UnderlyingPath returns the Node's path in the underlying filesystem.
 	UnderlyingPath() string
 
+	// Writable returns the Node's writability property.
+	Writable() bool
+
 	// delete tells the node that a directory entry pointing to it has been removed.
 	delete()
 
@@ -109,7 +151,53 @@ type Node interface {
 	invalidate(*fs.Server)
 }
 
-// newBaseNode initializes a new BaseNode with a new inode number.
+// getOrCreateNode gets a mapped node from the cache or creates a new one if not yet cached.
+//
+// The returned node represents the given underlying path uniquely. If creation is needed, the
+// created node uses the given type and writable settings.
+func getOrCreateNode(path string, fileInfo os.FileInfo, writable bool) Node {
+	nodeCacheLock.Lock()
+	defer nodeCacheLock.Unlock()
+
+	if node, ok := nodeCache[path]; ok {
+		if writable == node.Writable() {
+			// We have a match from the cache! Return it immediately.
+			//
+			// It is tempting to ensure that the type of the cached node matches the
+			// type we want to return based on the fileInfo we have now... but doing so
+			// does not really prevent problems: the type of the underlying file can
+			// change at any point in time. We could check this here and the type could
+			// change immediately afterwards behind our backs.
+			return node
+		}
+
+		// We had a match... but node writability has changed so recreate the node.
+		//
+		// You may wonder why we care about this and not the file type as described above:
+		// the reason is that the writability property is a setting of the current sandbox
+		// configuration, not a property of the underlying files, and thus it's a setting
+		// that we fully control and must keep correct.
+		log.Printf("Missed node caching opportunity because writability has changed for %s", path)
+	}
+
+	var node Node
+	switch fileInfo.Mode() & os.ModeType {
+	case os.ModeDir:
+		node = newMappedDir(path, fileInfo, writable)
+	case os.ModeSymlink:
+		node = newMappedSymlink(path, fileInfo, writable)
+	default:
+		node = newMappedFile(path, fileInfo, writable)
+	}
+	nodeCache[path] = node
+	return node
+}
+
+// newBaseNode initializes a new BaseNode.
+//
+// The returned BaseNode is not usable by itself: it must be embedded within a specific Mapped*
+// type. In turn, this function should only be called by the corresponding newMapped* functions
+// and never directly.
 func newBaseNode(path string, fileInfo os.FileInfo, writable bool) BaseNode {
 	var attr fuse.Attr
 	attr.Inode = nextInodeNumber()
@@ -150,6 +238,10 @@ func (n *BaseNode) delete() {
 		panic("Cannot delete a node twice; there currently is no support for hard links so this should not have happened")
 	}
 	n.deleted = true
+
+	nodeCacheLock.Lock()
+	defer nodeCacheLock.Unlock()
+	delete(nodeCache, n.underlyingPath)
 }
 
 // setattrMode is a helper function for Setattr to handle setting the node's mode.
@@ -267,18 +359,6 @@ func (n *BaseNode) Setattr(ctx context.Context, req *fuse.SetattrRequest, resp *
 	return fuseErrno(finalError)
 }
 
-// newNodeForFileInfo creates a new node based on the stat information of an underlying file.
-func newNodeForFileInfo(path string, fileInfo os.FileInfo, writable bool) Node {
-	switch fileInfo.Mode() & os.ModeType {
-	case os.ModeDir:
-		return newMappedDir(path, fileInfo, writable)
-	case os.ModeSymlink:
-		return newMappedSymlink(path, fileInfo, writable)
-	default:
-		return newMappedFile(path, fileInfo, writable)
-	}
-}
-
 // Inode returns the node's inode number.
 func (n *BaseNode) Inode() uint64 {
 	// Given that the inode is immutable, it's OK to access this property without holding mu.
@@ -306,6 +386,11 @@ func (n *BaseNode) SetUnderlyingPath(path string) {
 // UnderlyingPath returns the Node's path in the underlying filesystem.
 func (n *BaseNode) UnderlyingPath() string {
 	return n.underlyingPath
+}
+
+// Writable returns the Node's writability property.
+func (n *BaseNode) Writable() bool {
+	return n.writable
 }
 
 // fillAttrInfoFromStat populates a fuse.Attr instance with the results of a Stat operation.

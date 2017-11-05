@@ -28,7 +28,10 @@ type MappedSymlink struct {
 	BaseNode
 }
 
-// newMappedSymlink initializes a new MappedSymlink node with the proper inode number.
+// newMappedSymlink creates a new symlink node to represent the given underlying path.
+//
+// This function should never be called to explicitly create nodes. Instead, use the getOrCreateNode
+// function, which respects the global node cache.
 func newMappedSymlink(path string, fileInfo os.FileInfo, writable bool) *MappedSymlink {
 	return &MappedSymlink{
 		BaseNode: newBaseNode(path, fileInfo, writable),
@@ -52,6 +55,7 @@ func (s *MappedSymlink) Dirent(name string) fuse.Dirent {
 
 // invalidate clears the kernel cache corresponding to this symlink.
 func (s *MappedSymlink) invalidate(server *fs.Server) {
-	err := server.InvalidateNodeData(s)
-	logCacheInvalidationError(err, "Could not invalidate node cache: ", s)
+	// We assume that, as long as a MappedSymlink object is alive, the node corresponds to a
+	// non-deleted underlying symlink. Therefore, do not invalidate the node itself. This is
+	// important to keep entries alive across reconfigurations, which helps performance.
 }

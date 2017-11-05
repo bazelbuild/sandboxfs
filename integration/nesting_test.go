@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"syscall"
 	"testing"
 
@@ -105,38 +104,13 @@ func TestNesting_SameTarget(t *testing.T) {
 		}
 	}
 
-	var wantDir1FileContents string
-	switch runtime.GOOS {
-	case "darwin":
-		// On macOS, FUSE does not seem to invalidate cached file contents at open(2) time.
-		// The auto_cache mount-time option can be provided to discard the contents when the
-		// file's mtime is modified, but that's subject to the node's validity period (the
-		// default of one minute).  There is no kernel_cache mount-time option as exists on
-		// Linux, which implies that the default behavior is undefined and cannot be
-		// changed.  As a result, the contents of dir1/file remain stale even after
-		// rewriting the file through dir2/dir3/dir4/file.
-		//
-		// This test could still be faulty and subject to OSXFUSE implementation details.
-		// However, it's worth keeping: if the underlying behavior changes, we want to know
-		// so that we can think on how to address the problem.
-		//
-		// TODO(jmmv): This is unfortunate and an undesirable inconsistency with Linux so
-		// we should find a way to homogenize the behavior.
-		wantDir1FileContents = "old contents"
-	case "linux":
-		// On Linux, FUSE invalidates any cached file contents at open(2) time unless the
-		// kernel_cache mount-time option is provided.  This means that through dir1/file we
-		// can see the contents that were written through dir2/dir3/dir4/file.  This is the
-		// desirable behavior for sandboxfs as it makes it more reliable against external
-		// file content changes and makes the duplicate mapping behavior sane.
-		wantDir1FileContents = "new contents"
-	default:
-		t.Fatalf("Don't know how this test behaves in this platform")
-	}
-	if err := utils.FileEquals(state.MountPath("dir1/file"), wantDir1FileContents); err != nil {
+	// We share the same internal representation for different mappings that point to the same
+	// underlying file, which means that we can assume content changes through a mapping will be
+	// reflected on the other mapping.  This is independent of how the kernel caches work or
+	// when content invalidations happen.
+	if err := utils.FileEquals(state.MountPath("dir1/file"), "new contents"); err != nil {
 		t.Error(err)
 	}
-
 	if err := utils.FileEquals(state.MountPath("dir2/dir3/dir4/file"), "new contents"); err != nil {
 		t.Error(err)
 	}

@@ -155,7 +155,7 @@ func (v *ScaffoldDir) newNodeChild(name, target string, writable bool) (Node, er
 		}
 		v.mappedChildren[name] = scaffold.EquivalentDir(target, fileInfo, writable)
 	} else {
-		v.mappedChildren[name] = newNodeForFileInfo(target, fileInfo, writable)
+		v.mappedChildren[name] = getOrCreateNode(target, fileInfo, writable)
 	}
 	return v.mappedChildren[name], nil
 }

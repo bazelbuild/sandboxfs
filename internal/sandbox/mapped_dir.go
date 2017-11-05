@@ -77,7 +77,10 @@ type openMappedDir struct {
 
 var _ fs.Handle = (*openMappedDir)(nil)
 
-// newMappedDir initializes a new directory node with the proper inode number.
+// newMappedDir creates a new directory node to represent the given underlying path.
+//
+// This function should never be called to explicitly create nodes. Instead, use the getOrCreateNode
+// function, which respects the global node cache.
 func newMappedDir(path string, fileInfo os.FileInfo, writable bool) *MappedDir {
 	return &MappedDir{
 		BaseNode:       newBaseNode(path, fileInfo, writable),
@@ -389,20 +392,6 @@ func (d *MappedDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	return fuse.ENOENT
 }
 
-// childForNodeType intializes a new child node based on the type in mode.
-func childForNodeType(underlyingPath, name string, fileInfo os.FileInfo, writable bool) Node {
-	switch fileInfo.Mode() & os.ModeType {
-	case os.ModeDir:
-		return newMappedDir(filepath.Join(underlyingPath, name), fileInfo, writable)
-	case os.ModeSymlink:
-		return newMappedSymlink(filepath.Join(underlyingPath, name), fileInfo, writable)
-	default:
-		// Everything else behaves like a regular file because there are no
-		// FUSE-specific operations to be implemented for them.
-		return newMappedFile(filepath.Join(underlyingPath, name), fileInfo, writable)
-	}
-}
-
 // baseChildFromFileInfo returns a node corresponding to underlying node if
 // permitted by its priority level, nil otherwise.
 //
@@ -414,7 +403,7 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 
 	if !scaffoldOK {
 		if !baseOK {
-			baseChild = childForNodeType(d.underlyingPath, name, fileInfo, d.BaseNode.writable)
+			baseChild = getOrCreateNode(filepath.Join(d.underlyingPath, name), fileInfo, d.BaseNode.writable)
 		}
 	} else {
 		// Control reaches here if there's an entry in scaffoldDirs, as well as
@@ -433,8 +422,10 @@ func (d *MappedDir) baseChildFromFileInfo(fileInfo os.FileInfo) Node {
 
 // invalidate clears the kernel cache for this directory and all of its entries.
 func (d *MappedDir) invalidate(server *fs.Server) {
-	err := server.InvalidateNodeData(d)
-	logCacheInvalidationError(err, "Could not invalidate node cache: ", d)
+	// We assume that, as long as a MappedDir object is alive, the node corresponds to a
+	// non-deleted underlying directory. Therefore, do not invalidate the node itself, only its
+	// entries. This is important to keep entries alive across reconfigurations, which helps
+	// performance.
 
 	d.invalidateEntries(server, d)
 }

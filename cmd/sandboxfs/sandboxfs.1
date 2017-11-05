@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd October 22, 2017
+.Dd October 30, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -361,4 +361,11 @@ While it could be possible to implement some different behavior, this is what
 .Nm
 currently exposes.
 You may or may not consider this to be a bug.
+.It
+Node data is cached in-memory for all files accessed through a
+.Nm
+instance in order to offer good performance across reconfigurations.
+However, this cache does not currently implement any expiration policy, which
+means that memory usage can grow unboundedly if many different files are
+mapped and accessed through the sandbox.
 .El

@@ -144,6 +144,42 @@ func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
 	}
 }
 
+func TestReadWrite_InodeReassignedAfterRecreation(t *testing.T) {
+	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
+	defer state.TearDown(t)
+
+	path := state.MountPath("file")
+	utils.MustWriteFile(t, path, 0644, "")
+	fileInfo, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("Failed to get inode number of file after first creation: %v", err)
+	}
+	originalInode := fileInfo.Sys().(*syscall.Stat_t).Ino
+	originalMode := fileInfo.Mode()
+
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("Failed to remove file: %v", err)
+	}
+
+	utils.MustWriteFile(t, path, 0444, "")
+	fileInfo, err = os.Lstat(path)
+	if err != nil {
+		t.Fatalf("Failed to get inode number of file after recreation: %v", err)
+	}
+	recreatedInode := fileInfo.Sys().(*syscall.Stat_t).Ino
+	recreatedMode := fileInfo.Mode()
+
+	if originalInode == recreatedInode {
+		t.Errorf("Still got inode number %v; want it to change after file recreation", recreatedInode)
+	}
+	// Checking the mode's equality feels a bit out of scope, but it's not: an "inode" contains
+	// both the inode number and all other file metadata.  Checking for mode equality is just a
+	// simple test to ensure that such metadata is not shared.
+	if originalMode == recreatedMode {
+		t.Errorf("Still got file mode %v; want it to change after file recreation with different permissions", recreatedMode)
+	}
+}
+
 func TestReadWrite_FstatOnDeletedNode(t *testing.T) {
 	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%")
 	defer state.TearDown(t)
