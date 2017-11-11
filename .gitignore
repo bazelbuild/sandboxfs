@@ -1,0 +1,5 @@
+.*.orig
+.*.rej
+.*.swp
+.*~
+/bazel-*

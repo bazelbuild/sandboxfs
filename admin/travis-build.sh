@@ -15,16 +15,41 @@
 
 set -e -u -x
 
-go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
-
-SANDBOXFS="$(pwd)/sandboxfs" \
-    go test -v -timeout 600s github.com/bazelbuild/sandboxfs/integration
-
 rootenv=()
 rootenv+=(PATH="${PATH}")
-rootenv+=(SANDBOXFS="$(pwd)/sandboxfs")
 rootenv+=(UNPRIVILEGED_USER="${USER}")
 [ "${GOPATH-unset}" = unset ] || rootenv+=(GOPATH="${GOPATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
-sudo -H "${rootenv[@]}" -s \
-    go test -v -timeout 600s github.com/bazelbuild/sandboxfs/integration
+readonly rootenv
+
+do_bazel() {
+  bazel build //cmd/sandboxfs
+
+  # TODO(jmmv): We disable Bazel's sandboxing because it denies our tests from
+  # using FUSE (e.g. accessing system-wide helper binaries).  Figure out a way
+  # to not require this.
+  bazel test --spawn_strategy=standalone --test_output=streamed //...
+  sudo -H "${rootenv[@]}" \
+      SANDBOXFS="$(pwd)/bazel-bin/cmd/sandboxfs/sandboxfs" -s \
+      ./bazel-bin/integration/go_default_test -test.v -test.timeout=600s
+}
+
+do_gotools() {
+  go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
+
+  SANDBOXFS="$(pwd)/sandboxfs" \
+      go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration
+  sudo -H "${rootenv[@]}" SANDBOXFS="$(pwd)/sandboxfs" -s \
+      go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration
+}
+
+case "${DO}" in
+  bazel|gotools)
+    "do_${DO}"
+    ;;
+
+  *)
+    echo "Unknown value for DO variable" 1>&2
+    exit 1
+    ;;
+esac

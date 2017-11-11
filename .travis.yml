@@ -18,11 +18,28 @@ os:
   - linux
   - osx
 
-language: go
+language:
+  - go  # For ourselves.
+  - java  # For Bazel.
+
 go:
   - 1.8
   - 1.9
 go_import_path: github.com/bazelbuild/sandboxfs
 
+env:
+  - DO=bazel
+  - DO=gotools
+
 before_install: ./admin/travis-install.sh
 script: ./admin/travis-build.sh
+
+matrix:
+  exclude:
+    # For Go 1.8, we are only interested in testing that our code builds
+    # correctly under that version of the language.  A single test is sufficient
+    # for this, so remove all other configurations.
+    - env: DO=gotools
+      go: 1.8
+    - go: 1.8
+      os: osx
