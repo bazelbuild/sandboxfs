@@ -16,6 +16,17 @@ load(
 go_register_toolchains(go_version = "host")
 
 go_repository(
+    name = "bazel_gopath",
+    importpath = "github.com/DarkDNA/bazel-gopath",
+    commit = "f83ae8d403d0c826335a5edf4bbd1f7b0cf176e4",
+
+    # bazel-gopath ships with a proto file and also a precompiled version of it.
+    # The proto file does not include the right Go options, which confuses
+    # Gazelle, so prefer the precompiled version.
+    build_file_proto_mode = "disable",
+)
+
+go_repository(
     name = "golint",
     importpath = "github.com/golang/lint",
     commit = "6aaf7c34af0f4c36a57e0c429bace4d706d8e931",

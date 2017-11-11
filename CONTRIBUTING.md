@@ -47,6 +47,16 @@ If you find yourself needing to modify any of the `go_*` rules, stop and
 run `bazel run //admin:gazelle` instead.  This will take care of updating the
 build rules automatically.
 
+## IDE support
+
+sandboxfs' build scripts integrate well with the [Visual Studio Code
+(VSCode)](https://code.visualstudio.com/) editor.
+
+To enable support for VSCode, run `./configure --enable-vscode`.  This will
+generate a `settings.json` file for the project that points to the right
+locations of the Go tools and will also create a fake `GOPATH` that the tools
+can consume.
+
 ## Code formatting and linting
 
 At commit time, our pre-commit script will verify that any changes you have

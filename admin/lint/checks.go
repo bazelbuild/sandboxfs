@@ -128,7 +128,7 @@ func checkAll(file string) bool {
 		}
 	}
 
-	if !isBuildFile && !isDocumentation {
+	if !isBuildFile && !isDocumentation && filepath.Base(file) != "settings.json.in" {
 		runCheck(checkLicense, file)
 	}
 

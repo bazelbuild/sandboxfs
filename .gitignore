@@ -3,3 +3,5 @@
 .*.swp
 .*~
 /bazel-*
+/.gopath
+/.gopath-tools
