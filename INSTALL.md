@@ -23,8 +23,23 @@ To get started:
         and remove the `go_version = "host"` parameter from the
         `go_register_toolchains` statement.
 
-1.  Run `bazel build //cmd/sandboxfs` to download all required dependencies
-    and build the final binary.
+1.  Run `bazel build //admin/install` to download all required dependencies,
+    build the final binary, and build the installation tool.
+
+1.  To copy all binary and data files to the default destination of
+    `/usr/local`, run `./bazel-bin/admin/install/install`.
+
+    *   You will (most likely) need superuser permissions to install
+        under `/usr/local`, so run the previous command with `sudo`.
+
+    *   The reason the above command is not `sudo bazel run ...` is because
+        running Bazel under `sudo` will cause a full rebuild of everything.
+        Don't run Bazel as root.  Instead, just build the installation tool
+        first and run it separately, as described above.
+
+    *   If you want to install sandboxfs under a custom prefix, run
+        `./bazel-bin/admin/install/install --prefix=/path/to/prefix`
+        instead.
 
 ## From sources with the Go tools
 
@@ -33,3 +48,7 @@ standard Go tools as follows:
 
     go get github.com/bazelbuild/sandboxfs/cmd/sandboxfs
     go build github.com/bazelbuild/sandboxfs/cmd/sandboxfs
+
+This is not recommended because this mechanism does not provide a way to
+install the built product.  (Yes, `go install` does install the binary but does
+not handle other support files such as documentation.)

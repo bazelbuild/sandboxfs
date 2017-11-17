@@ -23,3 +23,9 @@ go_binary(
     library = ":go_default_library",
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "manpage",
+    srcs = ["sandboxfs.1"],
+    visibility = ["//admin/install:__pkg__"],
+)
