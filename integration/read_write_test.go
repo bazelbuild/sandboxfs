@@ -824,8 +824,8 @@ func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
 			defer syscall.Close(fd)
 
 			tv := []syscall.Timeval{
-				syscall.Timeval{Sec: int64(someAtime.Unix())},
-				syscall.Timeval{Sec: int64(someMtime.Unix())},
+				{Sec: int64(someAtime.Unix())},
+				{Sec: int64(someMtime.Unix())},
 			}
 			if err := syscall.Futimes(fd, tv); err != nil {
 				t.Fatalf("Fchown failed on deleted entry: %v", err)
