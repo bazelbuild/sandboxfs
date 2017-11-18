@@ -16,6 +16,12 @@ load(
 go_register_toolchains(go_version = "host")
 
 go_repository(
+    name = "golint",
+    importpath = "github.com/golang/lint",
+    commit = "6aaf7c34af0f4c36a57e0c429bace4d706d8e931",
+)
+
+go_repository(
     name = "org_bazil_fuse",
     importpath = "bazil.org/fuse",
     commit = "371fbbdaa8987b715bdd21d6adc4c9b20155f748",

@@ -40,6 +40,54 @@ func checkError(original error, pattern string) error {
 	return nil
 }
 
+func TestGrep(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "test")
+	if err != nil {
+		t.Fatalf("Failed to create temporary directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	goodFile := filepath.Join(tempDir, "file")
+	if err := ioutil.WriteFile(goodFile, []byte("foooobar baZ"), 0400); err != nil {
+		t.Fatalf("Failed to create test file %s: %v", goodFile, err)
+	}
+
+	badFile := filepath.Join(tempDir, "missing")
+
+	testData := []struct {
+		name string
+
+		pattern          string
+		file             string
+		wantMatch        bool
+		wantErrorPattern string
+	}{
+		{"Match", `fo+bar`, goodFile, true, ""},
+		{"NoMatch", `baz`, goodFile, false, ""},
+
+		{"MissingFile", ``, badFile, false, "failed to open " + badFile},
+		{"BadRegexp", `+foo`, goodFile, false, "failed to search for \\+foo in " + goodFile},
+	}
+	for _, d := range testData {
+		t.Run(d.name, func(t *testing.T) {
+			match, err := Grep(d.pattern, d.file)
+			if d.wantErrorPattern == "" {
+				if err != nil {
+					t.Fatalf("Grep failed: %v", err)
+				}
+
+				if match != d.wantMatch {
+					t.Errorf("Got match %v, want %v", match, d.wantMatch)
+				}
+			} else {
+				if err := checkError(err, d.wantErrorPattern); err != nil {
+					t.Fatal(err) // Message returned by helper is sufficient.
+				}
+			}
+		})
+	}
+}
+
 func TestInstall(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {

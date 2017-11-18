@@ -46,8 +46,12 @@ do_gotools() {
       go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration
 }
 
+do_lint() {
+  bazel run //admin/lint -- --verbose
+}
+
 case "${DO}" in
-  bazel|gotools)
+  bazel|gotools|lint)
     "do_${DO}"
     ;;
 

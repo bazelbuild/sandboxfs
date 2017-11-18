@@ -66,4 +66,8 @@ case "${DO}" in
   gotools)
     install_fuse
     ;;
+
+  lint)
+    install_bazel
+    ;;
 esac

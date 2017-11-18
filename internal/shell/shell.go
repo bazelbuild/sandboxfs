@@ -16,12 +16,30 @@
 package shell
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"syscall"
 )
+
+// Grep checks whether the given file's contents match the pattern.
+func Grep(pattern string, file string) (bool, error) {
+	input, err := os.OpenFile(file, os.O_RDONLY, 0)
+	if err != nil {
+		return false, fmt.Errorf("failed to open %s for read: %v", file, err)
+	}
+	defer input.Close()
+
+	matched, err := regexp.MatchReader(pattern, bufio.NewReader(input))
+	if err != nil {
+		return false, fmt.Errorf("failed to search for %s in %s: %v", pattern, file, err)
+	}
+
+	return matched, nil
+}
 
 // Install copies a file and sets desired permissions on the destination.  The permissions are set
 // exactly as specified, without respecting the process' umask.
