@@ -32,6 +32,10 @@ import (
 )
 
 const (
+	// Path to the sandboxfs as staged by Bazel.  Used unless SANDBOXFS is defined in the
+	// environment.
+	sandboxfsDep = "../cmd/sandboxfs/sandboxfs"
+
 	// Maximum amount of time to wait for sandboxfs to come up and start serving.
 	startupDeadlineSeconds = 10
 
@@ -43,7 +47,10 @@ const (
 func sandboxfsBinary() (string, error) {
 	bin := os.Getenv("SANDBOXFS")
 	if bin == "" {
-		return "", fmt.Errorf("SANDBOXFS not defined in environment")
+		if _, err := os.Lstat(sandboxfsDep); err != nil {
+			return "", fmt.Errorf("SANDBOXFS not defined in environment")
+		}
+		bin = sandboxfsDep
 	}
 	return bin, nil
 }

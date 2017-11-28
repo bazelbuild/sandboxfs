@@ -1,0 +1,38 @@
+{
+  "editor.insertSpaces": true,
+  "editor.rulers": [80],
+  "editor.tabSize": 2,
+  "editor.wordWrapColumn": 80,
+
+  "files.associations": {
+    "settings.json.in": "json"
+  },
+  "files.exclude": {
+    "**/.DS_Store": true,
+    "**/.git": true,
+    ".gopath-tools/**": true,
+    ".gopath/**": true,
+    "bazel-*": true,
+    "settings.json": true
+  },
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+
+  "go.formatOnSave": true,
+  "go.gopath": "__GOPATH__",
+  "go.goroot": "__GOROOT__",
+  "go.toolsGopath": "__TOOLS_GOPATH__",
+  "go.useLanguageServer": true,
+
+  "[go]": {
+    "editor.insertSpaces": false,
+    "editor.rulers": [100],
+    "editor.tabSize": 8,
+    "editor.wordWrapColumn": 100
+  },
+
+  "[makefile]": {
+    "editor.insertSpaces": false,
+    "editor.tabSize": 8
+  }
+}

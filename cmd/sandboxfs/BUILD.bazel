@@ -1,0 +1,31 @@
+licenses(["notice"])  # Apache License 2.0
+
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "errors.go",
+        "profiling.go",
+        "sandboxfs.go",
+    ],
+    importpath = "github.com/bazelbuild/sandboxfs/cmd/sandboxfs",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//internal/sandbox:go_default_library",
+        "@org_bazil_fuse//:go_default_library",
+    ],
+)
+
+go_binary(
+    name = "sandboxfs",
+    importpath = "github.com/bazelbuild/sandboxfs/cmd/sandboxfs",
+    library = ":go_default_library",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "manpage",
+    srcs = ["sandboxfs.1"],
+    visibility = ["//admin/install:__pkg__"],
+)

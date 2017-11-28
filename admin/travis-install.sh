@@ -15,22 +15,59 @@
 
 set -e -u
 
-case "${TRAVIS_OS_NAME}" in
-  linux)
-    sudo apt-get update
-    sudo apt-get install -qq fuse libfuse-dev pkg-config user-mode-linux
+install_bazel() {
+  local osname
+  case "${TRAVIS_OS_NAME}" in
+    osx) osname=darwin ;;
+    *) osname="${TRAVIS_OS_NAME}" ;;
+  esac
 
-    sudo usermod -a -G fuse "${USER}"
+  local github="https://github.com/bazelbuild/bazel/releases/download/0.7.0"
+  local url="${github}/bazel-0.7.0-installer-${osname}-x86_64.sh"
+  wget -O install-bazel.sh "${url}"
+  chmod +x install-bazel.sh
+  ./install-bazel.sh --user
+  rm -f install-bazel.sh
+}
 
-    sudo /bin/sh -c 'echo user_allow_other >>/etc/fuse.conf'
-    sudo chmod 644 /etc/fuse.conf
+install_fuse() {
+  case "${TRAVIS_OS_NAME}" in
+    linux)
+      sudo apt-get update
+      sudo apt-get install -qq fuse libfuse-dev pkg-config user-mode-linux
+
+      sudo usermod -a -G fuse "${USER}"
+
+      sudo /bin/sh -c 'echo user_allow_other >>/etc/fuse.conf'
+      sudo chmod 644 /etc/fuse.conf
+      ;;
+
+    osx)
+      brew update
+      brew cask install osxfuse
+
+      sudo /Library/Filesystems/osxfuse.fs/Contents/Resources/load_osxfuse
+      sudo sysctl -w vfs.generic.osxfuse.tunables.allow_other=1
+      ;;
+
+    *)
+      echo "Don't know how to install FUSE for OS ${TRAVIS_OS_NAME}" 1>&2
+      exit 1
+      ;;
+  esac
+}
+
+case "${DO}" in
+  bazel)
+    install_bazel
+    install_fuse
     ;;
 
-  osx)
-    brew update
-    brew cask install osxfuse
+  gotools)
+    install_fuse
+    ;;
 
-    sudo /Library/Filesystems/osxfuse.fs/Contents/Resources/load_osxfuse
-    sudo sysctl -w vfs.generic.osxfuse.tunables.allow_other=1
+  lint)
+    install_bazel
     ;;
 esac

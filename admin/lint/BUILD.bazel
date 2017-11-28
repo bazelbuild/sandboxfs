@@ -1,0 +1,33 @@
+load("@io_bazel_rules_go//go:def.bzl", "gazelle", "go_binary", "go_library")
+
+# TODO(jmmv): Remove this duplicate rule from //admin when the gazelle rule
+# supports a visibility attribute.
+gazelle(
+    name = "gazelle",
+    prefix = "github.com/bazelbuild/sandboxfs",
+)
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "checks.go",
+        "lint.go",
+    ],
+    importpath = "github.com/bazelbuild/sandboxfs/admin/lint",
+    visibility = ["//visibility:private"],
+    deps = ["//internal/shell:go_default_library"],
+)
+
+go_binary(
+    name = "lint",
+    data = [
+        ":gazelle",
+        "//:WORKSPACE",
+        "@com_github_bazelbuild_buildtools//buildifier",
+        "@go_sdk//:bin/gofmt",
+        "@golint//golint",
+    ],
+    importpath = "github.com/bazelbuild/sandboxfs/admin/lint",
+    library = ":go_default_library",
+    visibility = ["//visibility:public"],
+)

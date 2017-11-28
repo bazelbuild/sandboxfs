@@ -1,0 +1,8 @@
+licenses(["notice"])  # Apache License 2.0
+
+load("@io_bazel_rules_go//go:def.bzl", "gazelle")
+
+gazelle(
+    name = "gazelle",
+    prefix = "github.com/bazelbuild/sandboxfs",
+)

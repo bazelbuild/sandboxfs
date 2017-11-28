@@ -1,0 +1,19 @@
+licenses(["notice"])  # Apache License 2.0
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "go_default_library",
+    srcs = [
+        "checks.go",
+        "doc.go",
+        "exec.go",
+        "user.go",
+    ],
+    importpath = "github.com/bazelbuild/sandboxfs/integration/utils",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@org_bazil_fuse//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
+    ],
+)

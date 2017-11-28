@@ -72,9 +72,9 @@ func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Write
 
 	utils.MustMkdirAll(t, state.RootPath("a/a"), 0755)
 	config := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/ro", Target: state.RootPath("a/a"), Writable: false},
-		sandbox.MappingSpec{Mapping: "/", Target: state.RootPath(), Writable: true},
-		sandbox.MappingSpec{Mapping: "/ro/rw", Target: state.RootPath(), Writable: true},
+		{Mapping: "/ro", Target: state.RootPath("a/a"), Writable: false},
+		{Mapping: "/", Target: state.RootPath(), Writable: true},
+		{Mapping: "/ro/rw", Target: state.RootPath(), Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Write
 	}
 
 	config = jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/rw/dir", Target: state.RootPath(), Writable: true},
+		{Mapping: "/rw/dir", Target: state.RootPath(), Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
 		t.Fatal(err)
@@ -193,8 +193,8 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	wantInodes := make(map[string]uint64)
 
 	firstConfig := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: false},
-		sandbox.MappingSpec{Mapping: "/dir3", Target: state.RootPath("dir3"), Writable: false},
+		{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: false},
+		{Mapping: "/dir3", Target: state.RootPath("dir3"), Writable: false},
 	})
 	if err := reconfigure(state.Stdin, output, firstConfig); err != nil {
 		t.Fatalf("First configuration failed: %v", err)
@@ -205,7 +205,7 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	wantInodes["dir3/file"] = inodeOf(state.MountPath("dir3/file"))
 
 	secondConfig := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/dir2", Target: state.RootPath("dir2"), Writable: false},
+		{Mapping: "/dir2", Target: state.RootPath("dir2"), Writable: false},
 	})
 	if err := reconfigure(state.Stdin, output, secondConfig); err != nil {
 		t.Fatalf("Failed to replace all mappings with new configuration: %v", err)
@@ -243,7 +243,7 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 
 	config := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: true},
+		{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: true},
 	})
 	if err := reconfigure(state.Stdin, output, config); err != nil {
 		t.Fatal(err)
@@ -254,7 +254,7 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 	}
 
 	config = jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: false},
+		{Mapping: "/dir1", Target: state.RootPath("dir1"), Writable: false},
 	})
 	if err := reconfigure(state.Stdin, output, config); err != nil {
 		t.Fatal(err)
@@ -306,7 +306,7 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 	config := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/dir", Target: state.RootPath("dir"), Writable: true},
+		{Mapping: "/dir", Target: state.RootPath("dir"), Writable: true},
 	})
 	if err := reconfigure(state.Stdin, output, config); err != nil {
 		t.Fatal(err)
@@ -448,7 +448,7 @@ func TestReconfiguration_InvalidationsRaceWithWrites(t *testing.T) {
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 	config := jsonConfig([]sandbox.MappingSpec{
-		sandbox.MappingSpec{Mapping: "/dir", Target: state.RootPath("dir"), Writable: false},
+		{Mapping: "/dir", Target: state.RootPath("dir"), Writable: false},
 	})
 
 	nEntries := 2000

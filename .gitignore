@@ -1,0 +1,7 @@
+.*.orig
+.*.rej
+.*.swp
+.*~
+/bazel-*
+/.gopath
+/.gopath-tools
