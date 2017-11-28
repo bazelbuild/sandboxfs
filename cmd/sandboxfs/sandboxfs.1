@@ -296,6 +296,7 @@ file system but clears
 to point into a sandbox-specific writable directory:
 .Bd -literal -indent
 sandboxfs \\
+    static \\
     --read_only_mapping=/:/ \\
     --read_write_mapping=/tmp:/tmp/fresh-tmp \\
     /mnt
