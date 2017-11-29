@@ -2,6 +2,11 @@ licenses(["notice"])  # Apache License 2.0
 
 exports_files(["WORKSPACE"])
 
+exports_files(
+    ["package.bzl"],
+    visibility = ["//cmd/sandboxfs:__pkg__"],
+)
+
 filegroup(
     name = "distdocs",
     srcs = [

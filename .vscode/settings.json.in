@@ -5,6 +5,7 @@
   "editor.wordWrapColumn": 80,
 
   "files.associations": {
+    "sandboxfs.1": "troff",
     "settings.json.in": "json"
   },
   "files.exclude": {
@@ -34,5 +35,13 @@
   "[makefile]": {
     "editor.insertSpaces": false,
     "editor.tabSize": 8
+  },
+
+  "[markdown]": {
+    "editor.quickSuggestions": false
+  },
+
+  "[troff]": {
+    "editor.quickSuggestions": false
   }
 }

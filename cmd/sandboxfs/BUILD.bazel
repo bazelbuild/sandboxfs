@@ -1,5 +1,6 @@
 licenses(["notice"])  # Apache License 2.0
 
+load("//:package.bzl", "PACKAGE_VERSION")
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 
 go_library(
@@ -22,6 +23,9 @@ go_binary(
     importpath = "github.com/bazelbuild/sandboxfs/cmd/sandboxfs",
     library = ":go_default_library",
     visibility = ["//visibility:public"],
+    x_defs = {
+        "main.packageVersion": PACKAGE_VERSION,
+    },
 )
 
 filegroup(
