@@ -24,7 +24,7 @@ import (
 
 var (
 	// versionPattern contains a pattern to match the output of sandboxfs --version.
-	versionPattern = `sandboxfs [0-9]+.[0-9]+`
+	versionPattern = `sandboxfs [0-9]+\.[0-9]+`
 )
 
 func TestCli_Help(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCli_VersionNotForRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if utils.MatchesRegexp("NOT.*FOR.*RELEASE", stdout) {
+	if utils.MatchesRegexp(`NOT.*FOR.*RELEASE`, stdout) {
 		t.Errorf("Got %s; binary not built for release", stdout)
 	}
 }
