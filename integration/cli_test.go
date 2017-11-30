@@ -16,6 +16,7 @@ package integration
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
@@ -110,7 +111,17 @@ func TestCli_Version(t *testing.T) {
 	if len(stderr) > 0 {
 		t.Errorf("Got %s; want stderr to be empty", stderr)
 	}
+}
 
+func TestCli_VersionNotForRelease(t *testing.T) {
+	if os.Getenv("SKIP_NOT_FOR_RELEASE_TEST") == "yes" {
+		t.Skipf("Skipped because SKIP_NOT_FOR_RELEASE_TEST is 'yes' in the environment, which means we knowingly built a non-release binary")
+	}
+
+	stdout, _, err := utils.RunAndWait(0, "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if utils.MatchesRegexp("NOT.*FOR.*RELEASE", stdout) {
 		t.Errorf("Got %s; binary not built for release", stdout)
 	}

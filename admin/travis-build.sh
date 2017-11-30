@@ -40,9 +40,20 @@ do_gotools() {
   go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
   go test -v -timeout=600s github.com/bazelbuild/sandboxfs/internal/shell
-  SANDBOXFS="$(pwd)/sandboxfs" \
+
+  SANDBOXFS="$(pwd)/sandboxfs" SKIP_NOT_FOR_RELEASE_TEST=yes \
       go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration
-  sudo -H "${rootenv[@]}" SANDBOXFS="$(pwd)/sandboxfs" -s \
+  if SANDBOXFS="$(pwd)/sandboxfs" \
+      go test -v -timeout=600s -run TestCli_VersionNotForRelease \
+      github.com/bazelbuild/sandboxfs/integration; then
+    echo "Tests did not catch that the current build is not for release" 1>&2
+    exit 1
+  else
+    echo "Previous test was expected to fail, and it did! All good." 1>&2
+  fi
+
+  sudo -H "${rootenv[@]}" \
+      SANDBOXFS="$(pwd)/sandboxfs" SKIP_NOT_FOR_RELEASE_TEST=yes -s \
       go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration
 }
 
