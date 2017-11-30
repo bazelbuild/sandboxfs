@@ -44,6 +44,8 @@ Flags:
     	enable HTTP server on the given address and expose pprof data
   -mem_profile string
     	write a memory profile to the given file on exit
+  -version
+    	show version information and exit
   -volume_name string
     	name for the sandboxfs volume (default "sandbox")
 `

@@ -362,7 +362,7 @@ func safeMain(progname string, args []string) error {
 	help := flags.Bool("help", false, "print the usage information and exit")
 	listenAddress := flags.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
 	memProfile := flags.String("mem_profile", "", "write a memory profile to the given file on exit")
-	version := flags.Bool("version", true, "show version information and exit")
+	version := flags.Bool("version", false, "show version information and exit")
 	volumeName := flags.String("volume_name", "sandbox", "name for the sandboxfs volume")
 
 	if err := flags.Parse(args); err != nil {
