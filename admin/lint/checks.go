@@ -112,7 +112,7 @@ func checkGolint(file string) error {
 // checkAll runs all possible checks on a file.  Returns true if all checks pass, and false
 // otherwise.  Error details are dumped to stderr.
 func checkAll(file string) bool {
-	isBuildFile := filepath.Base(file) == "BUILD.bazel"
+	isBuildFile := filepath.Base(file) == "BUILD.bazel" || filepath.Ext(file) == ".bzl"
 
 	// If a file starts with an upper-case letter, assume it's supporting package documentation
 	// (all those files in the root directory) and avoid linting it.

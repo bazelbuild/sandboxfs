@@ -16,9 +16,15 @@ package integration
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
+)
+
+var (
+	// versionPattern contains a pattern to match the output of sandboxfs --version.
+	versionPattern = `sandboxfs [0-9]+\.[0-9]+`
 )
 
 func TestCli_Help(t *testing.T) {
@@ -39,6 +45,8 @@ Flags:
     	enable HTTP server on the given address and expose pprof data
   -mem_profile string
     	write a memory profile to the given file on exit
+  -version
+    	show version information and exit
   -volume_name string
     	name for the sandboxfs volume (default "sandbox")
 `
@@ -88,6 +96,65 @@ Flags:
 			}
 			if len(stderr) > 0 {
 				t.Errorf("Got %s; want stderr to be empty", stderr)
+			}
+		})
+	}
+}
+func TestCli_Version(t *testing.T) {
+	stdout, stderr, err := utils.RunAndWait(0, "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !utils.MatchesRegexp(versionPattern, stdout) {
+		t.Errorf("Got %s; want stdout to match %s", stdout, versionPattern)
+	}
+	if len(stderr) > 0 {
+		t.Errorf("Got %s; want stderr to be empty", stderr)
+	}
+}
+
+func TestCli_VersionNotForRelease(t *testing.T) {
+	if os.Getenv("SKIP_NOT_FOR_RELEASE_TEST") == "yes" {
+		t.Skipf("Skipped because SKIP_NOT_FOR_RELEASE_TEST is 'yes' in the environment, which means we knowingly built a non-release binary")
+	}
+
+	stdout, _, err := utils.RunAndWait(0, "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if utils.MatchesRegexp(`NOT.*FOR.*RELEASE`, stdout) {
+		t.Errorf("Got %s; binary not built for release", stdout)
+	}
+}
+
+func TestCli_ExclusiveFlagsPriority(t *testing.T) {
+	testData := []struct {
+		name string
+
+		args           []string
+		wantExitStatus int
+		wantStdout     string
+		wantStderr     string
+	}{
+		{"BogusFlagsWinOverEverything", []string{"--version", "--help", "--foo"}, 2, "", "not defined.*foo"},
+		{"HelpWinsOverValidArgs", []string{"--version", "--mem_profile=foo", "--help", "--volume_name=foo"}, 0, "Usage:", ""},
+		{"VersionWinsOverValidArgsButHelp", []string{"--mem_profile=foo", "--version", "--volume_name=foo"}, 0, versionPattern, ""},
+	}
+	for _, d := range testData {
+		t.Run(d.name, func(t *testing.T) {
+			stdout, stderr, err := utils.RunAndWait(d.wantExitStatus, d.args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(d.wantStdout) == 0 && len(stdout) > 0 {
+				t.Errorf("Got %s; want stdout to be empty", stdout)
+			} else if len(d.wantStdout) > 0 && !utils.MatchesRegexp(d.wantStdout, stdout) {
+				t.Errorf("Got %s; want stdout to match %s", stdout, d.wantStdout)
+			}
+			if len(d.wantStderr) == 0 && len(stderr) > 0 {
+				t.Errorf("Got %s; want stderr to be empty", stderr)
+			} else if len(d.wantStderr) > 0 && !utils.MatchesRegexp(d.wantStderr, stderr) {
+				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 		})
 	}

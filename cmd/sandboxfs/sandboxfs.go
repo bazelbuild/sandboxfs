@@ -33,6 +33,14 @@ import (
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
+var (
+	// packageVersion contains the textual version number of this package.
+	//
+	// The value here is populated by the build system.  The placeholder denotes that
+	// a build that misses to include this detail should not be shipped to users.
+	packageVersion = "0.0 (BINARY NOT FOR RELEASE)"
+)
+
 // allowFlag holds the value of and parses a flag that controls who has access to the file system.
 type allowFlag struct {
 	// Option is the FUSE mount option to pass to the mount operation, or nil if not applicable.
@@ -354,6 +362,7 @@ func safeMain(progname string, args []string) error {
 	help := flags.Bool("help", false, "print the usage information and exit")
 	listenAddress := flags.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
 	memProfile := flags.String("mem_profile", "", "write a memory profile to the given file on exit")
+	version := flags.Bool("version", false, "show version information and exit")
 	volumeName := flags.String("volume_name", "sandbox", "name for the sandboxfs volume")
 
 	if err := flags.Parse(args); err != nil {
@@ -368,6 +377,11 @@ Subcommands:
 Flags:
 `, progname)
 		usage(os.Stdout, flags)
+		return nil
+	}
+
+	if *version {
+		fmt.Fprintf(os.Stdout, "sandboxfs %s\n", packageVersion)
 		return nil
 	}
 

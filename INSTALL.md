@@ -43,12 +43,16 @@ To get started:
 
 ## From sources with the Go tools
 
-You can also build and install sandboxfs from this Git repository using the
-standard Go tools as follows:
+You can also build sandboxfs from this Git repository using the standard Go
+tools as follows:
 
     go get github.com/bazelbuild/sandboxfs/cmd/sandboxfs
     go build github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
-This is not recommended because this mechanism does not provide a way to
+This is not supported because this mechanism does not provide a way to
 install the built product.  (Yes, `go install` does install the binary but does
 not handle other support files such as documentation.)
+
+Furthermore, this mechanism does not bundle build information into the final
+binary, which means the final binary **cannot be shipped** and may not
+interact well with other tools.

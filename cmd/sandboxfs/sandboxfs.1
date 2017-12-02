@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd October 30, 2017
+.Dd November 29, 2017
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -25,6 +25,7 @@
 .Op Fl -listen_address Ar host:port
 .Op Fl -help
 .Op Fl -mem_profile Ar file
+.Op Fl -version
 .Op Fl -volume_name Ar volume_name
 dynamic
 .Op Fl -help
@@ -113,6 +114,7 @@ and
 because only one profiling mechanism can be enabled at once.
 .It Fl -help
 Prints global help details and exits.
+Specifying this flag causes all other valid flags and arguments to be ignored.
 .It Fl -mem_profile Ar file
 Enables memory profiling and writes a profile to the given
 .Ar file
@@ -121,6 +123,22 @@ on exit.
 This option is incompatible with
 .Fl -listen_address
 because only one profiling mechanism can be enabled at once.
+.It Fl -version
+Prints version information and exits.
+Specifying this flag causes all other valid flags and arguments to be ignored
+except for
+.Fl -help ,
+which has priority over this one.
+.Pp
+The first line printed to stdout is machine parseable and follows the following
+structure:
+.Bd -literal -indent
+sandboxfs MAJOR.MINOR[.ADDITIONAL OPTIONAL QUALIFIERS]
+.Ed
+.Pp
+Programs automating invocations of
+.Nm
+can use this information to determine the correct command-line syntax to use.
 .It Fl -volume_name Ar volume_name
 Specifies the name of the mounted volume, which is used by some operating
 systems (such as macOS) to display a volume label in the system UI.
