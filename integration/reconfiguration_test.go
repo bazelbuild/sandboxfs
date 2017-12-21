@@ -165,6 +165,50 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 	doReconfigurationTest(t, state, input, output)
 }
 
+func TestReconfiguration_RaceSystemComponents(t *testing.T) {
+	// This test verifies that a dynamic sandboxfs instance can be unmounted immediately after
+	// reconfiguration.
+	//
+	// When this test was originally conceived, it did not actually test for a sandboxfs problem
+	// despite it being in the "reconfiguration" category.  This test was added as a check to
+	// ensure that our own testing infrastructure can cope with system components (e.g. macOS's
+	// Finder) interfering with the mount point while we are cleaning up the test state.  The
+	// reason this exists under the "reconfiguration" category is because a
+	// dynamically-configured sandboxfs instance is more subject to this problem than a
+	// statically-configured one: during test setup in the former case, we cannot wait for
+	// sandboxfs to be ready for serving, which means that the time window between the
+	// reconfiguration operation and the unmount is smaller.  This shorter window makes the race
+	// between us and the system easier to trigger.
+
+	oneShot := func() error {
+		stdoutReader, stdoutWriter := io.Pipe()
+		defer stdoutReader.Close()
+		defer stdoutWriter.Close()
+		output := bufio.NewScanner(stdoutReader)
+
+		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+		// state.TearDown not deferred here because we want to explicitly control for any
+		// possible error it may report and abort the whole test early in that case.
+
+		utils.MustWriteFile(t, state.RootPath("first"), 0644, "First")
+
+		firstConfig := jsonConfig([]sandbox.MappingSpec{
+			{Mapping: "/first", Target: state.RootPath("first"), Writable: false},
+		})
+		if err := reconfigure(state.Stdin, output, firstConfig); err != nil {
+			state.TearDown(t)
+			return err
+		}
+		return state.TearDown(t)
+	}
+
+	for i := 0; i < 200; i++ {
+		if err := oneShot(); err != nil {
+			t.Fatalf("Failed after %d mount+reconfigure sequences: %v", i, err)
+		}
+	}
+}
+
 func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	// inodeOf obtains the inode number of a file.
 	inodeOf := func(path string) uint64 {
