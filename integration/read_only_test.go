@@ -15,12 +15,9 @@
 package integration
 
 import (
-	"io/ioutil"
 	"os"
 	"os/exec"
-	"reflect"
 	"runtime"
-	"sort"
 	"syscall"
 	"testing"
 
@@ -176,19 +173,9 @@ func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
 			// incomplete because the open file descriptor wouldn't be rewound. Trying
 			// twice should be sufficient but it doesn't hurt to try a few more times.
 			for i := 0; i < 5; i++ {
-				dirents, err := ioutil.ReadDir(path)
+				err := utils.DirEntryNamesEqual(path, d.wantNames)
 				if err != nil {
-					t.Fatalf("Failed to read contents of directory %s: %v", path, err)
-				}
-
-				var names []string
-				for _, dirent := range dirents {
-					names = append(names, dirent.Name())
-				}
-				sort.Strings(names)
-
-				if !reflect.DeepEqual(names, d.wantNames) {
-					t.Errorf("Got entries %v for directory %s during iteration %d; want %v", names, path, i, d.wantNames)
+					t.Errorf("Failed iteration %d: %v", i, err)
 				}
 			}
 		})

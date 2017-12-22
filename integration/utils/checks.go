@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"reflect"
 	"regexp"
+	"sort"
 	"testing"
 )
 
@@ -86,6 +87,27 @@ func DirEquals(path1 string, path2 string) error {
 	if !reflect.DeepEqual(names[0], names[1]) {
 		return fmt.Errorf("contents of directory %s do not match %s; got %v, want %v", path1, path2, names[1], names[0])
 	}
+	return nil
+}
+
+// DirEntryNamesEqual checks if the names of the entries in the given directory match the expected
+// names in the given slice.  The list of expected entries needs to be sorted alphabetically.
+func DirEntryNamesEqual(path string, wantNames []string) error {
+	dirents, err := ioutil.ReadDir(path)
+	if err != nil {
+		return fmt.Errorf("failed to read contents of directory %s: %v", path, err)
+	}
+
+	var names []string
+	for _, dirent := range dirents {
+		names = append(names, dirent.Name())
+	}
+	sort.Strings(names)
+
+	if !reflect.DeepEqual(names, wantNames) {
+		return fmt.Errorf("got entries %v for directory %s; want %v", names, path, wantNames)
+	}
+
 	return nil
 }
 

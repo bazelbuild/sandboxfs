@@ -143,9 +143,50 @@ func (r *Root) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, erro
 	return r.getDir().Mknod(ctx, req)
 }
 
-// Open delegates the Open operation to the backing directory node.
+// Open always returns self, which represents a single handle for the root directory.
+//
+// We cannot delegate this operation to the backing directory because the backing directory changes
+// during reconfigurations.  As a result, any open handles on those backing directories would become
+// invalid across reconfigurations.  By keeping a single instance for the root, we can just delegate
+// to the backing directories when needed.
 func (r *Root) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
-	return r.getDir().Open(ctx, req, resp)
+	return r, nil
+}
+
+// ReadDirAll obtains the directory contents of the underlying directory type.  This is done by
+// stringing a series of open/read/release requests on the backing directory, simulating what the
+// kernel would do.
+//
+// TODO(jmmv): This is not semantically correct: we shouldn't be "opening" the backing directory as
+// we do below, because a readdir operation from the kernel on an already-open root directory causes
+// a spurious open of an unrelated entity.  This shouldn't be a problem (and we do that for mapped
+// nodes anyway), but we should find a solution for this.  I'm afraid the answer is to combine
+// MappedDir and ScaffoldDir under the same type and to get rid of the Root type.  This would have
+// the benefit of allowing us to maintain the identity of directory nodes across reconfigurations
+// more easily, which can be interesting on its own.
+func (r *Root) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	handle, err := r.dir.Open(ctx, &fuse.OpenRequest{}, &fuse.OpenResponse{})
+	if err != nil {
+		return nil, err
+	}
+	if typedHandle, ok := handle.(fs.HandleReadDirAller); ok {
+		dirents, err := typedHandle.ReadDirAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if typedHandle, ok := handle.(fs.HandleReleaser); ok {
+			if err := typedHandle.Release(ctx, nil); err != nil {
+				return nil, err
+			}
+		}
+
+		return dirents, nil
+	}
+	panic("Handles for backing directories are expected to implement ReadDirAll")
 }
 
 // Remove delegates the Remove operation to the backing directory node.

@@ -209,6 +209,73 @@ func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 	}
 }
 
+func TestReconfiguration_DirectoryListings(t *testing.T) {
+	testData := []struct {
+		name string
+
+		dir                string
+		firstConfigTarget  string
+		secondConfigTarget string
+		keepDirOpen        string
+	}{
+		{"MappedDir", "/mapped", "dir1", "dir2", ""},
+		{"MappedDirAndKeepRootOpen", "/mapped", "dir1", "dir2", "/"},
+		{"MappedDirAndKeepSelfOpen", "/mapped", "dir1", "dir2", "/mapped"},
+		{"Root", "/", "dir1/first", "dir2/second", ""},
+		{"RootAndKeepSelfOpen", "/", "dir1/first", "dir2/second", "/"},
+		{"ScaffoldDir", "/scaffold", "dir1/first", "dir2/second", ""},
+		{"ScaffoldDirAndKeepRootOpen", "/scaffold", "dir1/first", "dir2/second", "/"},
+		{"ScaffoldDirAndKeepSelfOpen", "/scaffold", "dir1/first", "dir2/second", "/scaffold"},
+	}
+	for _, d := range testData {
+		t.Run(d.name, func(t *testing.T) {
+			stdoutReader, stdoutWriter := io.Pipe()
+			defer stdoutReader.Close()
+			defer stdoutWriter.Close()
+			output := bufio.NewScanner(stdoutReader)
+
+			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+			defer state.TearDown(t)
+
+			utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
+			utils.MustWriteFile(t, state.RootPath("dir1/first"), 0644, "First")
+			utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
+			utils.MustWriteFile(t, state.RootPath("dir2/second"), 0644, "Second")
+
+			firstConfig := jsonConfig([]sandbox.MappingSpec{
+				{Mapping: filepath.Join(d.dir, "first"), Target: state.RootPath(d.firstConfigTarget), Writable: false},
+			})
+			if err := reconfigure(state.Stdin, output, firstConfig); err != nil {
+				t.Fatalf("First configuration failed: %v", err)
+			}
+			if err := utils.DirEntryNamesEqual(state.MountPath(d.dir), []string{"first"}); err != nil {
+				t.Error(err)
+			}
+
+			if d.keepDirOpen != "" {
+				// Keep a handle open to the directory for the duration of the test, which makes everything
+				// more difficult to handle.  This ensures that no handles made stale during reconfiguration
+				// are used.
+				handle, err := os.OpenFile(state.MountPath(d.keepDirOpen), os.O_RDONLY, 0)
+				if err != nil {
+					t.Fatalf("Cannot open %s to keep directory busy: %v", d.keepDirOpen, err)
+				}
+				defer handle.Close()
+			}
+
+			secondConfig := jsonConfig([]sandbox.MappingSpec{
+				{Mapping: filepath.Join(d.dir, "second"), Target: state.RootPath(d.secondConfigTarget), Writable: false},
+			})
+			if err := reconfigure(state.Stdin, output, secondConfig); err != nil {
+				t.Fatalf("Second configuration failed: %v", err)
+			}
+			if err := utils.DirEntryNamesEqual(state.MountPath(d.dir), []string{"second"}); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
 func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	// inodeOf obtains the inode number of a file.
 	inodeOf := func(path string) uint64 {
