@@ -109,17 +109,20 @@ func RunAndWait(wantExitStatus int, arg ...string) (string, string, error) {
 	return wait(state, wantExitStatus)
 }
 
-// waitForFile waits until a given file exists and is accessible by the given user with a timeout
-// of deadlineSeconds.  Returns true if the file was found before the timer expired, or false
-// otherwise.  The user may be nil, in which case the current user is assumed.
-func waitForFile(cookie string, deadlineSeconds int, user *UnixUser) bool {
-	for tries := 0; tries < deadlineSeconds; tries++ {
-		if err := FileExistsAsUser(cookie, user); err == nil {
-			return true
+// retry runs the given action until either it succeeds or the given deadline expires.  If the
+// deadline expires, returns the last encountered error from the action.  Prints the given message
+// when an error is encountered.
+func retry(action func() error, message string, deadlineSeconds int) error {
+	var lastErr error
+	for tries := 0; tries < deadlineSeconds*10; tries++ {
+		lastErr = action()
+		if lastErr == nil {
+			return nil
 		}
-		time.Sleep(time.Second)
+		fmt.Fprintf(os.Stderr, "In retry attempt %d: %s: %v\n", tries, message, lastErr)
+		time.Sleep(100 * time.Millisecond)
 	}
-	return false
+	return lastErr
 }
 
 // startBackground spawns sandboxfs with the given arguments and waits for the file system to be
@@ -160,7 +163,8 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, user *Un
 
 	if cookie != "" {
 		cookiePath := filepath.Join(mountPoint, cookie)
-		if !waitForFile(cookiePath, startupDeadlineSeconds, user) {
+		waitForCookie := func() error { return FileExistsAsUser(cookiePath, user) }
+		if err := retry(waitForCookie, "waiting for cookie to appear in mount point", startupDeadlineSeconds); err != nil {
 			// Give up.  sandboxfs did't come up, so kill the process and clean up.
 			// There is not much we can do here if we encounter errors (e.g. we don't
 			// even know if the mount point was initialized, so the unmount call may or
@@ -410,12 +414,24 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 // If tests wish to control the shutdown of the sandboxfs process, they can do so, but then they
 // must set s.Cmd to nil to tell TearDown to not clean up the process a second time.  The same
 // applies to s.Stdin.
-func (s *MountState) TearDown(t *testing.T) {
+//
+// If tests wish to check if TearDown returned an error, they can do so by avoiding the recommended
+// use of "defer".  Note, though, that such tests will only receive the first error encountered by
+// this function, and that the function will run to completion even if there were failures.
+func (s *MountState) TearDown(t *testing.T) error {
+	var firstErr error
+	setFirstErr := func(err error) {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
 	unix.Umask(s.oldMask)
 
 	if s.Stdin != nil {
 		if err := s.Stdin.Close(); err != nil {
 			t.Errorf("Failed to close sandboxfs's stdin pipe: %v", err)
+			setFirstErr(err)
 		}
 
 		s.Stdin = nil
@@ -426,8 +442,19 @@ func (s *MountState) TearDown(t *testing.T) {
 		// stop serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2)
 		// system call: this can be run as an unprivileged user, so we needn't check for
 		// root privileges.
-		if err := fuse.Unmount(s.mountPoint); err != nil {
+		//
+		// Note that we must be resilient to unmount failures as we can get transient
+		// "resource busy" errors.  While our tests should not be keeping files open on the
+		// mount point after they terminate (that'd be a bug), the operating system may
+		// interfere with us and access the file system under the hood.  If that happens, we
+		// get a business error even when we think the mount point is not busy.  For
+		// example, on macOS, the Finder may decide to obtain information about the mount
+		// point and, if it does that while we try to unmount it, we get an unexpected
+		// error.
+		unmount := func() error { return fuse.Unmount(s.mountPoint) }
+		if err := retry(unmount, "waiting for file system to be unmounted", shutdownDeadlineSeconds); err != nil {
 			t.Errorf("Failed to unmount sandboxfs instance during teardown: %v", err)
+			setFirstErr(err)
 		}
 
 		timer := time.AfterFunc(shutdownDeadlineSeconds*time.Second, func() {
@@ -437,6 +464,7 @@ func (s *MountState) TearDown(t *testing.T) {
 		timer.Stop()
 		if err != nil {
 			t.Errorf("sandboxfs did not exit successfully during teardown: %v", err)
+			setFirstErr(err)
 		}
 
 		s.Cmd = nil
@@ -444,5 +472,8 @@ func (s *MountState) TearDown(t *testing.T) {
 
 	if err := os.RemoveAll(s.tempDir); err != nil {
 		t.Errorf("Failed to remove temporary directory %s during teardown: %v", s.tempDir, err)
+		setFirstErr(err)
 	}
+
+	return firstErr
 }
