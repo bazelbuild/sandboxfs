@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"bazil.org/fuse"
+	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 // allowFlag holds the value of and parses a flag that controls who has access to the file system.
@@ -52,15 +53,9 @@ func (f *allowFlag) Set(value string) error {
 	return nil
 }
 
-// MappingTargetPair stores a single mapping of the form mapping->target.
-type MappingTargetPair struct {
-	Mapping string
-	Target  string
-}
-
 // mappingFlag holds the value of a collection of flags that specify how to configure
 // the mappings within a sandboxfs instance.
-type mappingFlag []MappingTargetPair
+type mappingFlag []sandbox.MappingSpec
 
 // String returns the textual value of the flag.
 func (f *mappingFlag) String() string {
@@ -69,21 +64,34 @@ func (f *mappingFlag) String() string {
 
 // Set parses the value of the flag as given by the user.
 func (f *mappingFlag) Set(cmd string) error {
-	fields := strings.SplitN(cmd, ":", 2)
-	if len(fields) != 2 {
-		return fmt.Errorf("flag %q: expected contents to be of the form MAPPING:TARGET", cmd)
+	fields := strings.SplitN(cmd, ":", 3)
+	if len(fields) != 3 {
+		return fmt.Errorf("flag %q: expected contents to be of the form TYPE:MAPPING:TARGET", cmd)
 	}
-	mapping := filepath.Clean(fields[0])
-	target := filepath.Clean(fields[1])
+	typeName := fields[0]
+	mapping := filepath.Clean(fields[1])
+	target := filepath.Clean(fields[2])
 	if !filepath.IsAbs(mapping) {
-		return fmt.Errorf("path %q: mapping must be an absolute path", fields[0])
+		return fmt.Errorf("path %q: mapping must be an absolute path", mapping)
 	}
 	if !filepath.IsAbs(target) {
-		return fmt.Errorf("path %q: target must be an absolute path", fields[1])
+		return fmt.Errorf("path %q: target must be an absolute path", target)
 	}
-	*f = append(*f, MappingTargetPair{
-		Mapping: mapping,
-		Target:  target,
-	})
+	switch typeName {
+	case "ro":
+		*f = append(*f, sandbox.MappingSpec{
+			Mapping:  mapping,
+			Target:   target,
+			Writable: false,
+		})
+	case "rw":
+		*f = append(*f, sandbox.MappingSpec{
+			Mapping:  mapping,
+			Target:   target,
+			Writable: true,
+		})
+	default:
+		return fmt.Errorf("flag %q: unknown type %s; must be one of ro,rw", cmd, typeName)
+	}
 	return nil
 }

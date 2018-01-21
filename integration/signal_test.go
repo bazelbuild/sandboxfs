@@ -74,7 +74,7 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 		t.Run(signal.String(), func(t *testing.T) {
 			stderr := new(bytes.Buffer)
 
-			state := utils.MountSetupWithOutputs(t, nil, stderr, "static", "-read_only_mapping=/:%ROOT%")
+			state := utils.MountSetupWithOutputs(t, nil, stderr, "static", "-mapping=ro:/:%ROOT%")
 			defer state.TearDown(t)
 
 			utils.MustWriteFile(t, state.RootPath("a"), 0644, "")
@@ -105,7 +105,7 @@ func TestSignal_QueuedWhileInUse(t *testing.T) {
 	defer stderrWriter.Close()
 	stderr := bufio.NewScanner(stderrReader)
 
-	state := utils.MountSetupWithOutputs(t, nil, stderrWriter, "static", "-read_write_mapping=/:%ROOT%")
+	state := utils.MountSetupWithOutputs(t, nil, stderrWriter, "static", "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	// Create a file under the root directory and open it via the mount point to keep the file

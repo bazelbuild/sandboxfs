@@ -70,7 +70,7 @@ func TestOptions_Allow(t *testing.T) {
 				}
 				defer os.RemoveAll(tempDir)
 
-				_, stderr, err := utils.RunAndWait(1, d.allowFlag, "static", "-read_only_mapping=/:/", tempDir)
+				_, stderr, err := utils.RunAndWait(1, d.allowFlag, "static", "-mapping=ro:/:/", tempDir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -84,7 +84,7 @@ func TestOptions_Allow(t *testing.T) {
 			if d.allowFlag != "" {
 				args = append(args, d.allowFlag)
 			}
-			args = append(args, "static", "-read_only_mapping=/:%ROOT%")
+			args = append(args, "static", "-mapping=ro:/:%ROOT%")
 
 			state := utils.MountSetupWithUser(t, user, args...)
 			defer state.TearDown(t)

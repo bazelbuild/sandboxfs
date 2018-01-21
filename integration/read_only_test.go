@@ -26,7 +26,7 @@ import (
 )
 
 func TestReadOnly_DirectoryStructure(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
@@ -42,7 +42,7 @@ func TestReadOnly_DirectoryStructure(t *testing.T) {
 }
 
 func TestReadOnly_FileContents(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("file"), 0400, "foo")
@@ -62,7 +62,7 @@ func TestReadOnly_FileContents(t *testing.T) {
 }
 
 func TestReadOnly_ReplaceUnderlyingFile(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	externalFile := state.RootPath("foo")
@@ -94,7 +94,7 @@ func TestReadOnly_ReplaceUnderlyingFile(t *testing.T) {
 }
 
 func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("first/a"), 0755)
@@ -127,7 +127,7 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 	wantStderr := `unable to init sandbox: mapping /: creating node for path "/non-existent" failed: lstat /non-existent: no such file or directory` + "\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:/non-existent", "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestReadOnly_TargetDoesNotExist(t *testing.T) {
 }
 
 func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/dir:%ROOT%/dir", "-read_only_mapping=/scaffold/abc:%ROOT%/dir")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%", "-mapping=ro:/dir:%ROOT%/dir", "-mapping=ro:/scaffold/abc:%ROOT%/dir")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("mapped-dir"), 0755)
@@ -183,7 +183,7 @@ func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
 }
 
 func TestReadOnly_Attributes(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -273,7 +273,7 @@ func TestReadOnly_Access(t *testing.T) {
 	//
 	// Note also that we must mount with "allow=other" so that our unprivileged executions
 	// can access the file system.
-	state := utils.MountSetupWithUser(t, root, "-allow=other", "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/scaffold/dir/foo:%ROOT%/foo")
+	state := utils.MountSetupWithUser(t, root, "-allow=other", "static", "-mapping=ro:/:%ROOT%", "-mapping=ro:/scaffold/dir/foo:%ROOT%/foo")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("all"), 0777) // Place where "user" can create entries.
@@ -346,7 +346,7 @@ func TestReadOnly_Access(t *testing.T) {
 }
 
 func TestReadOnly_HardLinkCountsAreFixed(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/scaffold/dir:%ROOT%/dir")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%", "-mapping=ro:/scaffold/dir:%ROOT%/dir")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)

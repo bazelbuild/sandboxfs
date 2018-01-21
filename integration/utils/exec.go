@@ -218,11 +218,11 @@ func isDynamic(args ...string) bool {
 // the targetes of the mappings, and creates those paths.
 func createDirsRequiredByMappings(root string, args ...string) error {
 	for _, arg := range args {
-		if !MatchesRegexp("mapping=.*:"+root+"/", arg) {
+		if !strings.HasPrefix(arg, "-mapping=") {
 			continue // Not a mapping.
 		}
 		fields := strings.Split(arg, ":")
-		if len(fields) != 2 {
+		if len(fields) != 3 {
 			// If we encounter more than two fields on a mapping flag, we have hit a bug
 			// in our tests and this bug must be fixed: propagating an error makes no
 			// sense.  In other words: this function applies heuristics to determine
@@ -230,7 +230,7 @@ func createDirsRequiredByMappings(root string, args ...string) error {
 			// we fail to do this properly, the calling tests won't work at all.
 			panic(fmt.Sprintf("recognized a mapping but found more fields than expected: %v", fields))
 		}
-		dir := fields[1]
+		dir := fields[2]
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to mkdir %s: %v", dir, err)
 		}

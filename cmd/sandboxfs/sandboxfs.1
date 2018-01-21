@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd November 29, 2017
+.Dd January 21, 2018
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -38,8 +38,7 @@ dynamic
 .Op Fl -volume_name Ar volume_name
 static
 .Op Fl -help
-.Op Fl -read_only_mapping Ar mapping:target
-.Op Fl -read_write_mapping Ar mapping:target
+.Op Fl -mapping Ar type:mapping:target
 .Ar mount_point
 .Sh DESCRIPTION
 .Nm
@@ -153,14 +152,18 @@ instance is the
 .Em mapping specification .
 A mapping specification defines how an arbitrary location within the sandbox
 relates to another arbitrary location on the host file system.
-Mapping specifications have two components: the
+Mapping specifications have three components: the
 .Em target ,
 which is a path to a file or directory into the host file system (i.e. outside
-of the mount point), and the
+of the mount point); the
 .Em mapping ,
-which is an absolute path within the mount point in which the target is exposed.
-Note that the target must exist but the mapping may not: in particular,
-any path subcomponents of the mapping that have not been previously mapped
+which is an absolute path within the mount point in which the target is exposed;
+and the
+.Em type ,
+which specifies the permissions of the mapping.
+.Pp
+The target must exist but the mapping may not: in particular, any path
+subcomponents of the mapping that have not been previously mapped
 within the sandbox will be created as virtual read-only nodes.
 .Pp
 For example: consider a
@@ -178,15 +181,16 @@ will expose the contents of the real
 .Pa /usr/bin
 directory.
 .Pp
-Mapping specifications have a type associated to them, and the following types
-are currently supported:
+The following types are currently supported:
 .Bl -tag -width XXXX
-.It Read-only
+.It ro
+A read-only mapping.
 The contents of the target are exposed verbatim at the mapping point and they
 cannot be modified through the mount point.
 Any write access will result in an
 .Dv EPERM .
-.It Read/write
+.It rw
+A read/write mapping.
 The contents of the target are exposed verbatim at the mapping point and they
 can be modified at will through the mount point.
 Writes through the moint point are applied immediately to the underlying target
@@ -275,18 +279,14 @@ The following flags are recognized by this command:
 .Bl -tag -width XXXX
 .It Fl -help
 Prints information specific to this command and exits.
-.It Fl -read_only_mapping Ar mapping:target
-Registers a new read-only mapping.
+.It Fl -mapping Ar type:mapping:target
+Registers a new mapping.
 This flag can be given an arbitrary number of times as long as the same
 .Ar mapping
 is not repeated.
 See the
 .Sx Mapping specifications
 subsection for details on how a mapping is specified.
-.It Fl -read_write_mapping Ar mapping:target
-Same as
-.Fl -read_only_mapping
-but configures a read/write mapping.
 .El
 .Sh EXIT STATUS
 .Nm
@@ -315,8 +315,8 @@ to point into a sandbox-specific writable directory:
 .Bd -literal -indent
 sandboxfs \\
     static \\
-    --read_only_mapping=/:/ \\
-    --read_write_mapping=/tmp:/tmp/fresh-tmp \\
+    --mapping=ro:/:/ \\
+    --mapping=rw:/tmp:/tmp/fresh-tmp \\
     /mnt
 .Ed
 .Pp

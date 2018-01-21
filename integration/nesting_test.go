@@ -25,7 +25,7 @@ import (
 )
 
 func TestNesting_ScaffoldIntermediateComponents(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/1/2/3/4/5:%ROOT%/subdir")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%", "-mapping=ro:/1/2/3/4/5:%ROOT%/subdir")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("subdir", "file"), 0644, "some contents")
@@ -59,7 +59,7 @@ func TestNesting_ScaffoldIntermediateComponentsAreImmutable(t *testing.T) {
 	// attempt real writes.
 	root := utils.RequireRoot(t, "Requires root privileges to write to directories with mode 0555")
 
-	state := utils.MountSetupWithUser(t, root, "static", "-read_only_mapping=/:%ROOT%", "-read_write_mapping=/1/2/3:%ROOT%/subdir")
+	state := utils.MountSetupWithUser(t, root, "static", "-mapping=ro:/:%ROOT%", "-mapping=rw:/1/2/3:%ROOT%/subdir")
 	defer state.TearDown(t)
 
 	for _, dir := range []string{"1/foo", "1/2/foo"} {
@@ -75,7 +75,7 @@ func TestNesting_ScaffoldIntermediateComponentsAreImmutable(t *testing.T) {
 }
 
 func TestNesting_ReadWriteWithinReadOnly(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_write_mapping=/:%ROOT%", "-read_only_mapping=/ro:%ROOT%/one/two", "-read_write_mapping=/ro/rw:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%", "-mapping=ro:/ro:%ROOT%/one/two", "-mapping=rw:/ro/rw:%ROOT%")
 	defer state.TearDown(t)
 
 	if err := os.MkdirAll(state.MountPath("ro/hello"), 0755); err == nil {
@@ -87,7 +87,7 @@ func TestNesting_ReadWriteWithinReadOnly(t *testing.T) {
 }
 
 func TestNesting_SameTarget(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_write_mapping=/dir1:%ROOT%/same", "-read_write_mapping=/dir2/dir3/dir4:%ROOT%/same")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%", "-mapping=rw:/dir1:%ROOT%/same", "-mapping=rw:/dir2/dir3/dir4:%ROOT%/same")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.MountPath("dir1/file"), 0644, "old contents")
@@ -117,7 +117,7 @@ func TestNesting_SameTarget(t *testing.T) {
 }
 
 func TestNesting_PreserveSymlinks(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-read_only_mapping=/:%ROOT%", "-read_only_mapping=/dir1/dir2:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%", "-mapping=ro:/dir1/dir2:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "file in root directory")

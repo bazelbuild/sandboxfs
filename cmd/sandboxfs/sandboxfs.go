@@ -40,27 +40,6 @@ var (
 	packageVersion = "0.0 (BINARY NOT FOR RELEASE)"
 )
 
-// combineToSpec combines the entries from roMappings and rwMappings into
-// a single collection that is sufficient to provide the mapping specification.
-func combineToSpec(roMappings, rwMappings []MappingTargetPair) []sandbox.MappingSpec {
-	mapped := make([]sandbox.MappingSpec, 0, len(roMappings)+len(rwMappings))
-	for _, mapping := range roMappings {
-		mapped = append(mapped, sandbox.MappingSpec{
-			Mapping:  mapping.Mapping,
-			Target:   mapping.Target,
-			Writable: false,
-		})
-	}
-	for _, mapping := range rwMappings {
-		mapped = append(mapped, sandbox.MappingSpec{
-			Mapping:  mapping.Mapping,
-			Target:   mapping.Target,
-			Writable: true,
-		})
-	}
-	return mapped
-}
-
 // handleSignals installs signal handlers to ensure the file system is unmounted.
 //
 // The signal handler is responsible for unmounting the file system, which in turn causes the
@@ -143,10 +122,8 @@ func newFlagSet(name string) *flag.FlagSet {
 func staticCommand(args []string, options []fuse.MountOption, settings ProfileSettings) error {
 	flags := newFlagSet("static")
 	help := flags.Bool("help", false, "print the usage information and exit")
-	var readOnlyMappings mappingFlag
-	flags.Var(&readOnlyMappings, "read_only_mapping", "read-only mapping of the form MAPPING:TARGET")
-	var readWriteMappings mappingFlag
-	flags.Var(&readWriteMappings, "read_write_mapping", "read/write mapping of the form MAPPING:TARGET")
+	var mappings mappingFlag
+	flags.Var(&mappings, "mapping", "mappings of the form TYPE:MAPPING:TARGET")
 
 	if err := flags.Parse(args); err != nil {
 		return newUsageError("%v", err)
@@ -163,7 +140,7 @@ func staticCommand(args []string, options []fuse.MountOption, settings ProfileSe
 	}
 	mountPoint := flags.Arg(0)
 
-	return serve(settings, mountPoint, options, nil, combineToSpec(readOnlyMappings, readWriteMappings))
+	return serve(settings, mountPoint, options, nil, mappings)
 }
 
 // dynamicCommand implements the "dynamic" command.

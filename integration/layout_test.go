@@ -33,7 +33,7 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	mountPoint := filepath.Join(tempDir, "non-existent")
 	wantStderr := "unable to mount: " + mountPoint + " does not exist\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:"+tempDir, mountPoint)
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:"+tempDir, mountPoint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 
 	wantStderr := "unable to init sandbox: can't map a file at root; must be a directory\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:"+file, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:"+file, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 
 	wantStderr := "unable to init sandbox: mapping /a/a: two nodes mapped at the same location\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/:"+tempDir, "--read_only_mapping=/a/a:"+tempDir, "--read_only_mapping=/a/b:"+tempDir, "--read_only_mapping=/a/a:/does-not-matter", "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:"+tempDir, "--mapping=ro:/a/a:"+tempDir, "--mapping=ro:/a/b:"+tempDir, "--mapping=ro:/a/a:/does-not-matter", "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestLayout_FileMappedOnScaffoldDirectory(t *testing.T) {
 
 	wantStderr := "unable to init sandbox: mapping /a: file \"" + file + "\" mapped over existing directory\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--read_only_mapping=/a/b/c:"+tempDir, "--read_only_mapping=/a:"+file, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/a/b/c:"+tempDir, "--mapping=ro:/a:"+file, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
