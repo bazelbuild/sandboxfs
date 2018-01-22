@@ -26,7 +26,7 @@ import (
 )
 
 func TestReadOnly_DirectoryStructure(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%")
+	state := utils.MountSetup(t, "static", "-mapping=ro:/:%ROOT%", "-mapping=ro:/mappings/dir:%ROOT%/mappings/dir", "-mapping=ro:/mappings/scaffold/dir:%ROOT%/mappings/dir")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
@@ -34,7 +34,17 @@ func TestReadOnly_DirectoryStructure(t *testing.T) {
 	utils.MustMkdirAll(t, state.RootPath("dir3/dir1"), 0700)
 	utils.MustMkdirAll(t, state.RootPath("dir3/dir2"), 0755)
 
-	for _, dir := range []string{"", "dir1", "dir2", "dir3/dir1", "dir3/dir2"} {
+	// The mappings directory within the mount point will contain two entries: an explicit
+	// directory that corresponds to a mapping, and an intermediate scaffold directory that only
+	// exists in-memory. Create what we expect on disk so we can compare the contents later.
+	utils.MustMkdirAll(t, state.RootPath("mappings/dir"), 0555)
+	utils.MustMkdirAll(t, state.RootPath("mappings/scaffold"), 0555)
+	if err := os.Chmod(state.RootPath("mappings"), 0555); err != nil {
+		t.Fatalf("Failed to set permissions on temporary directory: %v", err)
+	}
+	defer os.Chmod(state.RootPath("mappings"), 0755)
+
+	for _, dir := range []string{"", "dir1", "dir2", "dir3/dir1", "dir3/dir2", "mappings"} {
 		if err := utils.DirEquals(state.RootPath(dir), state.MountPath(dir)); err != nil {
 			t.Error(err)
 		}
@@ -125,7 +135,7 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 }
 
 func TestReadOnly_TargetDoesNotExist(t *testing.T) {
-	wantStderr := `unable to init sandbox: mapping /: creating node for path "/non-existent" failed: lstat /non-existent: no such file or directory` + "\n"
+	wantStderr := `failed to stat /non-existent when mapping /:`
 
 	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
 	if err != nil {

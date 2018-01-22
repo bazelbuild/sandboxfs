@@ -165,6 +165,7 @@ which specifies the permissions of the mapping.
 The target must exist but the mapping may not: in particular, any path
 subcomponents of the mapping that have not been previously mapped
 within the sandbox will be created as virtual read-only nodes.
+This means that the ordering of the mappings matters.
 .Pp
 For example: consider a
 .Nm
@@ -251,7 +252,7 @@ Default:
 .Pp
 Configuration requests are formatted as a JSON map followed by a single blank
 line.
-Each entry in the map specifies a single mapping specification, with the
+Each entry in the ordered map specifies a single mapping specification, with the
 following keys:
 .Sq Mapping
 and

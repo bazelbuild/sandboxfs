@@ -187,7 +187,7 @@ func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileS
 }
 
 func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
-	sfs, err := sandbox.Init(mappings)
+	root, err := sandbox.CreateRoot(mappings)
 	if err != nil {
 		return fmt.Errorf("unable to init sandbox: %v", err)
 	}
@@ -239,7 +239,7 @@ func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOpti
 	defer c.Close()
 	mountOk <- mountPoint // Tell signal handler that the mount point requires cleanup.
 
-	err = sandbox.Serve(c, sfs, dynamicConf)
+	err = sandbox.Serve(c, root, dynamicConf)
 	if err != nil {
 		return fmt.Errorf("serve error: %v", err)
 	}

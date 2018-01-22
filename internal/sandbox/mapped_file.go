@@ -50,7 +50,12 @@ func newMappedFile(path string, fileInfo os.FileInfo, writable bool) *MappedFile
 // Open opens the file/directory in the underlying filesystem and returns a
 // handle to it.
 func (f *MappedFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
-	openedFile, err := os.OpenFile(f.underlyingPath, int(req.Flags), 0)
+	underlyingPath, isMapped := f.UnderlyingPath()
+	if !isMapped {
+		panic("Want to open the file but we don't have an underlying path")
+	}
+
+	openedFile, err := os.OpenFile(underlyingPath, int(req.Flags), 0)
 	if err != nil {
 		return nil, fuseErrno(err)
 	}

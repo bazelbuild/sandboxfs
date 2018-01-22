@@ -72,8 +72,8 @@ func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Write
 
 	utils.MustMkdirAll(t, state.RootPath("a/a"), 0755)
 	config := jsonConfig([]sandbox.MappingSpec{
-		{Mapping: "/ro", Target: state.RootPath("a/a"), Writable: false},
 		{Mapping: "/", Target: state.RootPath(), Writable: true},
+		{Mapping: "/ro", Target: state.RootPath("a/a"), Writable: false},
 		{Mapping: "/ro/rw", Target: state.RootPath(), Writable: true},
 	})
 	if err := reconfigure(input, output, config); err != nil {
@@ -328,7 +328,18 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 		t.Fatalf("Failed to restore all mappings from first configuration: %v", err)
 	}
 
-	for _, name := range []string{"dir1", "dir1/file", "dir3", "dir3/file"} {
+	for _, name := range []string{"dir1", "dir3"} {
+		inode := inodeOf(state.MountPath(name))
+		// We currently cannot reuse directory nodes because of the internal representation
+		// used for them, as any sharing could result in the spurious exposure of in-memory
+		// entries that don't exist on disk. Just assert that the user-visible consequences
+		// of this remain true.
+		if wantInodes[name] == inode {
+			t.Errorf("Inode for %s was respected across reconfigurations but it should not have been", name)
+		}
+	}
+
+	for _, name := range []string{"dir1/file", "dir3/file"} {
 		inode := inodeOf(state.MountPath(name))
 		if wantInodes[name] != inode {
 			t.Errorf("Inode for %s was not respected across reconfigurations: got %d, want %d", name, inode, wantInodes[name])

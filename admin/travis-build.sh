@@ -45,6 +45,7 @@ do_bazel() {
 do_gotools() {
   go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
+  go test -v -timeout=600s github.com/bazelbuild/sandboxfs/internal/sandbox
   go test -v -timeout=600s github.com/bazelbuild/sandboxfs/internal/shell
 
   go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration \
