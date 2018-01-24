@@ -25,7 +25,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -40,42 +39,6 @@ var (
 	// a build that misses to include this detail should not be shipped to users.
 	packageVersion = "0.0 (BINARY NOT FOR RELEASE)"
 )
-
-// allowFlag holds the value of and parses a flag that controls who has access to the file system.
-type allowFlag struct {
-	// Option is the FUSE mount option to pass to the mount operation, or nil if not applicable.
-	Option fuse.MountOption
-
-	// value is the textual representation of the flag's value.
-	value string
-}
-
-// String returns the textual value of the flag.
-func (f *allowFlag) String() string {
-	return f.value
-}
-
-// Set parses the value of the flag as given by the user.
-func (f *allowFlag) Set(value string) error {
-	switch value {
-	case "other":
-		f.Option = fuse.AllowOther()
-	case "root":
-		f.Option = fuse.AllowRoot()
-	case "self":
-		f.Option = nil
-	default:
-		return fmt.Errorf("must be one of other, root, or self")
-	}
-	f.value = value
-	return nil
-}
-
-// MappingTargetPair stores a single mapping of the form mapping->target.
-type MappingTargetPair struct {
-	Mapping string
-	Target  string
-}
 
 // combineToSpec combines the entries from roMappings and rwMappings into
 // a single collection that is sufficient to provide the mapping specification.
@@ -162,36 +125,6 @@ func handleSignals(mountPoint <-chan string, caughtSignal chan<- os.Signal) {
 func usage(output io.Writer, f *flag.FlagSet) {
 	f.SetOutput(output)
 	f.PrintDefaults()
-}
-
-type mappingFlag []MappingTargetPair
-
-func (f *mappingFlag) String() string {
-	return fmt.Sprint(*f)
-}
-
-func (f *mappingFlag) Set(cmd string) error {
-	fields := strings.SplitN(cmd, ":", 2)
-	if len(fields) != 2 {
-		return fmt.Errorf("flag %q: expected contents to be of the form MAPPING:TARGET", cmd)
-	}
-	mapping := filepath.Clean(fields[0])
-	target := filepath.Clean(fields[1])
-	if !filepath.IsAbs(mapping) {
-		return fmt.Errorf("path %q: mapping must be an absolute path", fields[0])
-	}
-	if !filepath.IsAbs(target) {
-		return fmt.Errorf("path %q: target must be an absolute path", fields[1])
-	}
-	*f = append(*f, MappingTargetPair{
-		Mapping: mapping,
-		Target:  target,
-	})
-	return nil
-}
-
-func (f *mappingFlag) Get() interface{} {
-	return *f
 }
 
 // newFlagSet creates a flag set with common settings for all commands.
