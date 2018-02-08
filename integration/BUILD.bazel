@@ -16,6 +16,7 @@ go_test(
         "cli_test.go",
         "debug_test.go",
         "layout_test.go",
+        "main_test.go",
         "nesting_test.go",
         "options_test.go",
         "profiling_test.go",
@@ -23,6 +24,9 @@ go_test(
         "read_write_test.go",
         "reconfiguration_test.go",
         "signal_test.go",
+    ],
+    args = [
+        "--sandboxfs_binary=../$(location //cmd/sandboxfs)",
     ],
     data = [
         "//cmd/sandboxfs",

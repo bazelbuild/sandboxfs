@@ -26,13 +26,9 @@ import (
 func TestOptions_Allow(t *testing.T) {
 	root := utils.RequireRoot(t, "Requires root privileges to spawn sandboxfs under different users")
 
-	username := os.Getenv("UNPRIVILEGED_USER")
-	if username == "" {
-		t.Skipf("UNPRIVILEGED_USER not set; must contain the name of an unprivileged user with FUSE access")
-	}
-	user, err := utils.LookupUser(username)
-	if err != nil {
-		t.Fatalf("Failed to get details about unprivileged user %s: %v", username, err)
+	user := utils.GetConfig().UnprivilegedUser
+	if user == nil {
+		t.Skipf("unprivileged user not set; must contain the name of an unprivileged user with FUSE access")
 	}
 	t.Logf("Using primary unprivileged user: %v", user)
 

@@ -32,28 +32,12 @@ import (
 )
 
 const (
-	// Path to the sandboxfs as staged by Bazel.  Used unless SANDBOXFS is defined in the
-	// environment.
-	sandboxfsDep = "../cmd/sandboxfs/sandboxfs"
-
 	// Maximum amount of time to wait for sandboxfs to come up and start serving.
 	startupDeadlineSeconds = 10
 
 	// Maximum amount of time to wait for sandboxfs to gracefully exit after an unmount.
 	shutdownDeadlineSeconds = 5
 )
-
-// Gets the path to the sandboxfs binary.
-func sandboxfsBinary() (string, error) {
-	bin := os.Getenv("SANDBOXFS")
-	if bin == "" {
-		if _, err := os.Lstat(sandboxfsDep); err != nil {
-			return "", fmt.Errorf("SANDBOXFS not defined in environment")
-		}
-		bin = sandboxfsDep
-	}
-	return bin, nil
-}
 
 // runState holds runtime information for an in-progress sandboxfs execution.
 type runState struct {
@@ -64,10 +48,7 @@ type runState struct {
 
 // run starts a background process to run sandboxfs and passes it the given arguments.
 func run(arg ...string) (*runState, error) {
-	bin, err := sandboxfsBinary()
-	if err != nil {
-		return nil, fmt.Errorf("cannot find sandboxfs binary: %v", err)
-	}
+	bin := GetConfig().SandboxfsBinary
 
 	var state runState
 	state.cmd = exec.Command(bin, arg...)
@@ -139,10 +120,7 @@ func retry(action func() error, message string, deadlineSeconds int) error {
 //
 // Returns a handle on the spawned sandboxfs process and a pipe to send data to its stdin.
 func startBackground(cookie string, stdout io.Writer, stderr io.Writer, user *UnixUser, args ...string) (*exec.Cmd, io.WriteCloser, error) {
-	bin, err := sandboxfsBinary()
-	if err != nil {
-		return nil, nil, fmt.Errorf("cannot find sandboxfs binary: %v", err)
-	}
+	bin := GetConfig().SandboxfsBinary
 
 	// The sandboxfs command line syntax requires the mount point to appear at the end and we
 	// control all callers of this function within the tests, so we know this is true.  If not,
