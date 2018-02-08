@@ -6,6 +6,14 @@ http_archive(
     sha256 = "91fca9cf860a1476abdc185a5f675b641b60d3acf0596679a27b580af60bf19c",
 )
 
+# TODO(jmmv): Drop in favor of a new rules_go release once the commit below is
+# part of one.
+git_repository(
+    name = "com_github_bazelbuild_rules_go",
+    remote = "https://github.com/bazelbuild/rules_go.git",
+    commit = "dd3c631c31c8d4e3b5bcffc4b66e8c092172ed89",
+)
+
 load(
     "@io_bazel_rules_go//go:def.bzl",
     "go_register_toolchains",

@@ -23,16 +23,8 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/bazelbuild/rules_go/go/tools/bazel"
 	"github.com/bazelbuild/sandboxfs/internal/shell"
-)
-
-const (
-	// Paths to the tools as staged by the data attribute of this binary and as reachable from a
-	// "blaze run" invocation.
-	buildifierBin = "../com_github_bazelbuild_buildtools/buildifier/buildifier"
-	gazelleBin    = "admin/lint/gazelle"
-	gofmtBin      = "../go_sdk/bin/gofmt"
-	golintBin     = "../golint/golint/golint"
 )
 
 // checkLicense checks if the given file contains the necessary license information and returns an
@@ -58,12 +50,16 @@ func checkLicense(file string) error {
 // even when the given files are not compliant.  The arguments indicate the full command line to
 // run, including the path to the tool as the first argument.  The file to check is expected to
 // appear as the last argument.
-func runLinter(arg ...string) error {
-	toolName := filepath.Base(arg[0])
+func runLinter(pkg string, toolName string, arg ...string) error {
 	file := arg[len(arg)-1]
 
+	toolPath, ok := bazel.FindBinary(pkg, toolName)
+	if !ok {
+		return fmt.Errorf("%s check failed for %s: cannot find tool %s", toolName, file, toolName)
+	}
+
 	var output bytes.Buffer
-	cmd := exec.Command(arg[0], arg[1:]...)
+	cmd := exec.Command(toolPath, arg...)
 	cmd.Stdout = &output
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
@@ -81,21 +77,19 @@ func runLinter(arg ...string) error {
 // checkBuildifier checks if the given file is formatted according to buildifier and, if not, prints
 // a diff detailing what's wrong with the file to stdout and returns an error.
 func checkBuildifier(file string) error {
-	return runLinter(buildifierBin, "--mode=diff", file)
+	return runLinter("../com_github_bazelbuild_buildtools/buildifier", "buildifier", "--mode=diff", file)
 }
 
 // checkGazelle checks if the given file is formatted according to gazelle and, if not, prints
 // a diff detailing what's wrong with the file to stdout and returns an error.
 func checkGazelle(file string) error {
-	// TODO(jmmv): Remove /bin/sh argument once the gazelle generated script is fixed to include
-	// a shebang on its own.
-	return runLinter("/bin/sh", gazelleBin, "--mode=diff", filepath.Dir(file))
+	return runLinter("../io_bazel_rules_go/go/tools/gazelle/gazelle", "gazelle", "--go_prefix=github.com/bazelbuild/sandboxfs", "--mode=diff", filepath.Dir(file))
 }
 
 // checkGoFmt checks if the given file is formatted according to gofmt and, if not, prints a diff
 // detailing what's wrong with the file to stdout and returns an error.
 func checkGofmt(file string) error {
-	return runLinter(gofmtBin, "-d", "-e", "-s", file)
+	return runLinter("../go_sdk/bin", "gofmt", "-d", "-e", "-s", file)
 }
 
 // checkGoLint checks if the given file passes golint checks and, if not, prints diagnostic messages
@@ -106,7 +100,7 @@ func checkGolint(file string) error {
 	// docstring in other packages.
 	minConfidenceFlag := "-min_confidence=0.3"
 
-	return runLinter(golintBin, minConfidenceFlag, file)
+	return runLinter("../golint/golint", "golint", minConfidenceFlag, file)
 }
 
 // checkAll runs all possible checks on a file.  Returns true if all checks pass, and false
