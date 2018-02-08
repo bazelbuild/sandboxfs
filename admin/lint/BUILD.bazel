@@ -20,12 +20,12 @@ go_binary(
     name = "lint",
     data = [
         "//:WORKSPACE",
+        "@bazel_gazelle//cmd/gazelle",
         "@com_github_bazelbuild_buildtools//buildifier",
         "@go_sdk//:bin/gofmt",
         "@golint//golint",
-        "@io_bazel_rules_go//go/tools/gazelle/gazelle:gazelle",
     ],
+    embed = [":go_default_library"],
     importpath = "github.com/bazelbuild/sandboxfs/admin/lint",
-    library = ":go_default_library",
     visibility = ["//visibility:public"],
 )

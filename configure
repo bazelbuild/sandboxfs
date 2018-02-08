@@ -57,7 +57,11 @@ setup_vscode() {
   # on as targets for the generated gopath.
   bazel build //cmd/sandboxfs:sandboxfs
 
-  ./bazel-bin/external/bazel_gopath/bazel-gopath --workspace="$(pwd)"
+  # The glob below is necessary because of
+  # https://github.com/bazelbuild/rules_go/issues/1239.  Given that we have
+  # done a single build for a single target configuration, we know that the
+  # glob will only match one binary.
+  ./bazel-bin/external/bazel_gopath/*/bazel-gopath --workspace="$(pwd)"
 
   {
     echo '// AUTOMATICALLY GENERATED!!!'

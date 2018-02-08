@@ -83,7 +83,7 @@ func checkBuildifier(file string) error {
 // checkGazelle checks if the given file is formatted according to gazelle and, if not, prints
 // a diff detailing what's wrong with the file to stdout and returns an error.
 func checkGazelle(file string) error {
-	return runLinter("../io_bazel_rules_go/go/tools/gazelle/gazelle", "gazelle", "--go_prefix=github.com/bazelbuild/sandboxfs", "--mode=diff", filepath.Dir(file))
+	return runLinter("../bazel_gazelle/cmd/gazelle", "gazelle", "--go_prefix=github.com/bazelbuild/sandboxfs", "--mode=diff", filepath.Dir(file))
 }
 
 // checkGoFmt checks if the given file is formatted according to gofmt and, if not, prints a diff

@@ -20,7 +20,7 @@ go_binary(
         "//cmd/sandboxfs",
         "//cmd/sandboxfs:manpage",
     ],
+    embed = [":go_default_library"],
     importpath = "github.com/bazelbuild/sandboxfs/admin/install",
-    library = ":go_default_library",
     visibility = ["//visibility:public"],
 )

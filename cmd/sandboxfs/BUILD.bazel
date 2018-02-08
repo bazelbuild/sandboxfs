@@ -20,8 +20,8 @@ go_library(
 
 go_binary(
     name = "sandboxfs",
+    embed = [":go_default_library"],
     importpath = "github.com/bazelbuild/sandboxfs/cmd/sandboxfs",
-    library = ":go_default_library",
     visibility = ["//visibility:public"],
     x_defs = {
         "main.packageVersion": PACKAGE_VERSION,

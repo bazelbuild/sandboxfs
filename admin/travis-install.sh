@@ -22,8 +22,8 @@ install_bazel() {
     *) osname="${TRAVIS_OS_NAME}" ;;
   esac
 
-  local github="https://github.com/bazelbuild/bazel/releases/download/0.7.0"
-  local url="${github}/bazel-0.7.0-installer-${osname}-x86_64.sh"
+  local github="https://github.com/bazelbuild/bazel/releases/download/0.9.0"
+  local url="${github}/bazel-0.9.0-installer-${osname}-x86_64.sh"
   wget -O install-bazel.sh "${url}"
   chmod +x install-bazel.sh
   ./install-bazel.sh --user

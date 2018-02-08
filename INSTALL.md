@@ -27,7 +27,7 @@ To get started:
     build the final binary, and build the installation tool.
 
 1.  To copy all binary and data files to the default destination of
-    `/usr/local`, run `./bazel-bin/admin/install/install`.
+    `/usr/local`, run `./bazel-bin/admin/install/*/install`.
 
     *   You will (most likely) need superuser permissions to install
         under `/usr/local`, so run the previous command with `sudo`.
@@ -37,8 +37,15 @@ To get started:
         Don't run Bazel as root.  Instead, just build the installation tool
         first and run it separately, as described above.
 
+    *   The reason the above command includes a `*` in it is because Bazel
+        currently writes built Go binaries in a configuration-specific
+        location.  We can't guess what the name is upfront, so you must
+        dynamically look it up.  See
+        <https://github.com/bazelbuild/rules_go/issues/1239> if this annoys
+        you.
+
     *   If you want to install sandboxfs under a custom prefix, run
-        `./bazel-bin/admin/install/install --prefix=/path/to/prefix`
+        `./bazel-bin/admin/install/*/install --prefix=/path/to/prefix`
         instead.
 
 ## From sources with the Go tools
