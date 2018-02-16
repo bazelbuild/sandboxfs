@@ -13,10 +13,10 @@ go_library(
         "sandbox.go",
         "scaffold_dir.go",
     ] + select({
-        "@io_bazel_rules_go//go/platform:darwin_amd64": [
+        "@io_bazel_rules_go//go/platform:darwin": [
             "node_darwin.go",
         ],
-        "@io_bazel_rules_go//go/platform:linux_amd64": [
+        "@io_bazel_rules_go//go/platform:linux": [
             "node_linux.go",
         ],
         "//conditions:default": [],

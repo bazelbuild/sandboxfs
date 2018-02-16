@@ -16,6 +16,7 @@ go_test(
         "cli_test.go",
         "debug_test.go",
         "layout_test.go",
+        "main_test.go",
         "nesting_test.go",
         "options_test.go",
         "profiling_test.go",
@@ -24,11 +25,14 @@ go_test(
         "reconfiguration_test.go",
         "signal_test.go",
     ],
+    args = [
+        "--sandboxfs_binary=../$(location //cmd/sandboxfs)",
+    ],
     data = [
         "//cmd/sandboxfs",
     ],
+    embed = [":go_default_library"],
     importpath = "github.com/bazelbuild/sandboxfs/integration",
-    library = ":go_default_library",
     deps = [
         "//integration/utils:go_default_library",
         "//internal/sandbox:go_default_library",

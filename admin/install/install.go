@@ -21,17 +21,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/bazelbuild/rules_go/go/tools/bazel"
 	"github.com/bazelbuild/sandboxfs/internal/shell"
 )
 
 const (
-	// Relative path to the runfiles directory for the install script.  Used if the script is
-	// run by hand from the workspace directory, without using "bazel run".
-	runfiles = "bazel-bin/admin/install/install.runfiles/sandboxfs"
-
-	// Path to the built sandboxfs binary relative to the runfiles directory.
-	sandboxfsBin = "cmd/sandboxfs/sandboxfs"
-
 	// Desired permissions for installed files.
 	dataPerm = 0644
 	execPerm = 0755
@@ -54,44 +48,35 @@ type installSpec struct {
 }
 
 // doInstall performs the installation of all given files into the prefix.
-func doInstall(sourceDir string, prefix string, filesToInstall []installSpec) error {
+func doInstall(prefix string, filesToInstall []installSpec) error {
 	for _, spec := range filesToInstall {
-		sourceFile := filepath.Join(sourceDir, spec.sourceFile)
-
 		targetDir := filepath.Join(prefix, spec.targetDir)
 		if err := os.MkdirAll(targetDir, dirPerm); err != nil {
 			return fmt.Errorf("failed to create %s: %v", targetDir, err)
 		}
 
 		targetFile := filepath.Join(targetDir, filepath.Base(spec.sourceFile))
-		if err := shell.Install(sourceFile, targetFile, spec.mode); err != nil {
+		if err := shell.Install(spec.sourceFile, targetFile, spec.mode); err != nil {
 			return fmt.Errorf("failed to copy %s to %s: %v", spec.sourceFile, targetFile, err)
 		}
 	}
 	return nil
 }
 
-// guessSourceDir returns the directory that contains the built files to be installed in the layout
-// expected by the installData contents.
-func guessSourceDir() (string, error) {
-	// First check if the built sandboxfs binary is reachable from the current directory.  If it
-	// is, we are running from within the runfiles directory via "blaze run".
-	_, err := os.Stat(sandboxfsBin)
-	if err != nil {
-		// We aren't running via "blaze run".  Check and see if the built sandboxfs binary
-		// is reachable from the blaze-bin directory and, if it is, use that.
-		_, err := os.Stat(filepath.Join(runfiles, sandboxfsBin))
-		if err != nil {
-			return "", fmt.Errorf("cannot determine location of files to be installed, or was //cmd/sandboxfs not yet built?")
-		}
-		return runfiles, nil
-	}
-	return ".", nil
-}
-
 func main() {
 	prefix := flag.String("prefix", "/usr/local", "Location where to install sandboxfs")
 	flag.Parse()
+
+	if err := bazel.EnterRunfiles("sandboxfs", "admin/install", "install", "admin/install"); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		os.Exit(1)
+	}
+
+	sandboxfsBin, ok := bazel.FindBinary("cmd/sandboxfs", "sandboxfs")
+	if !ok {
+		fmt.Fprintf(os.Stderr, "ERROR: Cannot find sandboxfs binary; has //cmd/sandboxfs been built?\n")
+		os.Exit(1)
+	}
 
 	filesToInstall := []installSpec{
 		{sandboxfsBin, "bin", execPerm},
@@ -107,13 +92,7 @@ func main() {
 		{"cmd/sandboxfs/sandboxfs.1", "share/man/man1", dataPerm},
 	}
 
-	sourceDir, err := guessSourceDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := doInstall(sourceDir, *prefix, filesToInstall); err != nil {
+	if err := doInstall(*prefix, filesToInstall); err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)
 	}

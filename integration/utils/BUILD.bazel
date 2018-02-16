@@ -6,6 +6,7 @@ go_library(
     name = "go_default_library",
     srcs = [
         "checks.go",
+        "config.go",
         "doc.go",
         "exec.go",
         "user.go",
