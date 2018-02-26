@@ -22,24 +22,24 @@ import (
 	"golang.org/x/net/context"
 )
 
-// MappedSymlink is a node that represents a symlink backed by another symlink that lives outside of
+// Symlink is a node that represents a symlink backed by another symlink that lives outside of
 // the mount point.
-type MappedSymlink struct {
+type Symlink struct {
 	BaseNode
 }
 
-// newMappedSymlink creates a new symlink node to represent the given underlying path.
+// newSymlink creates a new symlink node to represent the given underlying path.
 //
 // This function should never be called to explicitly create nodes. Instead, use the getOrCreateNode
 // function, which respects the global node cache.
-func newMappedSymlink(path string, fileInfo os.FileInfo, writable bool) *MappedSymlink {
-	return &MappedSymlink{
+func newSymlink(path string, fileInfo os.FileInfo, writable bool) *Symlink {
+	return &Symlink{
 		BaseNode: newBaseNode(path, fileInfo, writable),
 	}
 }
 
 // Readlink reads a symlink and returns the string path to its destination.
-func (s *MappedSymlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (string, error) {
+func (s *Symlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (string, error) {
 	underlyingPath, isMapped := s.UnderlyingPath()
 	if !isMapped {
 		panic("Want to read a symlink but we don't have an underlying path")
@@ -50,7 +50,7 @@ func (s *MappedSymlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (
 }
 
 // Dirent returns the directory entry corresponding to the symlink.
-func (s *MappedSymlink) Dirent(name string) fuse.Dirent {
+func (s *Symlink) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{
 		Inode: s.Inode(),
 		Name:  name,
@@ -59,8 +59,8 @@ func (s *MappedSymlink) Dirent(name string) fuse.Dirent {
 }
 
 // invalidate clears the kernel cache corresponding to this symlink.
-func (s *MappedSymlink) invalidate(server *fs.Server) {
-	// We assume that, as long as a MappedSymlink object is alive, the node corresponds to a
+func (s *Symlink) invalidate(server *fs.Server) {
+	// We assume that, as long as a Symlink object is alive, the node corresponds to a
 	// non-deleted underlying symlink. Therefore, do not invalidate the node itself. This is
 	// important to keep entries alive across reconfigurations, which helps performance.
 }

@@ -66,7 +66,7 @@ type FS struct {
 }
 
 // Reconfigure resets the tree under this node to the new configuration.
-func (f *FS) Reconfigure(server *fs.Server, root *MappedDir) {
+func (f *FS) Reconfigure(server *fs.Server, root *Dir) {
 	// TODO(pallavag): Right now, we do not reuse inode numbers, because it is
 	// uncertain if doing so would be valid from a correctness perspective.
 	// Once the code has been well tested, it may be worthwile to try resetting
@@ -100,7 +100,7 @@ func readConfig(reader *bufio.Reader) ([]byte, error) {
 // initFromReader initializes a filesystem configuration after reading the config from the passed
 // reader.  Reaching EOF on the reader causes this function to return io.EOF, which the caller
 // must handle gracefully.
-func initFromReader(reader *bufio.Reader) (*MappedDir, error) {
+func initFromReader(reader *bufio.Reader) (*Dir, error) {
 	configRead, err := readConfig(reader)
 	if err != nil {
 		if err == io.EOF {
@@ -139,7 +139,7 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 }
 
 // Serve sets up the work environment before starting to serve the filesystem.
-func Serve(c *fuse.Conn, dir *MappedDir, dynamic *DynamicConf) error {
+func Serve(c *fuse.Conn, dir *Dir, dynamic *DynamicConf) error {
 	f := &FS{NewRoot(dir)}
 	server := fs.New(c, nil)
 	if dynamic != nil {
@@ -176,8 +176,8 @@ func tokenizePath(path string) []string {
 }
 
 // CreateRoot generates a directory tree to represent the given mappings.
-func CreateRoot(mappings []MappingSpec) (*MappedDir, error) {
-	var root *MappedDir
+func CreateRoot(mappings []MappingSpec) (*Dir, error) {
+	var root *Dir
 	for _, mapping := range mappings {
 		components := tokenizePath(mapping.Mapping)
 		if len(components) == 0 {
@@ -197,11 +197,11 @@ func CreateRoot(mappings []MappingSpec) (*MappedDir, error) {
 			if fileInfo.Mode()&os.ModeType != os.ModeDir {
 				return nil, fmt.Errorf("cannot map file %s at root: must be a directory", mapping.Target)
 			}
-			root = newMappedDir(mapping.Target, fileInfo, mapping.Writable)
+			root = newDir(mapping.Target, fileInfo, mapping.Writable)
 			root.isMapping = true
 		} else {
 			if root == nil {
-				root = newMappedDirEmpty()
+				root = newDirEmpty()
 			}
 			dirNode := root.LookupOrCreateDirs(components[1 : len(components)-1])
 			newNode := getOrCreateNode(mapping.Target, fileInfo, mapping.Writable)
@@ -212,7 +212,7 @@ func CreateRoot(mappings []MappingSpec) (*MappedDir, error) {
 		}
 	}
 	if root == nil {
-		root = newMappedDirEmpty()
+		root = newDirEmpty()
 	}
 	return root, nil
 }

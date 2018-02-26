@@ -44,8 +44,8 @@ func areTreesSimilar(path string, got Node, want Node) error {
 		return fmt.Errorf("in %s: got isMapping=%v underlyingPath=%v, want isMapping=%v, underlyingPath=%v", path, gotIsMapping, gotUnderlyingPath, wantIsMapping, wantUnderlyingPath)
 	}
 
-	if gotDir, ok := got.(*MappedDir); ok {
-		wantDir := want.(*MappedDir)
+	if gotDir, ok := got.(*Dir); ok {
+		wantDir := want.(*Dir)
 
 		for gotName, gotNode := range gotDir.children {
 			if wantNode, ok := wantDir.children[gotName]; ok {
@@ -83,14 +83,14 @@ func TestCreateRoot_Ok(t *testing.T) {
 	testData := []struct {
 		name     string
 		mappings []MappingSpec
-		wantDir  *MappedDir
+		wantDir  *Dir
 	}{
 		{
 			"JustRoot",
 			[]MappingSpec{
 				{Mapping: "/", Target: tempDir},
 			},
-			&MappedDir{
+			&Dir{
 				BaseNode: BaseNode{optionalUnderlyingPath: tempDir},
 			},
 		},
@@ -100,10 +100,10 @@ func TestCreateRoot_Ok(t *testing.T) {
 				{Mapping: "/", Target: tempDir},
 				{Mapping: "/foo", Target: nestedTempFile},
 			},
-			&MappedDir{
+			&Dir{
 				BaseNode: BaseNode{optionalUnderlyingPath: tempDir},
 				children: map[string]Node{
-					"foo": &MappedFile{
+					"foo": &File{
 						BaseNode: BaseNode{optionalUnderlyingPath: nestedTempFile},
 					},
 				},
@@ -114,13 +114,13 @@ func TestCreateRoot_Ok(t *testing.T) {
 			[]MappingSpec{
 				{Mapping: "/foo/bar/baz", Target: nestedTempFile},
 			},
-			&MappedDir{
+			&Dir{
 				children: map[string]Node{
-					"foo": &MappedDir{
+					"foo": &Dir{
 						children: map[string]Node{
-							"bar": &MappedDir{
+							"bar": &Dir{
 								children: map[string]Node{
-									"baz": &MappedFile{
+									"baz": &File{
 										BaseNode: BaseNode{optionalUnderlyingPath: nestedTempFile},
 									},
 								},
@@ -139,12 +139,12 @@ func TestCreateRoot_Ok(t *testing.T) {
 				{Mapping: "/foo", Target: tempDir},
 				{Mapping: "/foo/dir", Target: tempDir},
 			},
-			&MappedDir{
+			&Dir{
 				children: map[string]Node{
-					"foo": &MappedDir{
+					"foo": &Dir{
 						BaseNode: BaseNode{optionalUnderlyingPath: tempDir},
 						children: map[string]Node{
-							"dir": &MappedDir{
+							"dir": &Dir{
 								BaseNode: BaseNode{optionalUnderlyingPath: tempDir},
 							},
 						},
@@ -160,24 +160,24 @@ func TestCreateRoot_Ok(t *testing.T) {
 				{Mapping: "/foo/bar/baz/symlink", Target: nestedTempSymlink},
 				{Mapping: "/foo/bar/file", Target: nestedTempFile},
 			},
-			&MappedDir{
+			&Dir{
 				children: map[string]Node{
-					"foo": &MappedDir{
+					"foo": &Dir{
 						children: map[string]Node{
-							"bar": &MappedDir{
+							"bar": &Dir{
 								BaseNode: BaseNode{optionalUnderlyingPath: tempDir},
 								children: map[string]Node{
-									"baz": &MappedDir{
+									"baz": &Dir{
 										children: map[string]Node{
-											"dup": &MappedDir{
+											"dup": &Dir{
 												BaseNode: BaseNode{optionalUnderlyingPath: nestedTempDir},
 											},
-											"symlink": &MappedSymlink{
+											"symlink": &Symlink{
 												BaseNode: BaseNode{optionalUnderlyingPath: nestedTempSymlink},
 											},
 										},
 									},
-									"file": &MappedFile{
+									"file": &File{
 										BaseNode: BaseNode{optionalUnderlyingPath: nestedTempFile},
 									},
 								},

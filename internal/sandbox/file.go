@@ -23,33 +23,33 @@ import (
 	"golang.org/x/net/context"
 )
 
-// MappedFile is a node that represents a file backed by another file that lives outside of the
+// File is a node that represents a file backed by another file that lives outside of the
 // mount point.
-type MappedFile struct {
+type File struct {
 	BaseNode
 }
 
-// openMappedFile is a handle returned when a file is opened.
-type openMappedFile struct {
+// openFile is a handle returned when a file is opened.
+type openFile struct {
 	nativeFile *os.File
-	file       *MappedFile
+	file       *File
 }
 
-var _ fs.Handle = (*openMappedFile)(nil)
+var _ fs.Handle = (*openFile)(nil)
 
-// newMappedFile creates a new file node to represent the given underlying path.
+// newFile creates a new file node to represent the given underlying path.
 //
 // This function should never be called to explicitly create nodes. Instead, use the getOrCreateNode
 // function, which respects the global node cache.
-func newMappedFile(path string, fileInfo os.FileInfo, writable bool) *MappedFile {
-	return &MappedFile{
+func newFile(path string, fileInfo os.FileInfo, writable bool) *File {
+	return &File{
 		BaseNode: newBaseNode(path, fileInfo, writable),
 	}
 }
 
 // Open opens the file/directory in the underlying filesystem and returns a
 // handle to it.
-func (f *MappedFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+func (f *File) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
 	underlyingPath, isMapped := f.UnderlyingPath()
 	if !isMapped {
 		panic("Want to open the file but we don't have an underlying path")
@@ -59,11 +59,11 @@ func (f *MappedFile) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse
 	if err != nil {
 		return nil, fuseErrno(err)
 	}
-	return &openMappedFile{openedFile, f}, nil
+	return &openFile{openedFile, f}, nil
 }
 
 // Dirent returns the directory entry corresponding to the file.
-func (f *MappedFile) Dirent(name string) fuse.Dirent {
+func (f *File) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{
 		Inode: f.Inode(),
 		Name:  name,
@@ -73,7 +73,7 @@ func (f *MappedFile) Dirent(name string) fuse.Dirent {
 
 // Read sends the read requests to the corresponding file in the underlying
 // filesystem.
-func (o *openMappedFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+func (o *openFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	resp.Data = resp.Data[:req.Size]
 	readBytes, err := o.nativeFile.ReadAt(resp.Data, req.Offset)
 	if err != nil && err != io.EOF {
@@ -86,7 +86,7 @@ func (o *openMappedFile) Read(_ context.Context, req *fuse.ReadRequest, resp *fu
 
 // Write sends the write requests to the corresponding file in the underlying
 // filesystem.
-func (o *openMappedFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
+func (o *openFile) Write(_ context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
 	if err := o.file.WantToWrite(); err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func (o *openMappedFile) Write(_ context.Context, req *fuse.WriteRequest, resp *
 }
 
 // Fsync flushes the written contents to the backing file.
-func (f *MappedFile) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
+func (f *File) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 	// Fsync is an operation that should be exposed on a fs.Handle, not
 	// on a fs.Node, given that the fsync(2) system call operates on file
 	// descriptors. There actually is a TODO in the FUSE implementation to
@@ -111,13 +111,13 @@ func (f *MappedFile) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 }
 
 // Release closes the underlying file/directory handle.
-func (o *openMappedFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
+func (o *openFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
 	return fuseErrno(o.nativeFile.Close())
 }
 
 // invalidate clears the kernel cache corresponding to this file.
-func (f *MappedFile) invalidate(server *fs.Server) {
-	// We assume that, as long as a MappedFile object is alive, the node corresponds to a
+func (f *File) invalidate(server *fs.Server) {
+	// We assume that, as long as a File object is alive, the node corresponds to a
 	// non-deleted underlying file. Therefore, do not invalidate the node itself. This is
 	// important to keep entries alive across reconfigurations, which helps performance.
 }

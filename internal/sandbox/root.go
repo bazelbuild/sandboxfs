@@ -41,19 +41,19 @@ type Root struct {
 	// dir holds the directory backing the root node. Note that the FUSE API is unaware of this
 	// backing node: any operations that reference the root node must do so through the Root
 	// instance. In that sense, the directory here is just an implementation detail.
-	dir *MappedDir
+	dir *Dir
 
 	// mu protects reads and updates to the dir pointer.
 	mu sync.RWMutex
 }
 
 // NewRoot returns a new instance of Root with the appropriate underlying node.
-func NewRoot(node *MappedDir) *Root {
+func NewRoot(node *Dir) *Root {
 	return &Root{dir: node}
 }
 
 // getDir returns the dir member atomically.
-func (r *Root) getDir() *MappedDir {
+func (r *Root) getDir() *Dir {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.dir
@@ -78,7 +78,7 @@ func (r *Root) getDir() *MappedDir {
 //
 // Well-behaved users should only reconfigure the file system when they know it's quiescent, and
 // this is what we specify in the documentation.
-func (r *Root) Reconfigure(server *fs.Server, newDir *MappedDir) {
+func (r *Root) Reconfigure(server *fs.Server, newDir *Dir) {
 	r.mu.Lock()
 	oldDir := r.dir
 	r.dir = newDir
@@ -141,11 +141,8 @@ func (r *Root) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenR
 //
 // TODO(jmmv): This is not semantically correct: we shouldn't be "opening" the backing directory as
 // we do below, because a readdir operation from the kernel on an already-open root directory causes
-// a spurious open of an unrelated entity.  This shouldn't be a problem (and we do that for mapped
-// nodes anyway), but we should find a solution for this.  I'm afraid the answer is to combine
-// MappedDir and ScaffoldDir under the same type and to get rid of the Root type.  This would have
-// the benefit of allowing us to maintain the identity of directory nodes across reconfigurations
-// more easily, which can be interesting on its own.
+// a spurious open of an unrelated entity.  We may be able to remove this once we fold
+// reconfigurations into directories and thus preserve the identity of the root directory.
 func (r *Root) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -175,7 +175,7 @@ func getOrCreateNode(path string, fileInfo os.FileInfo, writable bool) Node {
 	if fileInfo.Mode()&os.ModeType == os.ModeDir {
 		// Directories cannot be cached because they contain entries that are created only
 		// in memory based on the mappings configuration.
-		return newMappedDir(path, fileInfo, writable)
+		return newDir(path, fileInfo, writable)
 	}
 
 	nodeCacheLock.Lock()
@@ -207,9 +207,9 @@ func getOrCreateNode(path string, fileInfo os.FileInfo, writable bool) Node {
 	case os.ModeDir:
 		panic("Directory entries cannot be cached and are handled above")
 	case os.ModeSymlink:
-		node = newMappedSymlink(path, fileInfo, writable)
+		node = newSymlink(path, fileInfo, writable)
 	default:
-		node = newMappedFile(path, fileInfo, writable)
+		node = newFile(path, fileInfo, writable)
 	}
 	nodeCache[path] = node
 	return node
