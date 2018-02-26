@@ -24,8 +24,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -114,7 +112,7 @@ func initFromReader(reader *bufio.Reader) (Dir, error) {
 	if err := json.Unmarshal(configRead, &configArgs); err != nil {
 		return nil, fmt.Errorf("unable to parse json: %v", err)
 	}
-	sfs, err := Init(configArgs)
+	sfs, err := CreateRoot(configArgs)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox init failed with: %v", err)
 	}
@@ -155,45 +153,68 @@ func Serve(c *fuse.Conn, node Dir, dynamic *DynamicConf) error {
 	return server.Serve(f)
 }
 
-// Init initializes a new fs.Node instance to represent a sandboxfs file system
-// rooted in the given directory.
-func Init(mappingsInput []MappingSpec) (Dir, error) {
-	// Clone the list so that we don't modify the passed slice.
-	mappings := append([]MappingSpec(nil), mappingsInput...)
+// tokenizePath splits a path into its components. An empty path results in an empty list, and an
+// absolute path (including root) results in an empty component as the first item in the result.
+func tokenizePath(path string) []string {
+	path = filepath.Clean(path)
+	if path == "." {
+		return []string{}
+	} else if path == "/" {
+		return []string{""}
+	}
 
-	// This sort helps us ensure that a mapping will only have to be created
-	// where one either does not exist or is a ScaffoldDir (since the more
-	// nested mappings will be handled first).
-	// Note that the order of different paths with the same length doesn't
-	// matter since one can never be a prefix of the other.
-	sort.Slice(mappings, func(i, j int) bool {
-		return len(mappings[i].Mapping) > len(mappings[j].Mapping)
-	})
+	tokens := []string{}
+	startIndex := 0
+	for i := 0; i < len(path); i++ {
+		if os.IsPathSeparator(path[i]) {
+			tokens = append(tokens, path[startIndex:i])
+			startIndex = i + 1
+		}
+	}
+	tokens = append(tokens, path[startIndex:])
+	return tokens
+}
 
-	root := newScaffoldDir()
+// CreateRoot generates a directory tree to represent the given mappings.
+func CreateRoot(mappings []MappingSpec) (Dir, error) {
+	var root *MappedDir
 	for _, mapping := range mappings {
-		curDir := root
-		components := splitPath(mapping.Mapping)
-		for i, component := range components {
-			if i != len(components)-1 {
-				curDir = curDir.scaffoldDirChild(component)
-			} else {
-				if _, err := curDir.newNodeChild(component, mapping.Target, mapping.Writable); err != nil {
-					return nil, fmt.Errorf("mapping %v: %v", mapping.Mapping, err)
-				}
+		components := tokenizePath(mapping.Mapping)
+		if len(components) == 0 {
+			return nil, fmt.Errorf("invalid mapping %s: empty path", mapping.Mapping)
+		} else if components[0] != "" {
+			return nil, fmt.Errorf("invalid mapping %s: must be an absolute path", mapping.Mapping)
+		} else if len(components) == 1 && root != nil {
+			return nil, fmt.Errorf("failed to map root with target %s: root must be mapped first and not more than once", mapping.Target)
+		}
+
+		fileInfo, err := os.Lstat(mapping.Target)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat %s when mapping %s: %v", mapping.Target, mapping.Mapping, err)
+		}
+
+		if len(components) == 1 {
+			if fileInfo.Mode()&os.ModeType != os.ModeDir {
+				return nil, fmt.Errorf("cannot map file %s at root: must be a directory", mapping.Target)
+			}
+			root = newMappedDir(mapping.Target, fileInfo, mapping.Writable)
+			root.isMapping = true
+		} else {
+			if root == nil {
+				root = newMappedDirEmpty()
+			}
+			dirNode := root.LookupOrCreateDirs(components[1 : len(components)-1])
+			newNode := getOrCreateNode(mapping.Target, fileInfo, mapping.Writable)
+			newNode.SetIsMapping()
+			if err := dirNode.Map(components[len(components)-1], newNode); err != nil {
+				return nil, fmt.Errorf("cannot map %s: %v", mapping.Mapping, err)
 			}
 		}
 	}
-
-	node, err := root.lookup("")
-	if err != nil {
-		// If we reach here, it means sandbox config was empty.
-		return root, nil
+	if root == nil {
+		root = newMappedDirEmpty()
 	}
-	if n, ok := node.(Dir); ok {
-		return n, nil
-	}
-	return nil, fmt.Errorf("can't map a file at root; must be a directory")
+	return root, nil
 }
 
 // Root returns the root node from the filesystem object.
@@ -209,22 +230,6 @@ func (f *FS) SetRoot(root *Root) {
 // timespecToTime converts syscall.Timespec to time.Time.
 func timespecToTime(ts syscall.Timespec) time.Time {
 	return time.Unix(int64(ts.Sec), int64(ts.Nsec))
-}
-
-// splitPath converts a path string to a list of components of the path.
-//
-// Absolute and relative paths are treated the same way. The empty string as
-// the first element enables us to handle all paths in the same way, without
-// having to add zero-length checks for the returned list.
-// For example: "a/b" -> ["", "a", "b"] and "/a/b" -> ["", "a", "b"].
-//
-// Root, '.', and the empty string all return [""].
-func splitPath(path string) []string {
-	path = filepath.Clean(path)
-	if path == "/" || path == "." {
-		return []string{""}
-	}
-	return append([]string{""}, strings.Split(strings.TrimPrefix(path, "/"), "/")...)
 }
 
 // fuseErrno converts different types of errors returned by different packages

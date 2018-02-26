@@ -76,19 +76,25 @@ var (
 
 // BaseNode is a common type for all nodes: files, directories, pipes, symlinks, etc.
 type BaseNode struct {
-	// underlyingPath contains the path on the file system that backs this node.
-	underlyingPath string
-
 	// writable indicates whether this is a node for a read-only mapping or for a read/write
 	// one.
-	//
-	// TODO(jmmv): It'd be nice if this property was represented by different nodes
-	// (e.g. separate ReadOnlyMappedDir and ReadWriteMappedDir) so that, after instantiation,
-	// the node wouldn't need to keep checking if it's writable or not.
 	writable bool
 
 	// mu protects accesses and updates to the node's metadata below.
 	mu sync.Mutex
+
+	// optionalUnderlyingPath contains the path on the file system that backs this node.
+	//
+	// This is empty if the node has no backing file system path (such as for intermediate
+	// directories).
+	//
+	// Always use UnderlyingPath() to query this safely (which explains the convoluted name of
+	// this field).
+	optionalUnderlyingPath string
+
+	// isMapping indicates whether this node exists because it was an explicit mapping from the
+	// configuration.
+	isMapping bool
 
 	// attr contains the node metadata.
 	//
@@ -134,12 +140,22 @@ type Node interface {
 	// and needs to be passed in because it is not stored within the node itself.
 	Dirent(name string) fuse.Dirent
 
-	// SetUnderlyingPath changes the Node's underlying path to the specified
-	// value.
-	SetUnderlyingPath(path string)
+	// IsMapping returns true if the node was explicitly mapped by the user to a physical
+	// location on disk (i.e. if there is an underlying path for the node).
+	IsMapping() bool
 
-	// UnderlyingPath returns the Node's path in the underlying filesystem.
-	UnderlyingPath() string
+	// SetIsMapping marks this node as being the mapped path of a mapping explicitly configured
+	// by the user.
+	SetIsMapping()
+
+	// UnderlyingPath returns the path to the file that backs this node in the underlying file
+	// system and whether this path is valid. (The returned string should not be accessed unless
+	// the returned boolean is true.)
+	UnderlyingPath() (string, bool)
+
+	// SetUnderlyingPath changes the node's underlying path to the specified value. This mutable
+	// operation is necessary to support renames.
+	SetUnderlyingPath(path string)
 
 	// Writable returns the Node's writability property.
 	Writable() bool
@@ -156,6 +172,12 @@ type Node interface {
 // The returned node represents the given underlying path uniquely. If creation is needed, the
 // created node uses the given type and writable settings.
 func getOrCreateNode(path string, fileInfo os.FileInfo, writable bool) Node {
+	if fileInfo.Mode()&os.ModeType == os.ModeDir {
+		// Directories cannot be cached because they contain entries that are created only
+		// in memory based on the mappings configuration.
+		return newMappedDir(path, fileInfo, writable)
+	}
+
 	nodeCacheLock.Lock()
 	defer nodeCacheLock.Unlock()
 
@@ -183,7 +205,7 @@ func getOrCreateNode(path string, fileInfo os.FileInfo, writable bool) Node {
 	var node Node
 	switch fileInfo.Mode() & os.ModeType {
 	case os.ModeDir:
-		node = newMappedDir(path, fileInfo, writable)
+		panic("Directory entries cannot be cached and are handled above")
 	case os.ModeSymlink:
 		node = newMappedSymlink(path, fileInfo, writable)
 	default:
@@ -193,7 +215,7 @@ func getOrCreateNode(path string, fileInfo os.FileInfo, writable bool) Node {
 	return node
 }
 
-// newBaseNode initializes a new BaseNode.
+// newBaseNode initializes a new BaseNode to represent an underlying path.
 //
 // The returned BaseNode is not usable by itself: it must be embedded within a specific Mapped*
 // type. In turn, this function should only be called by the corresponding newMapped* functions
@@ -206,10 +228,30 @@ func newBaseNode(path string, fileInfo os.FileInfo, writable bool) BaseNode {
 	fillAttrInfoFromStat(&attr, fileInfo)
 
 	return BaseNode{
-		underlyingPath: path,
-		writable:       writable,
-		deleted:        false,
-		attr:           attr,
+		optionalUnderlyingPath: path,
+		writable:               writable,
+		deleted:                false,
+		attr:                   attr,
+	}
+}
+
+// newUnmappedBaseNode initializes a new BaseNode that is not backed by an underlying path.
+//
+// The returned BaseNode is not usable by itself: it must be embedded within a specific Mapped*
+// type. In turn, this function should only be called by the corresponding newMapped* functions
+// and never directly.
+func newUnmappedBaseNode(mode os.FileMode, nlink uint32) BaseNode {
+	var attr fuse.Attr
+	attr.Inode = nextInodeNumber()
+	attr.Mode = mode
+	attr.Nlink = nlink
+	attr.Valid = attrValidTime
+
+	return BaseNode{
+		optionalUnderlyingPath: "",
+		writable:               false,
+		deleted:                false,
+		attr:                   attr,
 	}
 }
 
@@ -218,8 +260,8 @@ func (n *BaseNode) Attr(_ context.Context, a *fuse.Attr) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if !n.deleted {
-		fileInfo, err := os.Lstat(n.underlyingPath)
+	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped && !n.deleted {
+		fileInfo, err := os.Lstat(underlyingPath)
 		if err != nil {
 			return fuseErrno(err)
 		}
@@ -239,16 +281,18 @@ func (n *BaseNode) delete() {
 	}
 	n.deleted = true
 
-	nodeCacheLock.Lock()
-	defer nodeCacheLock.Unlock()
-	delete(nodeCache, n.underlyingPath)
+	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped {
+		nodeCacheLock.Lock()
+		defer nodeCacheLock.Unlock()
+		delete(nodeCache, underlyingPath)
+	}
 }
 
 // setattrMode is a helper function for Setattr to handle setting the node's mode.
 // The "mu" lock must be held by the caller.
 func (n *BaseNode) setattrMode(req *fuse.SetattrRequest) error {
-	if !n.deleted {
-		if err := os.Chmod(n.underlyingPath, req.Mode&os.ModePerm); err != nil {
+	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped && !n.deleted {
+		if err := os.Chmod(underlyingPath, req.Mode&os.ModePerm); err != nil {
 			return err
 		}
 	}
@@ -273,8 +317,8 @@ func (n *BaseNode) setattrOwnership(req *fuse.SetattrRequest) error {
 		gid = n.attr.Gid
 	}
 
-	if !n.deleted {
-		if err := os.Lchown(n.underlyingPath, int(uid), int(gid)); err != nil {
+	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped && !n.deleted {
+		if err := os.Lchown(underlyingPath, int(uid), int(gid)); err != nil {
 			return err
 		}
 	}
@@ -300,8 +344,8 @@ func (n *BaseNode) setattrTimes(req *fuse.SetattrRequest) error {
 		mtime = n.attr.Mtime
 	}
 
-	if !n.deleted {
-		if err := os.Chtimes(n.underlyingPath, atime, mtime); err != nil {
+	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped && !n.deleted {
+		if err := os.Chtimes(underlyingPath, atime, mtime); err != nil {
 			return err
 		}
 	}
@@ -313,8 +357,8 @@ func (n *BaseNode) setattrTimes(req *fuse.SetattrRequest) error {
 // setattrSize is a helper function for Setattr to handle setting the node's size.
 // The "mu" lock must be held by the caller.
 func (n *BaseNode) setattrSize(req *fuse.SetattrRequest) error {
-	if !n.deleted {
-		if err := os.Truncate(n.underlyingPath, int64(req.Size)); err != nil {
+	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped && !n.deleted {
+		if err := os.Truncate(underlyingPath, int64(req.Size)); err != nil {
 			return err
 		}
 	}
@@ -369,27 +413,51 @@ func (n *BaseNode) Inode() uint64 {
 // otherwise. All operations on nodes that want to modify the state of the file system should call
 // this function to ensure all error conditions are consistent.
 func (n *BaseNode) WantToWrite() error {
-	if !n.writable {
+	if !n.writable { // No need to lock read; writable is immutable.
 		return fuseErrno(syscall.EPERM)
 	}
 	return nil
 }
 
-// SetUnderlyingPath changes the underlying path value to passed path.
-//
-// This assumes that the caller takes appropriate steps to prevent concurrency
-// issues (by locking the container directory).
-func (n *BaseNode) SetUnderlyingPath(path string) {
-	n.underlyingPath = path
+// IsMapping returns true if the node was explicitly mapped by the user to a physical location on
+// disk (i.e. if there is an underlying path for the node).
+func (n *BaseNode) IsMapping() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	return n.isMapping
 }
 
-// UnderlyingPath returns the Node's path in the underlying filesystem.
-func (n *BaseNode) UnderlyingPath() string {
-	return n.underlyingPath
+// SetIsMapping marks this node as being the mapped path of a mapping explicitly configured by the
+// user.
+func (n *BaseNode) SetIsMapping() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.isMapping = true
+}
+
+// SetUnderlyingPath changes the underlying path value to passed path.
+//
+// issues (by locking the container directory).
+func (n *BaseNode) SetUnderlyingPath(path string) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.optionalUnderlyingPath = path
+}
+
+// UnderlyingPath returns the path to the file that backs this node in the underlying file system
+// and whether this path is valid. (The returned string should not be accessed unless the returned
+// boolean is true.)
+func (n *BaseNode) UnderlyingPath() (string, bool) {
+	// No need to lock; optionalUnderlyingPath is immutable.
+	return n.optionalUnderlyingPath, n.optionalUnderlyingPath != ""
 }
 
 // Writable returns the Node's writability property.
 func (n *BaseNode) Writable() bool {
+	// No need to lock; writable is immutable.
 	return n.writable
 }
 

@@ -68,10 +68,8 @@ Flags:
 	staticHelp := `Usage: sandboxfs static [flags...] MOUNT-POINT
   -help
     	print the usage information and exit
-  -read_only_mapping value
-    	read-only mapping of the form MAPPING:TARGET
-  -read_write_mapping value
-    	read/write mapping of the form MAPPING:TARGET
+  -mapping value
+    	mappings of the form TYPE:MAPPING:TARGET
 `
 
 	testData := []struct {
@@ -214,11 +212,9 @@ func TestCli_StaticMappingsSyntax(t *testing.T) {
 		flagValue  string
 		wantStderr string
 	}{
-		{"MissingTargetRO", "read_only_mapping", "/foo", `invalid value "/foo" for flag -read_only_mapping: flag "/foo": expected contents to be of the form MAPPING:TARGET` + "\n"},
-		{"MissingTargetRW", "read_write_mapping", "/b", `invalid value "/b" for flag -read_write_mapping: flag "/b": expected contents to be of the form MAPPING:TARGET` + "\n"},
-
-		{"RelativeTargetRO", "read_only_mapping", "/:relative/path", `invalid value "/:relative/path" for flag -read_only_mapping: path "relative/path": target must be an absolute path` + "\n"},
-		{"RelativeTargetRW", "read_write_mapping", "/:other", `invalid value "/:other" for flag -read_write_mapping: path "other": target must be an absolute path` + "\n"},
+		{"MissingTarget", "mapping", "ro:/foo", `invalid value "ro:/foo" for flag -mapping: flag "ro:/foo": expected contents to be of the form TYPE:MAPPING:TARGET` + "\n"},
+		{"RelativeTarget", "mapping", "rw:/:relative/path", `invalid value "rw:/:relative/path" for flag -mapping: path "relative/path": target must be an absolute path` + "\n"},
+		{"BadType", "mapping", "row:/foo:/bar", `invalid value "row:/foo:/bar" for flag -mapping: flag "row:/foo:/bar": unknown type row; must be one of ro,rw` + "\n"},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {

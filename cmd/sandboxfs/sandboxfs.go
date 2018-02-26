@@ -25,7 +25,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -40,63 +39,6 @@ var (
 	// a build that misses to include this detail should not be shipped to users.
 	packageVersion = "0.0 (BINARY NOT FOR RELEASE)"
 )
-
-// allowFlag holds the value of and parses a flag that controls who has access to the file system.
-type allowFlag struct {
-	// Option is the FUSE mount option to pass to the mount operation, or nil if not applicable.
-	Option fuse.MountOption
-
-	// value is the textual representation of the flag's value.
-	value string
-}
-
-// String returns the textual value of the flag.
-func (f *allowFlag) String() string {
-	return f.value
-}
-
-// Set parses the value of the flag as given by the user.
-func (f *allowFlag) Set(value string) error {
-	switch value {
-	case "other":
-		f.Option = fuse.AllowOther()
-	case "root":
-		f.Option = fuse.AllowRoot()
-	case "self":
-		f.Option = nil
-	default:
-		return fmt.Errorf("must be one of other, root, or self")
-	}
-	f.value = value
-	return nil
-}
-
-// MappingTargetPair stores a single mapping of the form mapping->target.
-type MappingTargetPair struct {
-	Mapping string
-	Target  string
-}
-
-// combineToSpec combines the entries from roMappings and rwMappings into
-// a single collection that is sufficient to provide the mapping specification.
-func combineToSpec(roMappings, rwMappings []MappingTargetPair) []sandbox.MappingSpec {
-	mapped := make([]sandbox.MappingSpec, 0, len(roMappings)+len(rwMappings))
-	for _, mapping := range roMappings {
-		mapped = append(mapped, sandbox.MappingSpec{
-			Mapping:  mapping.Mapping,
-			Target:   mapping.Target,
-			Writable: false,
-		})
-	}
-	for _, mapping := range rwMappings {
-		mapped = append(mapped, sandbox.MappingSpec{
-			Mapping:  mapping.Mapping,
-			Target:   mapping.Target,
-			Writable: true,
-		})
-	}
-	return mapped
-}
 
 // handleSignals installs signal handlers to ensure the file system is unmounted.
 //
@@ -164,36 +106,6 @@ func usage(output io.Writer, f *flag.FlagSet) {
 	f.PrintDefaults()
 }
 
-type mappingFlag []MappingTargetPair
-
-func (f *mappingFlag) String() string {
-	return fmt.Sprint(*f)
-}
-
-func (f *mappingFlag) Set(cmd string) error {
-	fields := strings.SplitN(cmd, ":", 2)
-	if len(fields) != 2 {
-		return fmt.Errorf("flag %q: expected contents to be of the form MAPPING:TARGET", cmd)
-	}
-	mapping := filepath.Clean(fields[0])
-	target := filepath.Clean(fields[1])
-	if !filepath.IsAbs(mapping) {
-		return fmt.Errorf("path %q: mapping must be an absolute path", fields[0])
-	}
-	if !filepath.IsAbs(target) {
-		return fmt.Errorf("path %q: target must be an absolute path", fields[1])
-	}
-	*f = append(*f, MappingTargetPair{
-		Mapping: mapping,
-		Target:  target,
-	})
-	return nil
-}
-
-func (f *mappingFlag) Get() interface{} {
-	return *f
-}
-
 // newFlagSet creates a flag set with common settings for all commands.
 func newFlagSet(name string) *flag.FlagSet {
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
@@ -210,10 +122,8 @@ func newFlagSet(name string) *flag.FlagSet {
 func staticCommand(args []string, options []fuse.MountOption, settings ProfileSettings) error {
 	flags := newFlagSet("static")
 	help := flags.Bool("help", false, "print the usage information and exit")
-	var readOnlyMappings mappingFlag
-	flags.Var(&readOnlyMappings, "read_only_mapping", "read-only mapping of the form MAPPING:TARGET")
-	var readWriteMappings mappingFlag
-	flags.Var(&readWriteMappings, "read_write_mapping", "read/write mapping of the form MAPPING:TARGET")
+	var mappings mappingFlag
+	flags.Var(&mappings, "mapping", "mappings of the form TYPE:MAPPING:TARGET")
 
 	if err := flags.Parse(args); err != nil {
 		return newUsageError("%v", err)
@@ -230,7 +140,7 @@ func staticCommand(args []string, options []fuse.MountOption, settings ProfileSe
 	}
 	mountPoint := flags.Arg(0)
 
-	return serve(settings, mountPoint, options, nil, combineToSpec(readOnlyMappings, readWriteMappings))
+	return serve(settings, mountPoint, options, nil, mappings)
 }
 
 // dynamicCommand implements the "dynamic" command.
@@ -277,7 +187,7 @@ func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileS
 }
 
 func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
-	sfs, err := sandbox.Init(mappings)
+	root, err := sandbox.CreateRoot(mappings)
 	if err != nil {
 		return fmt.Errorf("unable to init sandbox: %v", err)
 	}
@@ -329,7 +239,7 @@ func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOpti
 	defer c.Close()
 	mountOk <- mountPoint // Tell signal handler that the mount point requires cleanup.
 
-	err = sandbox.Serve(c, sfs, dynamicConf)
+	err = sandbox.Serve(c, root, dynamicConf)
 	if err != nil {
 		return fmt.Errorf("serve error: %v", err)
 	}

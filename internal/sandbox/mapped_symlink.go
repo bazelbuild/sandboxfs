@@ -40,7 +40,12 @@ func newMappedSymlink(path string, fileInfo os.FileInfo, writable bool) *MappedS
 
 // Readlink reads a symlink and returns the string path to its destination.
 func (s *MappedSymlink) Readlink(_ context.Context, req *fuse.ReadlinkRequest) (string, error) {
-	link, err := os.Readlink(s.underlyingPath)
+	underlyingPath, isMapped := s.UnderlyingPath()
+	if !isMapped {
+		panic("Want to read a symlink but we don't have an underlying path")
+	}
+
+	link, err := os.Readlink(underlyingPath)
 	return link, fuseErrno(err)
 }
 
