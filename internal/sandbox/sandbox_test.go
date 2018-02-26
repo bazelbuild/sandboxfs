@@ -194,7 +194,7 @@ func TestCreateRoot_Ok(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create hierarchy: %v", err)
 			}
-			if err := areTreesSimilar("/", root.(*MappedDir), d.wantDir); err != nil {
+			if err := areTreesSimilar("/", root, d.wantDir); err != nil {
 				t.Error(err)
 			}
 		})

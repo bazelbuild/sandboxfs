@@ -29,49 +29,31 @@ type cacheInvalidator interface {
 	invalidate(*fs.Server)
 }
 
-// Dir defines the interfaces satisfied by all directory types.
-type Dir interface {
-	fs.Node
-	fs.NodeCreater
-	fs.NodeLinker
-	fs.NodeMkdirer
-	fs.NodeMknoder
-	fs.NodeOpener
-	fs.NodeRemover
-	fs.NodeRenamer
-	fs.NodeSetattrer
-	fs.NodeStringLookuper
-	fs.NodeSymlinker
-
-	invalidateEntries(*fs.Server, fs.Node)
-}
-
 // Root represents the node at the root of the file system.
 //
 // The root node cannot be a Dir in itself because of reconfigurations: during a reconfiguration,
-// the contents and type of the root directory may change (e.g. from MappedDir to ScaffoldDir) but
-// the identity of the node cannot change because the FUSE API does not permit replacing the root
-// node with another.  As a result, we have to wrap the actual directory being used.
+// we replace the whole directory tree with a new instance so we have to swap the pointer to the
+// root directory.
 //
-// It's unlikely for the FUSE API to ever allow replacing the root directory because of the
-// difficulties in doing so and the very limited use cases of such feature.
+// TODO(jmmv): Now that we have a single implementation for directory nodes, we can get rid of the
+// Root indirection by folding reconfigurations into the directory itself.
 type Root struct {
 	// dir holds the directory backing the root node. Note that the FUSE API is unaware of this
 	// backing node: any operations that reference the root node must do so through the Root
 	// instance. In that sense, the directory here is just an implementation detail.
-	dir Dir
+	dir *MappedDir
 
 	// mu protects reads and updates to the dir pointer.
 	mu sync.RWMutex
 }
 
 // NewRoot returns a new instance of Root with the appropriate underlying node.
-func NewRoot(node Dir) *Root {
+func NewRoot(node *MappedDir) *Root {
 	return &Root{dir: node}
 }
 
 // getDir returns the dir member atomically.
-func (r *Root) getDir() Dir {
+func (r *Root) getDir() *MappedDir {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.dir
@@ -96,7 +78,7 @@ func (r *Root) getDir() Dir {
 //
 // Well-behaved users should only reconfigure the file system when they know it's quiescent, and
 // this is what we specify in the documentation.
-func (r *Root) Reconfigure(server *fs.Server, newDir Dir) {
+func (r *Root) Reconfigure(server *fs.Server, newDir *MappedDir) {
 	r.mu.Lock()
 	oldDir := r.dir
 	r.dir = newDir

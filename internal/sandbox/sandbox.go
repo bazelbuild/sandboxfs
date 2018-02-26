@@ -66,7 +66,7 @@ type FS struct {
 }
 
 // Reconfigure resets the tree under this node to the new configuration.
-func (f *FS) Reconfigure(server *fs.Server, root Dir) {
+func (f *FS) Reconfigure(server *fs.Server, root *MappedDir) {
 	// TODO(pallavag): Right now, we do not reuse inode numbers, because it is
 	// uncertain if doing so would be valid from a correctness perspective.
 	// Once the code has been well tested, it may be worthwile to try resetting
@@ -100,7 +100,7 @@ func readConfig(reader *bufio.Reader) ([]byte, error) {
 // initFromReader initializes a filesystem configuration after reading the config from the passed
 // reader.  Reaching EOF on the reader causes this function to return io.EOF, which the caller
 // must handle gracefully.
-func initFromReader(reader *bufio.Reader) (Dir, error) {
+func initFromReader(reader *bufio.Reader) (*MappedDir, error) {
 	configRead, err := readConfig(reader)
 	if err != nil {
 		if err == io.EOF {
@@ -139,8 +139,8 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 }
 
 // Serve sets up the work environment before starting to serve the filesystem.
-func Serve(c *fuse.Conn, node Dir, dynamic *DynamicConf) error {
-	f := &FS{NewRoot(node)}
+func Serve(c *fuse.Conn, dir *MappedDir, dynamic *DynamicConf) error {
+	f := &FS{NewRoot(dir)}
 	server := fs.New(c, nil)
 	if dynamic != nil {
 		if !c.Protocol().HasInvalidate() {
@@ -176,7 +176,7 @@ func tokenizePath(path string) []string {
 }
 
 // CreateRoot generates a directory tree to represent the given mappings.
-func CreateRoot(mappings []MappingSpec) (Dir, error) {
+func CreateRoot(mappings []MappingSpec) (*MappedDir, error) {
 	var root *MappedDir
 	for _, mapping := range mappings {
 		components := tokenizePath(mapping.Mapping)
