@@ -48,7 +48,7 @@ func openAndDelete(path string, mode int) (int, error) {
 }
 
 func TestReadWrite_CreateFile(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "original content")
@@ -64,7 +64,7 @@ func TestReadWrite_CreateFile(t *testing.T) {
 }
 
 func TestReadWrite_Remove(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%", "-mapping=rw:/mapped-dir:%ROOT%/mapped-dir", "-mapping=rw:/scaffold/dir:%ROOT%/scaffold-dir")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%", "-mapping=rw:/mapped-dir:%ROOT%/mapped-dir", "-mapping=rw:/scaffold/dir:%ROOT%/scaffold-dir")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -119,7 +119,7 @@ func TestReadWrite_Remove(t *testing.T) {
 }
 
 func TestReadWrite_RewriteFile(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "original content")
@@ -134,7 +134,7 @@ func TestReadWrite_RewriteFile(t *testing.T) {
 }
 
 func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.MountPath("file"), 0644, "very long contents")
@@ -145,7 +145,7 @@ func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
 }
 
 func TestReadWrite_InodeReassignedAfterRecreation(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	path := state.MountPath("file")
@@ -181,7 +181,7 @@ func TestReadWrite_InodeReassignedAfterRecreation(t *testing.T) {
 }
 
 func TestReadWrite_FstatOnDeletedNode(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
@@ -227,7 +227,7 @@ func TestReadWrite_FstatOnDeletedNode(t *testing.T) {
 }
 
 func TestReadWrite_Truncate(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.MountPath("file"), 0644, "very long contents")
@@ -243,7 +243,7 @@ func TestReadWrite_Truncate(t *testing.T) {
 }
 
 func TestReadWrite_FtruncateOnDeletedFile(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	originalContent := "very long contents"
@@ -338,7 +338,7 @@ func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInn
 }
 
 func TestReadWrite_RenameFile(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	oldOuterPath := state.RootPath("old-name")
@@ -349,7 +349,7 @@ func TestReadWrite_RenameFile(t *testing.T) {
 }
 
 func TestReadWrite_MoveFile(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	oldOuterPath := state.RootPath("dir1/dir2/old-name")
@@ -362,7 +362,7 @@ func TestReadWrite_MoveFile(t *testing.T) {
 func TestReadWrite_Mknod(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to create arbitrary nodes")
 
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	// checkNode ensures that a given file is of the specified type and, if the type indicates
@@ -464,7 +464,7 @@ func TestReadWrite_Mknod(t *testing.T) {
 }
 
 func TestReadWrite_Chmod(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	// checkPerm ensures that the given file has the given permissions on the underlying file
@@ -540,7 +540,7 @@ func TestReadWrite_Chmod(t *testing.T) {
 }
 
 func TestReadWrite_FchmodOnDeletedNode(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
@@ -581,7 +581,7 @@ func TestReadWrite_FchmodOnDeletedNode(t *testing.T) {
 func TestReadWrite_Chown(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to change test file ownership")
 
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	// checkOwners ensures that the given file is owned by the given user and group on the
@@ -648,7 +648,7 @@ func TestReadWrite_Chown(t *testing.T) {
 func TestReadWrite_FchownOnDeletedNode(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to change test file ownership")
 
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
@@ -687,7 +687,7 @@ func TestReadWrite_FchownOnDeletedNode(t *testing.T) {
 }
 
 func TestReadWrite_Chtimes(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	// checkTimes ensures that the given file has the desired timing information on the
@@ -797,7 +797,7 @@ func TestReadWrite_Chtimes(t *testing.T) {
 }
 
 func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
@@ -843,7 +843,7 @@ func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
 }
 
 func TestReadWrite_HardLinksNotSupported(t *testing.T) {
-	state := utils.MountSetup(t, "static", "-mapping=rw:/:%ROOT%", "-mapping=rw:/dir:%ROOT%/dir", "-mapping=rw:/scaffold/name3:%ROOT%/dir2")
+	state := utils.MountSetup(t, "-mapping=rw:/:%ROOT%", "-mapping=rw:/dir:%ROOT%/dir", "-mapping=rw:/scaffold/name3:%ROOT%/dir2")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("name1"), 0644, "")

@@ -101,93 +101,8 @@ func handleSignals(mountPoint <-chan string, caughtSignal chan<- os.Signal) {
 	}()
 }
 
-func usage(output io.Writer, f *flag.FlagSet) {
-	f.SetOutput(output)
-	f.PrintDefaults()
-}
-
-// newFlagSet creates a flag set with common settings for all commands.
-func newFlagSet(name string) *flag.FlagSet {
-	flags := flag.NewFlagSet(name, flag.ContinueOnError)
-
-	// We want full control over error messages to report them consistently from main, so
-	// silence all default output for the flag set.
-	flags.SetOutput(ioutil.Discard)
-	flags.Usage = func() {}
-
-	return flags
-}
-
-// staticCommand implements the "static" command.
-func staticCommand(args []string, options []fuse.MountOption, settings ProfileSettings) error {
-	flags := newFlagSet("static")
-	help := flags.Bool("help", false, "print the usage information and exit")
-	var mappings mappingFlag
-	flags.Var(&mappings, "mapping", "mappings of the form TYPE:MAPPING:TARGET")
-
-	if err := flags.Parse(args); err != nil {
-		return newUsageError("%v", err)
-	}
-
-	if *help {
-		fmt.Fprintf(os.Stdout, "Usage: %s static [flags...] MOUNT-POINT\n", filepath.Base(os.Args[0]))
-		usage(os.Stdout, flags)
-		return nil
-	}
-
-	if flags.NArg() != 1 {
-		return newUsageError("invalid number of arguments")
-	}
-	mountPoint := flags.Arg(0)
-
-	return serve(settings, mountPoint, options, nil, mappings)
-}
-
-// dynamicCommand implements the "dynamic" command.
-func dynamicCommand(args []string, options []fuse.MountOption, settings ProfileSettings) error {
-	flags := newFlagSet("dynamic")
-	help := flags.Bool("help", false, "print the usage information and exit")
-	input := flags.String("input", "-", "where to read the configuration data from (- for stdin)")
-	output := flags.String("output", "-", "where to write the status of reconfiguration to (- for stdout)")
-
-	if err := flags.Parse(args); err != nil {
-		return newUsageError("%v", err)
-	}
-
-	if *help {
-		fmt.Fprintf(os.Stdout, "Usage: %s dynamic MOUNT-POINT\n", filepath.Base(os.Args[0]))
-		usage(os.Stdout, flags)
-		return nil
-	}
-
-	if flags.NArg() != 1 {
-		return newUsageError("invalid number of arguments")
-	}
-	mountPoint := flags.Arg(0)
-
-	dynamicConf := &sandbox.DynamicConf{Input: os.Stdin, Output: os.Stdout}
-	if *input != "-" {
-		file, err := os.Open(*input)
-		if err != nil {
-			return fmt.Errorf("unable to open file %q for reading: %v", *input, err)
-		}
-		defer file.Close()
-		dynamicConf.Input = file
-	}
-	if *output != "-" {
-		file, err := os.Create(*output)
-		if err != nil {
-			return fmt.Errorf("unable to open file %q for writing: %v", *output, err)
-		}
-		defer file.Close()
-		dynamicConf.Output = file
-	}
-
-	return serve(settings, mountPoint, options, dynamicConf, nil)
-}
-
-func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, dynamicConf *sandbox.DynamicConf, mappings []sandbox.MappingSpec) error {
-	root, err := sandbox.CreateRoot(mappings)
+func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, initialMappings []sandbox.MappingSpec, reconfigInput io.Reader, reconfigOutput io.Writer) error {
+	root, err := sandbox.CreateRoot(initialMappings)
 	if err != nil {
 		return fmt.Errorf("unable to init sandbox: %v", err)
 	}
@@ -239,7 +154,7 @@ func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOpti
 	defer c.Close()
 	mountOk <- mountPoint // Tell signal handler that the mount point requires cleanup.
 
-	err = sandbox.Serve(c, root, dynamicConf)
+	err = sandbox.Serve(c, root, reconfigInput, reconfigOutput)
 	if err != nil {
 		return fmt.Errorf("serve error: %v", err)
 	}
@@ -263,30 +178,39 @@ func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOpti
 // safeMain is a version of main that does not exit on its own. Instead, it returns an error type
 // so that the real main function can format all errors consistently across all commands.
 func safeMain(progname string, args []string) error {
-	flags := newFlagSet(progname)
+	flags := flag.NewFlagSet(progname, flag.ContinueOnError)
+	flags.SetOutput(ioutil.Discard)
+	flags.Usage = func() {}
+
 	var allow allowFlag
 	allow.Set("self")
 	flags.Var(&allow, "allow", "specifies who should have access to the file system; must be one of other, root, or self")
 	cpuProfile := flags.String("cpu_profile", "", "write a CPU profile to the given file on exit")
 	debug := flags.Bool("debug", false, "log details about FUSE requests and responses to stderr")
 	help := flags.Bool("help", false, "print the usage information and exit")
+	input := flags.String("input", "-", "where to read the configuration data from (- for stdin)")
 	listenAddress := flags.String("listen_address", "", "enable HTTP server on the given address and expose pprof data")
+	var initialMappings mappingFlag
+	flags.Var(&initialMappings, "mapping", "mappings of the form TYPE:MAPPING:TARGET")
 	memProfile := flags.String("mem_profile", "", "write a memory profile to the given file on exit")
+	output := flags.String("output", "-", "where to write the status of reconfiguration to (- for stdout)")
 	version := flags.Bool("version", false, "show version information and exit")
 	volumeName := flags.String("volume_name", "sandbox", "name for the sandboxfs volume")
 
 	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			// The flags library insists on offering a -h flag even if we explicitly
+			// defined --help above. Turn it into an error.
+			return newUsageError("flag provided but not defined: -h")
+		}
 		return newUsageError("%v", err)
 	}
 
 	if *help {
-		fmt.Fprintf(os.Stdout, `Usage: %s [flags...] subcommand ...
-Subcommands:
-  static   statically configured sandbox using command line flags.
-  dynamic  dynamically configured sandbox using stdin.
-Flags:
-`, progname)
-		usage(os.Stdout, flags)
+		fmt.Fprintf(os.Stdout, "Usage: %s [flags...] mount-point\n\n", progname)
+		fmt.Fprintf(os.Stdout, "Available flags:\n")
+		flags.SetOutput(os.Stdout)
+		flags.PrintDefaults()
 		return nil
 	}
 
@@ -304,11 +228,29 @@ Flags:
 		fuse.Debug = func(msg interface{}) { fmt.Fprintln(os.Stderr, msg) }
 	}
 
-	if flags.NArg() < 1 {
+	if flags.NArg() != 1 {
 		return newUsageError("invalid number of arguments")
 	}
-	command := flags.Arg(0)
-	commandArgs := flags.Args()[1:]
+	mountPoint := flags.Arg(0)
+
+	reconfigInput := os.Stdin
+	if *input != "-" {
+		file, err := os.Open(*input)
+		if err != nil {
+			return fmt.Errorf("unable to open file %q for reading: %v", *input, err)
+		}
+		defer file.Close()
+		reconfigInput = file
+	}
+	reconfigOutput := os.Stdout
+	if *output != "-" {
+		file, err := os.Create(*output)
+		if err != nil {
+			return fmt.Errorf("unable to open file %q for writing: %v", *output, err)
+		}
+		defer file.Close()
+		reconfigOutput = file
+	}
 
 	options := []fuse.MountOption{
 		// Rely on in-kernel permission checking based on the node's ownership and mode to
@@ -331,14 +273,7 @@ Flags:
 		options = append(options, allow.Option)
 	}
 
-	switch command {
-	case "static":
-		err = staticCommand(commandArgs, options, settings)
-	case "dynamic":
-		err = dynamicCommand(commandArgs, options, settings)
-	default:
-		err = newUsageError("invalid command")
-	}
+	err = serve(settings, mountPoint, options, initialMappings, reconfigInput, reconfigOutput)
 	if runtime.GOOS == "linux" && allow.String() == "root" {
 		if _, ok := err.(*mountError); ok {
 			// "-o allow_root" is broken on Linux because this is not actually a

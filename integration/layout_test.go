@@ -33,7 +33,7 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	mountPoint := filepath.Join(tempDir, "non-existent")
 	wantStderr := "unable to mount: " + mountPoint + " does not exist\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:"+tempDir, mountPoint)
+	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+tempDir, mountPoint)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 
 	wantStderr := "unable to init sandbox: cannot map file " + file + " at root: must be a directory\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:"+file, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+file, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 func TestLayout_TargetDoesNotExist(t *testing.T) {
 	wantStderr := "failed to stat /non-existent when mapping /.*\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 	path2 := filepath.Join(tempDir, "2")
 	utils.MustWriteFile(t, path2, 0644, "")
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/:"+tempDir, "--mapping=ro:/a/a:"+path1, "--mapping=ro:/a/b:"+tempDir, "--mapping=ro:/a/a:"+path2, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+tempDir, "--mapping=ro:/a/a:"+path1, "--mapping=ro:/a/b:"+tempDir, "--mapping=ro:/a/a:"+path2, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestLayout_TargetIsScaffoldDirectory(t *testing.T) {
 
 	wantStderr := "unable to init sandbox: cannot map /a: already mapped\n"
 
-	stdout, stderr, err := utils.RunAndWait(1, "static", "--mapping=ro:/a/b/c:"+tempDir, "--mapping=ro:/a:"+file, "irrelevant-mount-point")
+	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/a/b/c:"+tempDir, "--mapping=ro:/a:"+file, "irrelevant-mount-point")
 	if err != nil {
 		t.Fatal(err)
 	}

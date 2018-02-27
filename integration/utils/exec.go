@@ -69,6 +69,9 @@ func wait(state *runState, wantExitStatus int) (string, string, error) {
 			return state.out.String(), state.err.String(), fmt.Errorf("got %v; want sandboxfs to exit with status 0", err)
 		}
 	} else {
+		if err == nil {
+			return state.out.String(), state.err.String(), fmt.Errorf("got 0; want sandboxfs to exit with status %d", wantExitStatus)
+		}
 		status := err.(*exec.ExitError).ProcessState.Sys().(syscall.WaitStatus)
 		if wantExitStatus != status.ExitStatus() {
 			return state.out.String(), state.err.String(), fmt.Errorf("got %v; want sandboxfs to exit with status %d", status.ExitStatus(), wantExitStatus)
@@ -203,17 +206,6 @@ func (s *MountState) TempPath(arg ...string) string {
 	return filepath.Join(s.tempDir, filepath.Join(arg...))
 }
 
-// isDynamic returns true if the arguments to run sandboxfs cause the instance to be configured in
-// dynamic mode.
-func isDynamic(args ...string) bool {
-	for _, arg := range args {
-		if arg == "dynamic" {
-			return true
-		}
-	}
-	return false
-}
-
 // createDirsRequiredByMappings inspects the flags that configure sandboxfs to extract the paths to
 // the targetes of the mappings, and creates those paths.
 func createDirsRequiredByMappings(root string, args ...string) error {
@@ -236,6 +228,17 @@ func createDirsRequiredByMappings(root string, args ...string) error {
 		}
 	}
 	return nil
+}
+
+// hasRootMapping inspects the flags that configure sandboxfs and returns true if they define a
+// mapping for the sandbox's root directory.
+func hasRootMapping(args ...string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-mapping=ro:/:") || strings.HasPrefix(arg, "-mapping=rw:/:") {
+			return true
+		}
+	}
+	return false
 }
 
 // MountSetup initializes a test that runs sandboxfs in the background with default settings.
@@ -339,18 +342,17 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 
 	var cmd *exec.Cmd
 	var stdin io.WriteCloser
-	if isDynamic(args...) {
-		// "dynamic" mode starts without any mappings so we cannot wait for the file system
-		// to come up using a cookie file: instead, the caller is responsible for pushing an
-		// initial configuration to sandboxfs and then waiting for confirmation.
+	if !hasRootMapping(realArgs...) {
+		// Without a mapping at root, we can't wait for sandboxfs to come up using a cookie
+		// file.  For now, we assume that only the reconfiguration tests do this as they get
+		// the same wait functionality by pushing an initial configuration request.
 		//
-		// TODO(jmmv): This is an heuristic, and, as such, is imprecise and annoying because
-		// it obscures what's happening in the tests.  It'd be nice to inject whether the
-		// invocation is dynamic or not when calling the MountSetup* functions, but that
-		// would obscure all other callers for no good reason.  The better alternative is to
-		// reconsider whether we need a dynamic mode at all: it is probably a good idea to
-		// consolidate the static/dynamic duality and allow any sandboxfs to accept
-		// reconfiguration (which would, in turn, make all of our code much simpler).
+		// TODO(jmmv): We shouldn't need to do this.  Now that there is no more "static" and
+		// "dynamic" sandbox types, we could define initial root mappings in all cases and
+		// then let the reconfiguration take over.  This is tricky because sandboxfs blocks
+		// when opening the input FIFO until there is a writer for it, which is not yet the
+		// case for our tests.  And, with the work I'm planning to do on reconfigurations, I
+		// may drop the possibility of changing the root mapping.
 		cmd, stdin, err = startBackground("", stdout, stderr, user, realArgs...)
 	} else {
 		MustWriteFile(t, filepath.Join(root, ".cookie"), 0444, "")
@@ -363,9 +365,9 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 			// so: many tests will work even if the removal failed, so the few tests
 			// that fail will hint at to what may be wrong.
 		}
-	}
-	if err != nil {
-		t.Fatalf("Failed to start sandboxfs: %v", err)
+		if err != nil {
+			t.Fatalf("Failed to start sandboxfs: %v", err)
+		}
 	}
 
 	// All operations that can fail are now done.  Setting success=true prevents any deferred
