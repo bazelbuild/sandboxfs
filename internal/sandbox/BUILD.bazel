@@ -5,12 +5,12 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "go_default_library",
     srcs = [
-        "mapped_dir.go",
-        "mapped_file.go",
-        "mapped_symlink.go",
+        "dir.go",
+        "file.go",
         "node.go",
         "root.go",
         "sandbox.go",
+        "symlink.go",
     ] + select({
         "@io_bazel_rules_go//go/platform:darwin": [
             "node_darwin.go",

@@ -28,10 +28,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// MappedDir is a node that represents a directory backed by another directory that lives outside of
+// Dir is a node that represents a directory backed by another directory that lives outside of
 // the mount point.
 //
-// MappedDir object stores the children in three different maps. These act as layers and may contain
+// Dir object stores the children in three different maps. These act as layers and may contain
 // nodes with the same key; in case of conflict, the one with the highest priority is preferred:
 //
 // mappedChildren: The mapped files/directories (given by user). These have the highest priority,
@@ -41,7 +41,7 @@ import (
 // scaffoldDirs: Scaffold directories that are created by the sandbox to make it possible to
 //     navigate to a nested mapping, if the intermediate directories do not exist in the
 //       filesystem.
-type MappedDir struct {
+type Dir struct {
 	BaseNode
 
 	// mu synchronizes accesses to the directory entries.
@@ -51,7 +51,7 @@ type MappedDir struct {
 	children map[string]Node
 }
 
-// openMappedDir is a handle returned when a directory is opened.
+// openDir is a handle returned when a directory is opened.
 //
 // Note that the kernel can share open directory handles to serve different Readdir requests (even
 // from different processes). In particular, this behavior was observed on macOS: if the directory
@@ -60,9 +60,9 @@ type MappedDir struct {
 // directory: we must make sure to rewind the handle before actually reading from it (and thus
 // perform both operations exclusively). Failure to do so causes repeated Readdir operations to
 // return incomplete data.
-type openMappedDir struct {
+type openDir struct {
 	// dir holds a pointer to the node from which this handle was opened.
-	dir *MappedDir
+	dir *Dir
 
 	// mu synchronizes seeks and reads to the underlying directory so that we can always offer a
 	// consistent view of its contents.
@@ -78,23 +78,23 @@ type openMappedDir struct {
 	needRewind bool
 }
 
-var _ fs.Handle = (*openMappedDir)(nil)
+var _ fs.Handle = (*openDir)(nil)
 
-// newMappedDirEmpty creates a new directory node to represent a fake directory that only contains
+// newDirEmpty creates a new directory node to represent a fake directory that only contains
 // mappings.
-func newMappedDirEmpty() *MappedDir {
-	return &MappedDir{
+func newDirEmpty() *Dir {
+	return &Dir{
 		BaseNode: newUnmappedBaseNode(0555|os.ModeDir, 2),
 		children: make(map[string]Node),
 	}
 }
 
-// newMappedDir creates a new directory node to represent the given underlying path.
+// newDir creates a new directory node to represent the given underlying path.
 //
 // This function should never be called to explicitly create nodes. Instead, use the getOrCreateNode
 // function, which respects the global node cache.
-func newMappedDir(path string, fileInfo os.FileInfo, writable bool) *MappedDir {
-	return &MappedDir{
+func newDir(path string, fileInfo os.FileInfo, writable bool) *Dir {
+	return &Dir{
 		BaseNode: newBaseNode(path, fileInfo, writable),
 		children: make(map[string]Node),
 	}
@@ -107,7 +107,7 @@ func newMappedDir(path string, fileInfo os.FileInfo, writable bool) *MappedDir {
 // to hang new mappings. Intermediate components created by this traversal are scaffold directories
 // without a corresponding underlying directory: if the user wishes to map those to a real location
 // on the file system, such mapping must be done before mapping anything else beneath them.
-func (d *MappedDir) LookupOrCreateDirs(components []string) *MappedDir {
+func (d *Dir) LookupOrCreateDirs(components []string) *Dir {
 	if len(components) == 0 {
 		return d
 	}
@@ -118,12 +118,12 @@ func (d *MappedDir) LookupOrCreateDirs(components []string) *MappedDir {
 	defer d.mu.Unlock()
 
 	if child, ok := d.children[name]; ok {
-		if dir, ok := child.(*MappedDir); ok {
+		if dir, ok := child.(*Dir); ok {
 			return dir.LookupOrCreateDirs(remainder)
 		}
 		return nil
 	}
-	child := newMappedDirEmpty()
+	child := newDirEmpty()
 	child.isMapping = true
 	d.children[name] = child
 	return child.LookupOrCreateDirs(remainder)
@@ -133,7 +133,7 @@ func (d *MappedDir) LookupOrCreateDirs(components []string) *MappedDir {
 //
 // This function is intended to be used during (re)configuration to set up empty directories with
 // the mappings specified by the user. The directory entry must not yet exist.
-func (d *MappedDir) Map(name string, node Node) error {
+func (d *Dir) Map(name string, node Node) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -146,7 +146,7 @@ func (d *MappedDir) Map(name string, node Node) error {
 
 // Open opens the file/directory in the underlying filesystem and returns a
 // handle to it.
-func (d *MappedDir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
+func (d *Dir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fs.Handle, error) {
 	var openedDir *os.File
 	if underlyingPath, isMapped := d.UnderlyingPath(); isMapped {
 		var err error
@@ -155,7 +155,7 @@ func (d *MappedDir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.Op
 			return nil, fuseErrno(err)
 		}
 	}
-	return &openMappedDir{
+	return &openDir{
 		dir:       d,
 		nativeDir: openedDir,
 	}, nil
@@ -163,7 +163,7 @@ func (d *MappedDir) Open(_ context.Context, req *fuse.OpenRequest, resp *fuse.Op
 
 // lookupUnlocked returns the requested child node if present, or an error otherwise. This is a
 // helper function and the caller is supposed to hold d.mu locked.
-func (d *MappedDir) lookupUnlocked(name string) (fs.Node, error) {
+func (d *Dir) lookupUnlocked(name string) (fs.Node, error) {
 	if child, ok := d.children[name]; ok {
 		return child, nil
 	}
@@ -187,7 +187,7 @@ func (d *MappedDir) lookupUnlocked(name string) (fs.Node, error) {
 
 // Lookup looks for a particular directory/file in all the children of a given
 // directory.
-func (d *MappedDir) Lookup(_ context.Context, name string) (fs.Node, error) {
+func (d *Dir) Lookup(_ context.Context, name string) (fs.Node, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -195,7 +195,7 @@ func (d *MappedDir) Lookup(_ context.Context, name string) (fs.Node, error) {
 }
 
 // Dirent returns the directory entry corresponding to the directory.
-func (d *MappedDir) Dirent(name string) fuse.Dirent {
+func (d *Dir) Dirent(name string) fuse.Dirent {
 	return fuse.Dirent{
 		Inode: d.Inode(), // No need to lock: inode numbers are immutable.
 		Name:  name,
@@ -204,7 +204,7 @@ func (d *MappedDir) Dirent(name string) fuse.Dirent {
 }
 
 // readEntries obtains the list of raw directory entries from the opened directory.
-func (o *openMappedDir) readEntries() ([]os.FileInfo, error) {
+func (o *openDir) readEntries() ([]os.FileInfo, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -226,7 +226,7 @@ func (o *openMappedDir) readEntries() ([]os.FileInfo, error) {
 }
 
 // ReadDirAll lists all files/directories inside a directory.
-func (o *openMappedDir) ReadDirAll(context.Context) ([]fuse.Dirent, error) {
+func (o *openDir) ReadDirAll(context.Context) ([]fuse.Dirent, error) {
 	nativeDirents, err := o.readEntries()
 	if err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func (o *openMappedDir) ReadDirAll(context.Context) ([]fuse.Dirent, error) {
 }
 
 // Release closes the underlying file/directory handle.
-func (o *openMappedDir) Release(_ context.Context, req *fuse.ReleaseRequest) error {
+func (o *openDir) Release(_ context.Context, req *fuse.ReleaseRequest) error {
 	if o.nativeDir == nil {
 		return nil
 	}
@@ -274,12 +274,12 @@ func (o *openMappedDir) Release(_ context.Context, req *fuse.ReleaseRequest) err
 }
 
 // Link creates a hard link.
-func (d *MappedDir) Link(ctx context.Context, req *fuse.LinkRequest, old fs.Node) (fs.Node, error) {
+func (d *Dir) Link(ctx context.Context, req *fuse.LinkRequest, old fs.Node) (fs.Node, error) {
 	return nil, fuseErrno(fuse.EPERM)
 }
 
 // Mkdir creates a new directory in the underlying file system.
-func (d *MappedDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
+func (d *Dir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -308,7 +308,7 @@ func (d *MappedDir) Mkdir(ctx context.Context, req *fuse.MkdirRequest) (fs.Node,
 
 // Mknod creates a new node (file, device, pipe etc) in the underlying
 // directory.
-func (d *MappedDir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error) {
+func (d *Dir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -341,7 +341,7 @@ func (d *MappedDir) Mknod(ctx context.Context, req *fuse.MknodRequest) (fs.Node,
 }
 
 // Create creates a file in the underlying directory.
-func (d *MappedDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
+func (d *Dir) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fs.Node, fs.Handle, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -370,16 +370,16 @@ func (d *MappedDir) Create(ctx context.Context, req *fuse.CreateRequest, resp *f
 		}
 		return nil, nil, fuseErrno(err)
 	}
-	file, ok := f.(*MappedFile)
+	file, ok := f.(*File)
 	if !ok {
 		// The file has been deleted (or replaced) between OpenFile and Lookup calls.
 		return nil, nil, fuseErrno(syscall.EIO)
 	}
-	return f, &openMappedFile{openedFile, file}, fuseErrno(err)
+	return f, &openFile{openedFile, file}, fuseErrno(err)
 }
 
 // Symlink creates a symlink in the underlying directory.
-func (d *MappedDir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, error) {
+func (d *Dir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.Node, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -408,8 +408,8 @@ func (d *MappedDir) Symlink(ctx context.Context, req *fuse.SymlinkRequest) (fs.N
 }
 
 // Rename renames a node or moves it to a different path.
-func (d *MappedDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
-	resolve := func(dir *MappedDir, name string) (string, error) {
+func (d *Dir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fs.Node) error {
+	resolve := func(dir *Dir, name string) (string, error) {
 		if err := dir.BaseNode.WantToWrite(); err != nil {
 			return "", err
 		}
@@ -429,7 +429,7 @@ func (d *MappedDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir 
 		return filepath.Join(underlyingPath, name), nil
 	}
 
-	nd, ok := newDir.(*MappedDir)
+	nd, ok := newDir.(*Dir)
 	if !ok {
 		return fuseErrno(syscall.ENOTDIR)
 	}
@@ -468,7 +468,7 @@ func (d *MappedDir) Rename(ctx context.Context, req *fuse.RenameRequest, newDir 
 }
 
 // Remove unlinks a node from the underlying directory.
-func (d *MappedDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+func (d *Dir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -497,8 +497,8 @@ func (d *MappedDir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 }
 
 // invalidate clears the kernel cache for this directory and all of its entries.
-func (d *MappedDir) invalidate(server *fs.Server) {
-	// We assume that, as long as a MappedDir object is alive, the node corresponds to a
+func (d *Dir) invalidate(server *fs.Server) {
+	// We assume that, as long as a Dir object is alive, the node corresponds to a
 	// non-deleted underlying directory. Therefore, do not invalidate the node itself, only its
 	// entries. This is important to keep entries alive across reconfigurations, which helps
 	// performance.
@@ -511,7 +511,7 @@ func (d *MappedDir) invalidate(server *fs.Server) {
 // The identity parameter indicates who the real owner of the entries is from the point of view of
 // the FUSE API. In the general case, identity will match v, but in the case of the root directory,
 // identity will be that of the Root node.
-func (d *MappedDir) invalidateEntries(server *fs.Server, identity fs.Node) {
+func (d *Dir) invalidateEntries(server *fs.Server, identity fs.Node) {
 	d.mu.Lock()
 	entries := make(map[string]cacheInvalidator)
 	for name, node := range d.children {
