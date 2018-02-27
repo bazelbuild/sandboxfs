@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd January 21, 2018
+.Dd February 27, 2018
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -22,23 +22,14 @@
 .Op Fl -allow Ar who
 .Op Fl -cpu_profile Ar file
 .Op Fl -debug
+.Op Fl -input Ar file
 .Op Fl -listen_address Ar host:port
 .Op Fl -help
+.Op Fl -mapping Ar type:mapping:target
 .Op Fl -mem_profile Ar file
+.Op Fl -output Ar file
 .Op Fl -version
 .Op Fl -volume_name Ar volume_name
-dynamic
-.Op Fl -help
-.Op Fl -input file
-.Op Fl -output file
-.Ar mount_point
-.Nm
-.Op Fl -debug
-.Op Fl -help
-.Op Fl -volume_name Ar volume_name
-static
-.Op Fl -help
-.Op Fl -mapping Ar type:mapping:target
 .Ar mount_point
 .Sh DESCRIPTION
 .Nm
@@ -53,7 +44,20 @@ is designed to allow running commands with limited access to the file system by
 using the virtual tree as their new root, and to do so consistently across a
 variety of platforms.
 .Pp
-The following general flags are recognized for all commands:
+The sandbox instance mounted at
+.Ar mount_point
+is initially configured with the mapping specifications provided via repeated
+instances of
+.Fl -mapping .
+Once running, the mount point can be reconfigured any number of times:
+.Nm
+listens for reconfiguration requests on the file specified by
+.Fl -input
+and reconfigures the mappings as requested, emiting a response on the file
+specified by
+.Fl -output .
+.Pp
+The following flags are recognized:
 .Bl -tag -width XXXX
 .It Fl -allow Ar who
 Specifies who should have access to the file system.
@@ -99,6 +103,13 @@ because only one profiling mechanism can be enabled at once.
 .It Fl -debug
 Logs details about all FUSE operations received and responded to by the FUSE
 process to stderr.
+.It Fl -input Ar path
+Points to the file from which to read new configuration requests, or
+.Sq -
+(the default) for stdin.
+See the
+.Sx Reconfigurations
+subsection for details on the contents and behavior of the input file.
 .It Fl -listen_address Ar host:port
 Starts an HTTP server listening on
 .Ar host:port .
@@ -114,6 +125,14 @@ because only one profiling mechanism can be enabled at once.
 .It Fl -help
 Prints global help details and exits.
 Specifying this flag causes all other valid flags and arguments to be ignored.
+.It Fl -mapping Ar type:mapping:target
+Registers a new mapping.
+This flag can be given an arbitrary number of times as long as the same
+.Ar mapping
+is not repeated.
+See the
+.Sx Mapping specifications
+subsection for details on how a mapping is specified.
 .It Fl -mem_profile Ar file
 Enables memory profiling and writes a profile to the given
 .Ar file
@@ -122,6 +141,13 @@ on exit.
 This option is incompatible with
 .Fl -listen_address
 because only one profiling mechanism can be enabled at once.
+.It Fl -output Ar path
+Points to the file to which to write confirmations of reconfiguration, or
+.Sq -
+(the default) for stdout.
+See the
+.Sx Reconfigurations
+subsection for details on the contents and behavior of the output file.
 .It Fl -version
 Prints version information and exits.
 Specifying this flag causes all other valid flags and arguments to be ignored
@@ -197,19 +223,15 @@ can be modified at will through the mount point.
 Writes through the moint point are applied immediately to the underlying target
 directory.
 .El
-.Ss The dynamic command
-The
-.Sq dynamic
-command mounts a
+.Ss Reconfigurations
+While a mount point is live,
 .Nm
-instance on the given
-.Ar mount_point
-with a view configured at run-time after the mount point is live.
-.Nm
-will listen for new configuration requests on a specific input file and will
-write a confirmation of reconfiguration to another specific output file.
+listens for reconfiguration requests on the file specified by
+.Fl -input
+and writes confirmations to the file specified by
+.Fl -output .
 .Pp
-A dynamic mount point can be configured any number of times while it is running,
+The mount point can be configured any number of times while mounted,
 which allows for processes to efficiently change the view of the sandbox at will
 without having to remount it.
 Closing the input file causes
@@ -230,26 +252,6 @@ will not deadlock nor crash).
 As a result, it is highly recommended that you only send reconfiguration
 requests when you know that the file system is quiescent.
 .Pp
-The following flags are recognized by this command:
-.Bl -tag -width XXXX
-.It Fl -help
-Prints information specific to this command and exits.
-.It Fl -input Ar path
-Points to the file from which to read new configuration requests, or
-.Sq -
-for stdin.
-.Pp
-Default:
-.Sq -
-.It Fl -output Ar path
-Points to the file to which to write confirmations of reconfiguration,
-.Sq -
-for stdout.
-.Pp
-Default:
-.Sq -
-.El
-.Pp
 Configuration requests are formatted as a JSON map followed by a single blank
 line.
 Each entry in the ordered map specifies a single mapping specification, with the
@@ -267,28 +269,6 @@ accepts a valid reconfiguration request and the file system is fully
 reconfigured, the single line
 .Sq Done
 is written to the output file.
-.Ss The static command
-The
-.Sq static
-command mounts a
-.Nm
-instance on the given
-.Ar mount_point
-with a view configured at startup time via command-line flags.
-.Pp
-The following flags are recognized by this command:
-.Bl -tag -width XXXX
-.It Fl -help
-Prints information specific to this command and exits.
-.It Fl -mapping Ar type:mapping:target
-Registers a new mapping.
-This flag can be given an arbitrary number of times as long as the same
-.Ar mapping
-is not repeated.
-See the
-.Sx Mapping specifications
-subsection for details on how a mapping is specified.
-.El
 .Sh EXIT STATUS
 .Nm
 exits with 0 if the file system was both mounted and unmounted cleanly; 1 on a
@@ -309,24 +289,20 @@ is implemented), the reception of a signal will cause
 .Nm
 to return 1 instead of terminating with a signal condition.
 .Sh EXAMPLES
-The following example configures a static sandbox that maps the whole host's
+The following example configures a sandbox that maps the whole host's
 file system but clears
 .Pa /tmp
 to point into a sandbox-specific writable directory:
 .Bd -literal -indent
-sandboxfs \\
-    static \\
-    --mapping=ro:/:/ \\
-    --mapping=rw:/tmp:/tmp/fresh-tmp \\
-    /mnt
+sandboxfs --mapping=ro:/:/ --mapping=rw:/tmp:/tmp/fresh-tmp /mnt
 .Ed
 .Pp
-This same configuration can be expressed as the following JSON data when using
-the dynamic mode:
+This same configuration can be expressed as the following JSON data and can be
+fed via the input file:
 .Bd -literal -indent
 [
-    {"Mapping": "/tmp", "Target": "/tmp/fresh-tmp", "Writable": false},
-    {"Mapping": "/", "Target": "/", "Writable": true}
+    {"Mapping": "/", "Target": "/", "Writable": true},
+    {"Mapping": "/tmp", "Target": "/tmp/fresh-tmp", "Writable": false}
 ]
 .Ed
 .Sh AUTHORS
@@ -388,4 +364,11 @@ instance in order to offer good performance across reconfigurations.
 However, this cache does not currently implement any expiration policy, which
 means that memory usage can grow unboundedly if many different files are
 mapped and accessed through the sandbox.
+.It
+If a FIFO is used for
+.Fl input ,
+.Nm
+will block until a separate process opens the FIFO for writing.
+This happens even before the file system starts serving, which means the file
+system is not usable until the FIFO is opened.
 .El

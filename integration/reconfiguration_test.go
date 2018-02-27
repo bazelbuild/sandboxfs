@@ -118,14 +118,13 @@ func doReconfigurationTest(t *testing.T, state *utils.MountState, input io.Write
 }
 
 // TODO(jmmv): Consider dropping stdin/stdout support as defaults.  This is quite an artificial
-// construct and makes our testing quite complex.  Together with the idea of unifying static and
-// dynamic commands, getting rid of the defaults may make more sense.
+// construct and makes our testing quite complex.
 func TestReconfiguration_DefaultStreams(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, nil, "dynamic")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 	defer state.TearDown(t)
 	doReconfigurationTest(t, state, state.Stdin, stdoutReader)
 }
@@ -147,7 +146,7 @@ func TestReconfiguration_ExplicitStreams(t *testing.T) {
 		t.Fatalf("Failed to create %s fifo: %v", outFifo, err)
 	}
 
-	state := utils.MountSetupWithOutputs(t, nil, nil, "dynamic", "--input="+inFifo, "--output="+outFifo)
+	state := utils.MountSetupWithOutputs(t, nil, os.Stderr, "-input="+inFifo, "-output="+outFifo)
 	defer state.TearDown(t)
 
 	input, err := os.OpenFile(inFifo, os.O_WRONLY, 0)
@@ -186,7 +185,7 @@ func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 		defer stdoutWriter.Close()
 		output := bufio.NewScanner(stdoutReader)
 
-		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=ro:/:%ROOT%")
 		// state.TearDown not deferred here because we want to explicitly control for any
 		// possible error it may report and abort the whole test early in that case.
 
@@ -234,7 +233,7 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 			defer stdoutWriter.Close()
 			output := bufio.NewScanner(stdoutReader)
 
-			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 			defer state.TearDown(t)
 
 			utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
@@ -291,7 +290,7 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	defer stdoutWriter.Close()
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
@@ -359,7 +358,7 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 	defer stdoutWriter.Close()
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
@@ -420,7 +419,7 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	defer stderrReader.Close()
 	defer stderrWriter.Close()
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, stderrWriter, "dynamic")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, stderrWriter)
 	defer state.TearDown(t)
 
 	gotEOF := make(chan bool)
@@ -475,7 +474,7 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := utils.RunAndWait(1, "dynamic", d.flag, filepath.Join(tempDir, "mnt"))
+			stdout, stderr, err := utils.RunAndWait(1, d.flag, filepath.Join(tempDir, "mnt"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -565,7 +564,7 @@ func TestReconfiguration_InvalidationsRaceWithWrites(t *testing.T) {
 	defer stdoutWriter.Close()
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "dynamic")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)

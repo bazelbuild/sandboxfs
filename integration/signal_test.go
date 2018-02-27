@@ -54,7 +54,7 @@ func TestSignal_RaceBetweenSignalSetupAndMount(t *testing.T) {
 	ok := true
 	for delayMs := 2; ok && delayMs < 200; delayMs += 2 {
 		ok = t.Run(fmt.Sprintf("Delay%v", delayMs), func(t *testing.T) {
-			state := utils.MountSetup(t, "dynamic")
+			state := utils.MountSetup(t)
 			defer state.TearDown(t)
 
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
@@ -74,7 +74,7 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 		t.Run(signal.String(), func(t *testing.T) {
 			stderr := new(bytes.Buffer)
 
-			state := utils.MountSetupWithOutputs(t, nil, stderr, "static", "-mapping=ro:/:%ROOT%")
+			state := utils.MountSetupWithOutputs(t, nil, stderr, "-mapping=ro:/:%ROOT%")
 			defer state.TearDown(t)
 
 			utils.MustWriteFile(t, state.RootPath("a"), 0644, "")
@@ -105,7 +105,7 @@ func TestSignal_QueuedWhileInUse(t *testing.T) {
 	defer stderrWriter.Close()
 	stderr := bufio.NewScanner(stderrReader)
 
-	state := utils.MountSetupWithOutputs(t, nil, stderrWriter, "static", "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetupWithOutputs(t, nil, stderrWriter, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	// Create a file under the root directory and open it via the mount point to keep the file

@@ -24,7 +24,7 @@ import (
 func TestDebug_FuseOpsInLog(t *testing.T) {
 	stderr := new(bytes.Buffer)
 
-	state := utils.MountSetupWithOutputs(t, nil, stderr, "--debug", "static", "-mapping=ro:/:%ROOT%")
+	state := utils.MountSetupWithOutputs(t, nil, stderr, "--debug", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.RootPath("cookie"), 0644, "")

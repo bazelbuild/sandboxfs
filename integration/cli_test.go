@@ -15,7 +15,6 @@
 package integration
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
@@ -27,11 +26,9 @@ var (
 )
 
 func TestCli_Help(t *testing.T) {
-	generalHelp := `Usage: sandboxfs [flags...] subcommand ...
-Subcommands:
-  static   statically configured sandbox using command line flags.
-  dynamic  dynamically configured sandbox using stdin.
-Flags:
+	wantStdout := `Usage: sandboxfs [flags...] mount-point
+
+Available flags:
   -allow value
     	specifies who should have access to the file system; must be one of other, root, or self (default self)
   -cpu_profile string
@@ -40,61 +37,31 @@ Flags:
     	log details about FUSE requests and responses to stderr
   -help
     	print the usage information and exit
+  -input string
+    	where to read the configuration data from (- for stdin) (default "-")
   -listen_address string
     	enable HTTP server on the given address and expose pprof data
+  -mapping value
+    	mappings of the form TYPE:MAPPING:TARGET
   -mem_profile string
     	write a memory profile to the given file on exit
+  -output string
+    	where to write the status of reconfiguration to (- for stdout) (default "-")
   -version
     	show version information and exit
   -volume_name string
     	name for the sandboxfs volume (default "sandbox")
 `
 
-	// TODO(jmmv): This help message should have the same structure as the general one.  E.g. it
-	// should include details about general flags and the "Usage:" line should match the
-	// structure of the general one.
-	dynamicHelp := `Usage: sandboxfs dynamic MOUNT-POINT
-  -help
-    	print the usage information and exit
-  -input string
-    	where to read the configuration data from (- for stdin) (default "-")
-  -output string
-    	where to write the status of reconfiguration to (- for stdout) (default "-")
-`
-
-	// TODO(jmmv): This help message should have the same structure as the general one.  E.g. it
-	// should include details about general flags and the "Usage:" line should match the
-	// structure of the general one.
-	staticHelp := `Usage: sandboxfs static [flags...] MOUNT-POINT
-  -help
-    	print the usage information and exit
-  -mapping value
-    	mappings of the form TYPE:MAPPING:TARGET
-`
-
-	testData := []struct {
-		name string
-
-		args       []string
-		wantStdout string
-	}{
-		{"General", []string{"--help"}, generalHelp},
-		{"Dynamic", []string{"dynamic", "--help"}, dynamicHelp},
-		{"Static", []string{"static", "--help"}, staticHelp},
+	stdout, stderr, err := utils.RunAndWait(0, "--help")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, d := range testData {
-		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := utils.RunAndWait(0, d.args...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if d.wantStdout != stdout {
-				t.Errorf("Got %s; want stdout to match %s", stdout, d.wantStdout)
-			}
-			if len(stderr) > 0 {
-				t.Errorf("Got %s; want stderr to be empty", stderr)
-			}
-		})
+	if wantStdout != stdout {
+		t.Errorf("Got %s; want stdout to match %s", stdout, wantStdout)
+	}
+	if len(stderr) > 0 {
+		t.Errorf("Got %s; want stderr to be empty", stderr)
 	}
 }
 func TestCli_Version(t *testing.T) {
@@ -134,6 +101,7 @@ func TestCli_ExclusiveFlagsPriority(t *testing.T) {
 		wantStderr     string
 	}{
 		{"BogusFlagsWinOverEverything", []string{"--version", "--help", "--foo"}, 2, "", "not defined.*foo"},
+		{"BogusHFlagWinsOverEverything", []string{"--version", "--help", "-h"}, 2, "", "not defined.*-h"},
 		{"HelpWinsOverValidArgs", []string{"--version", "--mem_profile=foo", "--help", "--volume_name=foo"}, 0, "Usage:", ""},
 		{"VersionWinsOverValidArgsButHelp", []string{"--mem_profile=foo", "--version", "--volume_name=foo"}, 0, versionPattern, ""},
 	}
@@ -165,60 +133,23 @@ func TestCli_Syntax(t *testing.T) {
 		wantStderr string
 	}{
 		{"InvalidFlag", []string{"--foo"}, "not defined.*-foo"},
+		{"InvalidHFlag", []string{"-h"}, "not defined.*-h"},
 		{"NoArguments", []string{}, "invalid number of arguments"},
-		{"InvalidCommand", []string{"foo"}, "invalid command"},
-
-		{"DynamicNoArguments", []string{"dynamic"}, "invalid number of arguments"},
-		{"DynamicInvalidFlag", []string{"dynamic", "--bar"}, "not defined.*-bar"},
-		{"DynamicTooManyArguments", []string{"dynamic", "a", "b"}, "invalid number of arguments"},
-
-		{"StaticNoArguments", []string{"static"}, "invalid number of arguments"},
-		{"StaticInvalidFlag", []string{"static", "--baz"}, "not defined.*-baz"},
-		{"StaticTooManyArguments", []string{"static", "a", "b"}, "invalid number of arguments"},
+		{"TooManyArguments", []string{"mount-point", "extra"}, "invalid number of arguments"},
 
 		{"InvalidFlagWinsOverHelp", []string{"--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
-		{"InvalidCommandWinsOverHelp", []string{"foo", "--help"}, "invalid command"},
-		{"DynamicInvalidFlagWinsOverHelp", []string{"dynamic", "--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
-		{"StaticInvalidFlagWinsOverHelp", []string{"static", "--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
 		// TODO(jmmv): For consistency with all previous tests, an invalid number of
 		// arguments should win over --help, but it currently does not.  Fix or turn help
 		// into a command of its own for consistency.
 		// {"InvalidArgumentsWinOverHelp", []string{"--help", "foo"}, "number of arguments"},
+
+		{"MappingMissingTarget", []string{"--mapping=ro:/foo"}, `invalid value "ro:/foo" for flag -mapping: flag "ro:/foo": expected contents to be of the form TYPE:MAPPING:TARGET`},
+		{"MappingRelativeTarget", []string{"--mapping=rw:/:relative/path"}, `invalid value "rw:/:relative/path" for flag -mapping: path "relative/path": target must be an absolute path`},
+		{"MappingBadType", []string{"--mapping=row:/foo:/bar"}, `invalid value "row:/foo:/bar" for flag -mapping: flag "row:/foo:/bar": unknown type row; must be one of ro,rw`},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdout, stderr, err := utils.RunAndWait(2, d.args...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(stdout) > 0 {
-				t.Errorf("Got %s; want stdout to be empty", stdout)
-			}
-			if !utils.MatchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
-			}
-			if !utils.MatchesRegexp("--help", stderr) {
-				t.Errorf("Got %s; want --help mention in stderr", stderr)
-			}
-		})
-	}
-}
-
-func TestCli_StaticMappingsSyntax(t *testing.T) {
-	testData := []struct {
-		name string
-
-		flagName   string
-		flagValue  string
-		wantStderr string
-	}{
-		{"MissingTarget", "mapping", "ro:/foo", `invalid value "ro:/foo" for flag -mapping: flag "ro:/foo": expected contents to be of the form TYPE:MAPPING:TARGET` + "\n"},
-		{"RelativeTarget", "mapping", "rw:/:relative/path", `invalid value "rw:/:relative/path" for flag -mapping: path "relative/path": target must be an absolute path` + "\n"},
-		{"BadType", "mapping", "row:/foo:/bar", `invalid value "row:/foo:/bar" for flag -mapping: flag "row:/foo:/bar": unknown type row; must be one of ro,rw` + "\n"},
-	}
-	for _, d := range testData {
-		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := utils.RunAndWait(2, "static", fmt.Sprintf("--%s=%s", d.flagName, d.flagValue), "irrelevant-mount-point")
 			if err != nil {
 				t.Fatal(err)
 			}

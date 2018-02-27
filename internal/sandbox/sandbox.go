@@ -46,12 +46,6 @@ type MappingSpec struct {
 	Writable bool
 }
 
-// DynamicConf stores the configuration for a dynamic mount point.
-type DynamicConf struct {
-	Input  io.Reader
-	Output io.Writer
-}
-
 // nextInodeNumber returns the next unused inode number.
 func nextInodeNumber() uint64 {
 	lastInodeNumber.mu.Lock()
@@ -139,15 +133,18 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 }
 
 // Serve sets up the work environment before starting to serve the filesystem.
-func Serve(c *fuse.Conn, dir *Dir, dynamic *DynamicConf) error {
+func Serve(c *fuse.Conn, dir *Dir, input io.Reader, output io.Writer) error {
 	f := &FS{NewRoot(dir)}
 	server := fs.New(c, nil)
-	if dynamic != nil {
-		if !c.Protocol().HasInvalidate() {
-			return fmt.Errorf("kernel does not support cache invalidation; required by dynamic sandbox")
-		}
-		go reconfigurationListener(server, f, dynamic.Input, dynamic.Output)
+
+	if !c.Protocol().HasInvalidate() {
+		// We unconditionally require cache invalidation support to implement
+		// reconfigurations. If this ever turns to be a problem, we could make them
+		// conditional on a flag.
+		return fmt.Errorf("kernel does not support cache invalidation")
 	}
+	go reconfigurationListener(server, f, input, output)
+
 	oldMask := unix.Umask(0)
 	defer unix.Umask(oldMask)
 	return server.Serve(f)

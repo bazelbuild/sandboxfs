@@ -34,7 +34,7 @@ var listenAddressRegex = regexp.MustCompile(`starting HTTP server on ([^:]+:\d+)
 
 func TestProfiling_Http(t *testing.T) {
 	stderr := new(bytes.Buffer)
-	state := utils.MountSetupWithOutputs(t, nil, stderr, "--listen_address=localhost:0", "static", "-mapping=ro:/:%ROOT%")
+	state := utils.MountSetupWithOutputs(t, nil, stderr, "--listen_address=localhost:0", "-mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	matches := listenAddressRegex.FindStringSubmatch(stderr.String())
@@ -83,7 +83,7 @@ func TestProfiling_FileProfiles(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			state := utils.MountSetup(t, append(d.args, "static", "-mapping=ro:/:%ROOT%")...)
+			state := utils.MountSetup(t, append(d.args, "-mapping=ro:/:%ROOT%")...)
 			// Explicitly stop sandboxfs (which is different to what most other tests do).  We need
 			// to do this here to cause the profiles to be written to disk.
 			state.TearDown(t)
@@ -127,7 +127,7 @@ func TestProfiling_BadConfiguration(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			stdout, stderr, err := utils.RunAndWait(d.wantExitCode, append(d.args, "static", "/non-existent")...)
+			stdout, stderr, err := utils.RunAndWait(d.wantExitCode, append(d.args, "/non-existent")...)
 			if err != nil {
 				t.Fatal(err)
 			}
