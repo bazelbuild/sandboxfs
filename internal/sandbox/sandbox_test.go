@@ -190,7 +190,7 @@ func TestCreateRoot_Ok(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			root, err := CreateRoot(d.mappings)
+			root, err := CreateRoot(nil, d.mappings)
 			if err != nil {
 				t.Fatalf("Failed to create hierarchy: %v", err)
 			}
@@ -247,7 +247,7 @@ func TestCreateRoot_Errors(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			_, err := CreateRoot(d.mappings)
+			_, err := CreateRoot(nil, d.mappings)
 			if err == nil {
 				t.Errorf("want error to match %s; got no error", d.wantErr)
 			} else {

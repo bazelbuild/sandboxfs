@@ -129,6 +129,27 @@ func (d *Dir) LookupOrCreateDirs(components []string) *Dir {
 	return child.LookupOrCreateDirs(remainder)
 }
 
+// LookupOrFail traverses a set of components and returns the directory containing the final
+// component, or nil if not found.
+func (d *Dir) LookupOrFail(components []string) *Dir {
+	if len(components) == 0 {
+		return d
+	}
+	name := components[0]
+	remainder := components[1:]
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if child, ok := d.children[name]; ok {
+		if dir, ok := child.(*Dir); ok {
+			return dir.LookupOrFail(remainder)
+		}
+		return nil
+	}
+	return nil
+}
+
 // Map registers a new directory entry as a mapping to an arbitrary node.
 //
 // This function is intended to be used during (re)configuration to set up empty directories with
@@ -141,6 +162,28 @@ func (d *Dir) Map(name string, node Node) error {
 		return fmt.Errorf("already mapped")
 	}
 	d.children[name] = node
+	return nil
+}
+
+// Unmap unregisters a directory entry and all of its descendents.
+//
+// This function is intendd to be used during reconfigurations to delete parts of the tree that
+// ought to disappear from the file system. It is OK to remap these same directory entries after
+// a successful unmap.
+func (d *Dir) Unmap(server *fs.Server, identity fs.Node, name string) error {
+	d.mu.Lock()
+	node, ok := d.children[name]
+	if !ok {
+		d.mu.Unlock()
+		return fmt.Errorf("leaf %s not mapped", name)
+	}
+	if !node.IsMapping() {
+		d.mu.Unlock()
+		return fmt.Errorf("leaf %s not a mapping", name)
+	}
+	delete(d.children, name)
+	d.mu.Unlock()
+	server.InvalidateEntry(identity, name)
 	return nil
 }
 
@@ -494,34 +537,4 @@ func (d *Dir) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 		delete(d.children, req.Name)
 	}
 	return fuseErrno(err)
-}
-
-// invalidate clears the kernel cache for this directory and all of its entries.
-func (d *Dir) invalidate(server *fs.Server) {
-	// We assume that, as long as a Dir object is alive, the node corresponds to a
-	// non-deleted underlying directory. Therefore, do not invalidate the node itself, only its
-	// entries. This is important to keep entries alive across reconfigurations, which helps
-	// performance.
-
-	d.invalidateEntries(server, d)
-}
-
-// invalidateEntries clears the kernel cache for all entries that descend from this directory.
-//
-// The identity parameter indicates who the real owner of the entries is from the point of view of
-// the FUSE API. In the general case, identity will match v, but in the case of the root directory,
-// identity will be that of the Root node.
-func (d *Dir) invalidateEntries(server *fs.Server, identity fs.Node) {
-	d.mu.Lock()
-	entries := make(map[string]cacheInvalidator)
-	for name, node := range d.children {
-		entries[name] = node
-	}
-	d.mu.Unlock()
-
-	for name, node := range entries {
-		err := server.InvalidateEntry(identity, name)
-		logCacheInvalidationError(err, "Could not invalidate node entry: ", identity, name)
-		node.invalidate(server)
-	}
 }

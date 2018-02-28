@@ -114,10 +114,3 @@ func (f *File) Fsync(ctx context.Context, req *fuse.FsyncRequest) error {
 func (o *openFile) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
 	return fuseErrno(o.nativeFile.Close())
 }
-
-// invalidate clears the kernel cache corresponding to this file.
-func (f *File) invalidate(server *fs.Server) {
-	// We assume that, as long as a File object is alive, the node corresponds to a
-	// non-deleted underlying file. Therefore, do not invalidate the node itself. This is
-	// important to keep entries alive across reconfigurations, which helps performance.
-}
