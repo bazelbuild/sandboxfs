@@ -243,31 +243,41 @@ func hasRootMapping(args ...string) bool {
 
 // MountSetup initializes a test that runs sandboxfs in the background with default settings.
 //
+// This is essentially the same as mountSetupFull with stdout and stderr set to the caller's outputs
+// and with rootSetup and the user set to nil.  See the documentation for this other function for
+// further details.
+func MountSetup(t *testing.T, args ...string) *MountState {
+	return mountSetupFull(t, os.Stdout, os.Stderr, nil, nil, args...)
+}
+
+// MountSetupWithRootSetup initializes a test that runs sandboxfs in the background and provides
+// a mechanism to configure the root directory before sandboxfs is started.
+//
 // This is essentially the same as mountSetupFull with stdout and stderr set to the caller's
 // outputs and with the user set to nil.  See the documentation for this other function for
 // further details.
-func MountSetup(t *testing.T, args ...string) *MountState {
-	return mountSetupFull(t, os.Stdout, os.Stderr, nil, args...)
+func MountSetupWithRootSetup(t *testing.T, rootSetup func(string) error, args ...string) *MountState {
+	return mountSetupFull(t, os.Stdout, os.Stderr, nil, rootSetup, args...)
 }
 
 // MountSetupWithOutputs initializes a test that runs sandboxfs in the background with output
 // redirections.
 //
 // This is essentially the same as mountSetupFull with stdout and stderr set to the caller's
-// provided values and with the user set to nil.  See the documentation for this other function
-// for further details.
+// provided values and with rootSetup and the user set to nil.  See the documentation for this other
+// function for further details.
 func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, args ...string) *MountState {
-	return mountSetupFull(t, stdout, stderr, nil, args...)
+	return mountSetupFull(t, stdout, stderr, nil, nil, args...)
 }
 
 // MountSetupWithUser initializes a test that runs sandboxfs in the background with different
 // credentials.
 //
 // This is essentially the same as mountSetupFull with stdout and stderr set to the caller's
-// outputs and with the user set to the given value.  See the documentation for this other
-// function for further details.
+// outputs, with rootSetup set to nil, and with the user set to the given value.  See the
+// documentation for this other function for further details.
 func MountSetupWithUser(t *testing.T, user *UnixUser, args ...string) *MountState {
-	return mountSetupFull(t, os.Stdout, os.Stderr, user, args...)
+	return mountSetupFull(t, os.Stdout, os.Stderr, user, nil, args...)
 }
 
 // mountSetupFull initializes a test that runs sandboxfs in the background.
@@ -284,13 +294,17 @@ func MountSetupWithUser(t *testing.T, user *UnixUser, args ...string) *MountStat
 // The sandboxfs process is started with the credentials of the calling user, unless the user field
 // is not nil, in which case those credentials are used.
 //
+// rootSetup is an optional hook that runs once the temporary root directory is created but before
+// sandboxfs is mounted.  This allows tests to stage files that mappings can later refer to via
+// a %ROOT%-prefixed path.
+//
 // This helper function receives a testing.T object because test setup for sandboxfs is complex and
 // we want to keep the test cases themselves as concise as possible.  Any failures within this
 // function are fatal.
 //
 // Callers must defer execution of MountState.TearDown() immediately on return to ensure the
 // background process and the mount point are cleaned up on test completion.
-func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *UnixUser, args ...string) *MountState {
+func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *UnixUser, rootSetup func(string) error, args ...string) *MountState {
 	success := false
 
 	// Reset the test's umask to zero.  This allows tests to not care about how the umask
@@ -338,6 +352,11 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 
 	if err := createDirsRequiredByMappings(root, realArgs...); err != nil {
 		t.Fatalf("Failed to create directories required by mappings: %v", err)
+	}
+	if rootSetup != nil {
+		if err := rootSetup(root); err != nil {
+			t.Fatalf("Failed to run custom rootSetup hook on %s: %v", root, err)
+		}
 	}
 
 	var cmd *exec.Cmd
