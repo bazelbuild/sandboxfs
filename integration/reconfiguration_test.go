@@ -361,17 +361,17 @@ func TestReconfiguration_Errors(t *testing.T) {
 		{
 			"UnmapMissingEntryInMapping",
 			`[{"Map": {"Mapping": "/subdir", "Target": "%ROOT%/subdir", "Writable": false}}, {"Unmap": "/subdir/foo"}]`,
-			"leaf foo not mapped",
+			"path not found",
 		},
 		{
 			"UnmapMissingEntryInRealUnmappedDirectory",
 			`[{"Unmap": "/subdir/foo"}]`,
-			"leaf foo not mapped",
+			"path not found",
 		},
 		{
 			"UnmapPathWithMissingComponents",
 			`[{"Unmap": "/missing/long/path"}]`,
-			"intermediate components not mapped",
+			"path not found",
 		},
 	}
 	for _, d := range testData {

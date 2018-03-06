@@ -249,9 +249,9 @@ func (f *FS) reconfigureUnmap(server *fs.Server, mapping string) error {
 	if len(components) == 1 {
 		return fmt.Errorf("cannot unmap root")
 	}
-	node := f.root.dir.LookupOrFail(components[1 : len(components)-1])
+	node := f.root.dir.LookupOrFail(components[1:])
 	if node == nil {
-		return fmt.Errorf("failed to unmap %s: intermediate components not mapped", mapping)
+		return fmt.Errorf("failed to unmap %s: path not found", mapping)
 	}
 	// TODO(jmmv): Determining the "identity" of the node exists purely to deal with the fact
 	// that Root is a container for a directory that could mutate with previous implementations

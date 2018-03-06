@@ -129,23 +129,28 @@ func (d *Dir) LookupOrCreateDirs(components []string) *Dir {
 	return child.LookupOrCreateDirs(remainder)
 }
 
-// LookupOrFail traverses a set of components and returns the directory containing the final
+// LookupOrFail traverses a set of path components and returns the directory containing the final
 // component, or nil if not found.
+//
+// The list of components is the result of splitting a path into its components and the list cannot
+// be empty on entry. The empty list would correspond to "/", but we cannot handle it here: the
+// caller must deal with the root special case on its own.
 func (d *Dir) LookupOrFail(components []string) *Dir {
-	if len(components) == 0 {
-		return d
-	}
 	name := components[0]
 	remainder := components[1:]
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if child, ok := d.children[name]; ok {
-		if dir, ok := child.(*Dir); ok {
-			return dir.LookupOrFail(remainder)
-		}
+	child, ok := d.children[name]
+	if !ok {
 		return nil
+	}
+	if len(remainder) == 0 {
+		return d
+	}
+	if dir, ok := child.(*Dir); ok {
+		return dir.LookupOrFail(remainder)
 	}
 	return nil
 }
@@ -167,7 +172,7 @@ func (d *Dir) Map(name string, node Node) error {
 
 // Unmap unregisters a directory entry and all of its descendents.
 //
-// This function is intendd to be used during reconfigurations to delete parts of the tree that
+// This function is intended to be used during reconfigurations to delete parts of the tree that
 // ought to disappear from the file system. It is OK to remap these same directory entries after
 // a successful unmap.
 func (d *Dir) Unmap(server *fs.Server, identity fs.Node, name string) error {
@@ -179,10 +184,12 @@ func (d *Dir) Unmap(server *fs.Server, identity fs.Node, name string) error {
 	}
 	if !node.IsMapping() {
 		d.mu.Unlock()
-		return fmt.Errorf("leaf %s not a mapping", name)
+		return fmt.Errorf("leaf %s is not a mapping", name)
 	}
 	delete(d.children, name)
 	d.mu.Unlock()
+	// We must not hold the directory node when telling the kernel to invalidate us. The kernel
+	// might decide to call us back for a lookup, and then we would deadlock.
 	server.InvalidateEntry(identity, name)
 	return nil
 }
