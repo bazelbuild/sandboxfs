@@ -309,6 +309,19 @@ func TestReconfiguration_Errors(t *testing.T) {
 	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
+	checkBadConfig := func(config string, wantError string) {
+		message, err := tryReconfigure(state.Stdin, output, state.RootPath(), config)
+		if err != nil {
+			t.Fatalf("want reconfiguration of / to fail; got success")
+		}
+		if !utils.MatchesRegexp(wantError, message) {
+			t.Errorf("want reconfiguration to respond with %s; got %s", wantError, message)
+		}
+		if _, err := os.Lstat(state.MountPath("file")); err != nil {
+			t.Errorf("want file to still exist after failed reconfiguration; got %v", err)
+		}
+	}
+
 	utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
 
@@ -354,11 +367,6 @@ func TestReconfiguration_Errors(t *testing.T) {
 			"cannot unmap root",
 		},
 		{
-			"UnmapRealUnmappedFile",
-			`[{"Unmap": "/file"}]`,
-			"not a mapping",
-		},
-		{
 			"UnmapMissingEntryInMapping",
 			`[{"Map": {"Mapping": "/subdir", "Target": "%ROOT%/subdir", "Writable": false}}, {"Unmap": "/subdir/foo"}]`,
 			"path not found",
@@ -376,18 +384,27 @@ func TestReconfiguration_Errors(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			message, err := tryReconfigure(state.Stdin, output, state.RootPath(), d.config)
-			if err != nil {
-				t.Fatalf("want reconfiguration of / to fail; got success")
-			}
-			if !utils.MatchesRegexp(d.wantError, message) {
-				t.Errorf("want reconfiguration to respond with %s; got %s", d.wantError, message)
-			}
-			if _, err := os.Lstat(state.MountPath("file")); err != nil {
-				t.Errorf("want file to still exist after failed reconfiguration; got %v", err)
-			}
+			checkBadConfig(d.config, d.wantError)
 		})
 	}
+
+	t.Run("UnmapRealUnmappedPath", func(t *testing.T) {
+		utils.MustMkdirAll(t, state.RootPath("subdir/inner-subdir"), 0755)
+		utils.MustWriteFile(t, state.RootPath("subdir/inner-subdir/inner-file"), 0644, "")
+
+		if err := reconfigure(state.Stdin, output, state.RootPath(),
+			`[{"Map": {"Mapping": "/subdir2", "Target": "%ROOT%/subdir", "Writable": false}}]`); err != nil {
+			t.Fatalf("Failed to map /subdir2: %v", err)
+		}
+
+		// Poke the file we just created through the mount point so that sandboxfs sees it
+		// and becomes part of any in-memory structures.
+		if _, err := os.Lstat(state.MountPath("subdir2/inner-subdir/inner-file")); err != nil {
+			t.Fatalf("Failed to stat just-created file subdir2/inner-subdir/inner-file: %v", err)
+		}
+
+		checkBadConfig(`[{"Unmap": "/subdir2/inner-subdir/inner-file"}]`, "leaf inner-file is not a mapping")
+	})
 }
 
 func TestReconfiguration_RaceSystemComponents(t *testing.T) {
