@@ -16,6 +16,7 @@ package integration
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -334,6 +335,63 @@ func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInn
 	}
 	if err := equivalentStats(oldInnerStat, newInnerStat); err != nil {
 		t.Errorf("Stats for %s and %s differ: %v", oldInnerPath, newInnerPath, err)
+	}
+}
+
+func TestReadWrite_NestedMappingsInheritDirectoryProperties(t *testing.T) {
+	rootSetup := func(root string) error {
+		if err := os.MkdirAll(filepath.Join(root, "already/exist"), 0755); err != nil {
+			return err
+		}
+		return os.MkdirAll(filepath.Join(root, "dir"), 0755)
+	}
+	state := utils.MountSetupWithRootSetup(t, rootSetup,
+		"-mapping=rw:/:%ROOT%",
+		"-mapping=ro:/already/exist/dir:%ROOT%/dir")
+	defer state.TearDown(t)
+
+	for _, path := range []string{"already/foo", "already/exist/foo"} {
+		if err := ioutil.WriteFile(state.MountPath(path), []byte(""), 0644); err != nil {
+			t.Errorf("Cannot create %s; possible mapping interference: %v", path, err)
+		}
+		if _, err := os.Lstat(state.RootPath(path)); err != nil {
+			t.Errorf("Cannot find %s in underlying root location: %v", path, err)
+		}
+	}
+
+	if err := ioutil.WriteFile(state.MountPath("already/exist/dir/foo"), []byte(""), 0644); err == nil {
+		t.Errorf("Successfully created file in read-only mapping")
+	}
+}
+
+func TestReadWrite_NestedMappingsClobberFiles(t *testing.T) {
+	rootSetup := func(root string) error {
+		if err := os.MkdirAll(filepath.Join(root, "dir"), 0755); err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(filepath.Join(root, "file"), []byte(""), 0644); err != nil {
+			return err
+		}
+		return os.Symlink("/non-existent", filepath.Join(root, "symlink"))
+	}
+	state := utils.MountSetupWithRootSetup(t, rootSetup,
+		"-mapping=rw:/:%ROOT%",
+		"-mapping=ro:/file/nested-dir:%ROOT%/dir",
+		"-mapping=ro:/symlink/nested-dir:%ROOT%/dir")
+	defer state.TearDown(t)
+
+	for _, component := range []string{"file", "symlink"} {
+		fileInfo, err := os.Lstat(state.MountPath(component, "nested-dir"))
+		if err != nil {
+			t.Errorf("Cannot navigate into mapping %s/nested-dir; underlying entry interfered: %v", component, err)
+		}
+		if fileInfo.Mode()&os.ModeType != os.ModeDir {
+			t.Errorf("Got mode %v for mapping; want directory", fileInfo.Mode())
+		}
+
+		if err := os.Mkdir(state.MountPath(component, "other"), 0755); err == nil {
+			t.Errorf("Intermediate mapping directory %s was not read-only", component)
+		}
 	}
 }
 

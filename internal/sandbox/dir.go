@@ -123,7 +123,27 @@ func (d *Dir) LookupOrCreateDirs(components []string) *Dir {
 		}
 		return nil
 	}
-	child := newDirEmpty()
+
+	var child *Dir
+	if underlyingPath, isMapped := d.UnderlyingPath(); isMapped {
+		childPath := filepath.Join(underlyingPath, name)
+		fileInfo, err := os.Lstat(childPath)
+		if err == nil {
+			if fileInfo.IsDir() {
+				child = newDir(childPath, fileInfo, d.writable)
+			} else {
+				log.Printf("Mapping clobbers non-directory %s with a read-only directory", childPath)
+				child = newDirEmpty()
+			}
+		} else {
+			if !os.IsNotExist(err) {
+				log.Printf("Mapping clobbers %s due to IO error: %v", childPath, err)
+			}
+			child = newDirEmpty()
+		}
+	} else {
+		child = newDirEmpty()
+	}
 	child.isMapping = true
 	d.children[name] = child
 	return child.LookupOrCreateDirs(remainder)
