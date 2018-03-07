@@ -18,7 +18,6 @@ import (
 	"os"
 
 	"bazil.org/fuse"
-	"bazil.org/fuse/fs"
 	"golang.org/x/net/context"
 )
 
@@ -56,11 +55,4 @@ func (s *Symlink) Dirent(name string) fuse.Dirent {
 		Name:  name,
 		Type:  fuse.DT_Link,
 	}
-}
-
-// invalidate clears the kernel cache corresponding to this symlink.
-func (s *Symlink) invalidate(server *fs.Server) {
-	// We assume that, as long as a Symlink object is alive, the node corresponds to a
-	// non-deleted underlying symlink. Therefore, do not invalidate the node itself. This is
-	// important to keep entries alive across reconfigurations, which helps performance.
 }

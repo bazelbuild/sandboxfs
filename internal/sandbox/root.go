@@ -59,42 +59,6 @@ func (r *Root) getDir() *Dir {
 	return r.dir
 }
 
-// Reconfigure resets the filesystem tree to the tree pointed to by newDir.
-//
-// It is important to note that a reconfiguration operation cannot stop other ongoing operations nor
-// it cannot put new operations on hold until reconfiguration has completed. Trying to do so is
-// futile. First because by the time FUSE gets a request, it's too late already: the request is
-// already in-progress by the kernel and must be fulfilled. And second because this can result in
-// deadlocks: e.g. cache invalidations may end up calling us back to look up the entries to be
-// invalidated!
-//
-// The way we deal with this is simply by swapping the full file system contents atomically by
-// exchanging the root directory with a new one. Ongoing operations on the old tree will continue to
-// run until they complete, at which point the nodes will be released and discarded. New operations
-// will hit the new tree as soon as it is swapped, which is fine because the new tree is ready for
-// serving from the get go. Because cache invalidations happen out of band, they may cause erratic
-// behavior on the ongoing operations... but this behavior is intentionally unspecified by us
-// because it's not deterministic.
-//
-// Well-behaved users should only reconfigure the file system when they know it's quiescent, and
-// this is what we specify in the documentation.
-func (r *Root) Reconfigure(server *fs.Server, newDir *Dir) {
-	r.mu.Lock()
-	oldDir := r.dir
-	r.dir = newDir
-	r.mu.Unlock()
-
-	err := server.InvalidateNodeData(r)
-	logCacheInvalidationError(err, "Could not invalidate root: ", r)
-
-	// Invalidate the cache of the entries that are present before reconfiguration. This
-	// essentially gets rid of entries that will be no longer available.
-	oldDir.invalidateEntries(server, r)
-
-	// Invalidate the cache of entries that were previously returning ENOENT.
-	newDir.invalidateEntries(server, r)
-}
-
 // Attr delegates the Attr operation to the backing directory node.
 func (r *Root) Attr(ctx context.Context, a *fuse.Attr) error {
 	return r.getDir().Attr(ctx, a)

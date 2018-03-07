@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd February 27, 2018
+.Dd February 28, 2018
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -230,6 +230,8 @@ listens for reconfiguration requests on the file specified by
 .Fl -input
 and writes confirmations to the file specified by
 .Fl -output .
+These two files essentially implement a rudimentary RPC system subject to
+change.
 .Pp
 The mount point can be configured any number of times while mounted,
 which allows for processes to efficiently change the view of the sandbox at will
@@ -254,14 +256,35 @@ requests when you know that the file system is quiescent.
 .Pp
 Configuration requests are formatted as a JSON map followed by a single blank
 line.
-Each entry in the ordered map specifies a single mapping specification, with the
-following keys:
+A configuration request is an ordered sequence of
+.Em steps .
+A step is a dictionary with keys
+.Sq Map
+and
+.Sq Unmap
+which represent a single map or unmap operation.
+Exactly one key must be present in each step.
+Map operations add new mappings to the file system and unmap operations remove
+existing mappings.
+.Pp
+A map operation is specified as a dictionary with the following keys:
 .Sq Mapping
 and
 .Sq Target ,
 which define the mapping paths, and
 .Sq Writable ,
 which if set to true indicates a read/write mapping.
+The mapping must not yet exist in the file system.
+.Pp
+An unmap operation is specified as a non-empty string containing the path of
+the mapping to remove.
+The path must exist in the file system and must represent a mapping (not a file
+from an underlying file system).
+If a mapping operation created intermediate empty directory components,
+unmapping the leaf of such path does
+.Em not
+cause those intermediate components to be unmapped: it is the responsibility of
+the caller to do so, for simplicity reasons.
 .Pp
 Once
 .Nm
@@ -297,12 +320,16 @@ to point into a sandbox-specific writable directory:
 sandboxfs --mapping=ro:/:/ --mapping=rw:/tmp:/tmp/fresh-tmp /mnt
 .Ed
 .Pp
-This same configuration can be expressed as the following JSON data and can be
-fed via the input file:
+This example modifies an existing sandbox by adding a new mapping for
+.Pa /tmp
+and redoing the mapping for
+.Pa /foo
+by pointing it at another location.
 .Bd -literal -indent
 [
-    {"Mapping": "/", "Target": "/", "Writable": true},
-    {"Mapping": "/tmp", "Target": "/tmp/fresh-tmp", "Writable": false}
+    {"Map": {"Mapping": "/tmp", "Target": "/tmp/abc", "Writable": true}},
+    {"Unmap": "/foo"},
+    {"Map": {"Mapping": "/foo/bar", "Target": "/", "Writable": false}}
 ]
 .Ed
 .Sh AUTHORS
@@ -371,4 +398,8 @@ If a FIFO is used for
 will block until a separate process opens the FIFO for writing.
 This happens even before the file system starts serving, which means the file
 system is not usable until the FIFO is opened.
+.It
+While it is possible to reconfigure the entries of the root directory of a
+running file system, it is not possible to reconfigure the root mapping itself
+to point to a different location or to change its writability properties.
 .El

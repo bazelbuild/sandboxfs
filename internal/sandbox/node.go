@@ -162,9 +162,6 @@ type Node interface {
 
 	// delete tells the node that a directory entry pointing to it has been removed.
 	delete()
-
-	// invalidate clears the kernel cache for this node.
-	invalidate(*fs.Server)
 }
 
 // getOrCreateNode gets a mapped node from the cache or creates a new one if not yet cached.

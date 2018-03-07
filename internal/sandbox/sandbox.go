@@ -46,6 +46,15 @@ type MappingSpec struct {
 	Writable bool
 }
 
+// Step represents a single reconfiguration operation.
+type Step struct {
+	// Map requests that a new mapping be added to the file system.
+	Map *MappingSpec
+
+	// Unmap requests that the given mapping is removed from the file system.
+	Unmap string
+}
+
 // nextInodeNumber returns the next unused inode number.
 func nextInodeNumber() uint64 {
 	lastInodeNumber.mu.Lock()
@@ -57,21 +66,6 @@ func nextInodeNumber() uint64 {
 // FS is the global unique representation of the filesystem tree.
 type FS struct {
 	root *Root
-}
-
-// Reconfigure resets the tree under this node to the new configuration.
-func (f *FS) Reconfigure(server *fs.Server, root *Dir) {
-	// TODO(pallavag): Right now, we do not reuse inode numbers, because it is
-	// uncertain if doing so would be valid from a correctness perspective.
-	// Once the code has been well tested, it may be worthwile to try resetting
-	// the inode counter at this location.
-	// Also, it may be desirable to keep a track of all open file handles, and
-	// close them before reconfiguration. Alternatively, we may want to close
-	// only the handles that no longer appear in the new configuration, or are
-	// relocated. Or just disallow reconfiguration when there are open file
-	// handles. Needs more thought; think about what happens when one tries to
-	// unmount a file system with open handles.
-	f.root.Reconfigure(server, root)
 }
 
 // readConfig reads one chunk of config from reader.
@@ -94,7 +88,7 @@ func readConfig(reader *bufio.Reader) ([]byte, error) {
 // initFromReader initializes a filesystem configuration after reading the config from the passed
 // reader.  Reaching EOF on the reader causes this function to return io.EOF, which the caller
 // must handle gracefully.
-func initFromReader(reader *bufio.Reader) (*Dir, error) {
+func initFromReader(reader *bufio.Reader) ([]Step, error) {
 	configRead, err := readConfig(reader)
 	if err != nil {
 		if err == io.EOF {
@@ -102,15 +96,11 @@ func initFromReader(reader *bufio.Reader) (*Dir, error) {
 		}
 		return nil, fmt.Errorf("unable to read config: %v", err)
 	}
-	configArgs := make([]MappingSpec, 0)
-	if err := json.Unmarshal(configRead, &configArgs); err != nil {
+	steps := []Step{}
+	if err := json.Unmarshal(configRead, &steps); err != nil {
 		return nil, fmt.Errorf("unable to parse json: %v", err)
 	}
-	sfs, err := CreateRoot(configArgs)
-	if err != nil {
-		return nil, fmt.Errorf("sandbox init failed with: %v", err)
-	}
-	return sfs, nil
+	return steps, nil
 }
 
 // reconfigurationListener monitors the input for a configuration, and
@@ -118,7 +108,7 @@ func initFromReader(reader *bufio.Reader) (*Dir, error) {
 func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader, output io.Writer) {
 	reader := bufio.NewReader(input)
 	for {
-		sfs, err := initFromReader(reader)
+		config, err := initFromReader(reader)
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -126,7 +116,10 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 			fmt.Fprintf(output, "Reconfig failed: %v\n", err)
 			continue
 		}
-		filesystem.Reconfigure(server, sfs)
+		if err := filesystem.Reconfigure(server, config); err != nil {
+			fmt.Fprintf(output, "Reconfig failed: %v\n", err)
+			continue
+		}
 		fmt.Fprintln(output, "Done")
 	}
 	log.Printf("reached end of input during reconfiguration; file system will continue running until unmounted")
@@ -172,40 +165,137 @@ func tokenizePath(path string) []string {
 	return tokens
 }
 
-// CreateRoot generates a directory tree to represent the given mappings.
-func CreateRoot(mappings []MappingSpec) (*Dir, error) {
-	var root *Dir
-	for _, mapping := range mappings {
-		components := tokenizePath(mapping.Mapping)
-		if len(components) == 0 {
-			return nil, fmt.Errorf("invalid mapping %s: empty path", mapping.Mapping)
-		} else if components[0] != "" {
-			return nil, fmt.Errorf("invalid mapping %s: must be an absolute path", mapping.Mapping)
-		} else if len(components) == 1 && root != nil {
-			return nil, fmt.Errorf("failed to map root with target %s: root must be mapped first and not more than once", mapping.Target)
-		}
+// tokenizeMapping builds upon tokenizePath to split a path into its components and validate that
+// the result is a valid mapping.
+func tokenizeMapping(path string) ([]string, error) {
+	components := tokenizePath(path)
+	if len(components) == 0 {
+		return nil, fmt.Errorf("invalid mapping %s: empty path", path)
+	} else if components[0] != "" {
+		return nil, fmt.Errorf("invalid mapping %s: must be an absolute path", path)
+	}
+	return components, nil
+}
 
-		fileInfo, err := os.Lstat(mapping.Target)
-		if err != nil {
-			return nil, fmt.Errorf("failed to stat %s when mapping %s: %v", mapping.Target, mapping.Mapping, err)
-		}
+// applyMapping adds a new mapping to the given root directory.  If the root directory is nil and
+// the mapping is valid, this returns a newly-instantiated root directory; otherwise, the returned
+// root directory matches the input root directory.
+func applyMapping(root *Dir, mapping *MappingSpec) (*Dir, error) {
+	components, err := tokenizeMapping(mapping.Mapping)
+	if err != nil {
+		return nil, err
+	}
+	if len(components) == 1 && root != nil {
+		return nil, fmt.Errorf("failed to map root with target %s: root must be mapped first and not more than once", mapping.Target)
+	}
 
-		if len(components) == 1 {
-			if fileInfo.Mode()&os.ModeType != os.ModeDir {
-				return nil, fmt.Errorf("cannot map file %s at root: must be a directory", mapping.Target)
+	fileInfo, err := os.Lstat(mapping.Target)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat %s when mapping %s: %v", mapping.Target, mapping.Mapping, err)
+	}
+
+	if len(components) == 1 {
+		if fileInfo.Mode()&os.ModeType != os.ModeDir {
+			return nil, fmt.Errorf("cannot map file %s at root: must be a directory", mapping.Target)
+		}
+		root = newDir(mapping.Target, fileInfo, mapping.Writable)
+		root.isMapping = true
+	} else {
+		if root == nil {
+			root = newDirEmpty()
+		}
+		dirNode := root.LookupOrCreateDirs(components[1 : len(components)-1])
+		newNode := getOrCreateNode(mapping.Target, fileInfo, mapping.Writable)
+		newNode.SetIsMapping()
+		if err := dirNode.Map(components[len(components)-1], newNode); err != nil {
+			return nil, fmt.Errorf("cannot map %s: %v", mapping.Mapping, err)
+		}
+	}
+	return root, nil
+}
+
+// reconfigureMap applies a single Map step to the file system.
+func (f *FS) reconfigureMap(mapping *MappingSpec) error {
+	// TODO(jmmv): We cheat and peek directly into root to get its directory.  The directory
+	// could change with previous implementations of reconfiguration but cannot any longer.
+	// Remove once the Root node indirection is gone.
+	root := f.root.getDir()
+	newRoot, err := applyMapping(root, mapping)
+	if err != nil {
+		return err
+	}
+	if root != newRoot {
+		// applyMapping above has the ability to generate a new root directory when none is
+		// given to it.  We should never encounter that situation here because we do not
+		// allow mapping reconfigurations to modify the root, so ensure this is true.
+		panic("Mapping should not have changed the root but did")
+	}
+	return nil
+}
+
+// reconfigureUnmap applies a single Unmap step to the file system.
+//
+// Note that this only removes the leaf of the given mapping: nested entries created during a map
+// operation are left behind and have to be unmapped explicitly.  E.g. if /foo/bar/baz was mapped
+// on an empty file system, /foo/bar are two intermediate mappings that are not removed when
+// /foo/var/baz is unmapped.  This is for simplicity as we'd otherwise need to track whether a
+// mapping was explicitly created by the user or as a result of another mapping, and also to keep
+// the unmapping algorithm trivial.
+func (f *FS) reconfigureUnmap(server *fs.Server, mapping string) error {
+	components, err := tokenizeMapping(mapping)
+	if err != nil {
+		return err
+	}
+	if len(components) == 1 {
+		return fmt.Errorf("cannot unmap root")
+	}
+	node := f.root.dir.LookupOrFail(components[1:])
+	if node == nil {
+		return fmt.Errorf("failed to unmap %s: path not found", mapping)
+	}
+	// TODO(jmmv): Determining the "identity" of the node exists purely to deal with the fact
+	// that Root is a container for a directory that could mutate with previous implementations
+	// of reconfiguration.  Remove the Root indirection and this hack.
+	var identity fs.Node
+	identity = f.root
+	if len(components) > 2 {
+		identity = node
+	}
+	if err := node.Unmap(server, identity, components[len(components)-1]); err != nil {
+		return fmt.Errorf("failed to unmap %s: %v", mapping, err)
+	}
+	return nil
+}
+
+// Reconfigure applies a reconfiguration request to the file system.
+func (f *FS) Reconfigure(server *fs.Server, steps []Step) error {
+	// TODO(jmmv): This essentially implements an RPC system with two functions.  Investigate
+	// whether we can replace this with local gRPC (re. performance).
+	for _, step := range steps {
+		if step.Map != nil && step.Unmap != "" {
+			return fmt.Errorf("invalid step: Map and Unmap are exclusive")
+		} else if step.Map != nil {
+			if err := f.reconfigureMap(step.Map); err != nil {
+				return err
 			}
-			root = newDir(mapping.Target, fileInfo, mapping.Writable)
-			root.isMapping = true
+		} else if step.Unmap != "" {
+			if err := f.reconfigureUnmap(server, step.Unmap); err != nil {
+				return err
+			}
 		} else {
-			if root == nil {
-				root = newDirEmpty()
-			}
-			dirNode := root.LookupOrCreateDirs(components[1 : len(components)-1])
-			newNode := getOrCreateNode(mapping.Target, fileInfo, mapping.Writable)
-			newNode.SetIsMapping()
-			if err := dirNode.Map(components[len(components)-1], newNode); err != nil {
-				return nil, fmt.Errorf("cannot map %s: %v", mapping.Mapping, err)
-			}
+			return fmt.Errorf("invalid step: neither Map nor Unmap were defined")
+		}
+	}
+	return nil
+}
+
+// CreateRoot generates a directory tree to represent the given mappings.
+func CreateRoot(root *Dir, mappings []MappingSpec) (*Dir, error) {
+	for _, mapping := range mappings {
+		var err error
+		root, err = applyMapping(root, &mapping)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if root == nil {
@@ -257,15 +347,6 @@ func fuseErrno(e error) error {
 		return fuse.Errno(syscall.EBADF)
 	}
 	return e
-}
-
-func logCacheInvalidationError(e error, info ...interface{}) {
-	switch e {
-	case nil, fuse.ErrNotCached: // ignored errors
-		return
-	}
-	info = append(info, ": ", e)
-	log.Print(info...)
 }
 
 // UnixMode translates a Go os.FileMode to a Unix mode.

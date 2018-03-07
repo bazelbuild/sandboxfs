@@ -102,7 +102,7 @@ func handleSignals(mountPoint <-chan string, caughtSignal chan<- os.Signal) {
 }
 
 func serve(settings ProfileSettings, mountPoint string, options []fuse.MountOption, initialMappings []sandbox.MappingSpec, reconfigInput io.Reader, reconfigOutput io.Writer) error {
-	root, err := sandbox.CreateRoot(initialMappings)
+	root, err := sandbox.CreateRoot(nil, initialMappings)
 	if err != nil {
 		return fmt.Errorf("unable to init sandbox: %v", err)
 	}
