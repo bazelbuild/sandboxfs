@@ -8,7 +8,6 @@ go_library(
         "dir.go",
         "file.go",
         "node.go",
-        "root.go",
         "sandbox.go",
         "symlink.go",
     ] + select({
