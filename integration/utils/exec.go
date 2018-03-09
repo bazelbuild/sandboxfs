@@ -103,7 +103,12 @@ func retry(action func() error, message string, deadlineSeconds int) error {
 		if lastErr == nil {
 			return nil
 		}
-		fmt.Fprintf(os.Stderr, "In retry attempt %d: %s: %v\n", tries, message, lastErr)
+		if tries > 10 {
+			// Avoid cluttering the logs for the first few retries.  It's normal for
+			// the first attempt to not succeed, which results in warning messages
+			// printed for every test when there is nothing really wrong.
+			fmt.Fprintf(os.Stderr, "In retry attempt %d: %s: %v\n", tries, message, lastErr)
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	return lastErr
