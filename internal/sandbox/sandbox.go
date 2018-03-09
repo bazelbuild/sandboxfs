@@ -65,7 +65,8 @@ func nextInodeNumber() uint64 {
 
 // FS is the global unique representation of the filesystem tree.
 type FS struct {
-	root *Root
+	// root is the directory that represents the root of the file system.
+	root *Dir
 }
 
 // readConfig reads one chunk of config from reader.
@@ -127,7 +128,7 @@ func reconfigurationListener(server *fs.Server, filesystem *FS, input io.Reader,
 
 // Serve sets up the work environment before starting to serve the filesystem.
 func Serve(c *fuse.Conn, dir *Dir, input io.Reader, output io.Writer) error {
-	f := &FS{NewRoot(dir)}
+	f := &FS{root: dir}
 	server := fs.New(c, nil)
 
 	if !c.Protocol().HasInvalidate() {
@@ -219,12 +220,11 @@ func (f *FS) reconfigureMap(mapping *MappingSpec) error {
 	// TODO(jmmv): We cheat and peek directly into root to get its directory.  The directory
 	// could change with previous implementations of reconfiguration but cannot any longer.
 	// Remove once the Root node indirection is gone.
-	root := f.root.getDir()
-	newRoot, err := applyMapping(root, mapping)
+	newRoot, err := applyMapping(f.root, mapping)
 	if err != nil {
 		return err
 	}
-	if root != newRoot {
+	if f.root != newRoot {
 		// applyMapping above has the ability to generate a new root directory when none is
 		// given to it.  We should never encounter that situation here because we do not
 		// allow mapping reconfigurations to modify the root, so ensure this is true.
@@ -249,7 +249,7 @@ func (f *FS) reconfigureUnmap(server *fs.Server, mapping string) error {
 	if len(components) == 1 {
 		return fmt.Errorf("cannot unmap root")
 	}
-	node := f.root.dir.LookupOrFail(components[1:])
+	node := f.root.LookupOrFail(components[1:])
 	if node == nil {
 		return fmt.Errorf("failed to unmap %s: path not found", mapping)
 	}
@@ -307,11 +307,6 @@ func CreateRoot(root *Dir, mappings []MappingSpec) (*Dir, error) {
 // Root returns the root node from the filesystem object.
 func (f *FS) Root() (fs.Node, error) {
 	return f.root, nil
-}
-
-// SetRoot sets the root node for the filesystem object.
-func (f *FS) SetRoot(root *Root) {
-	f.root = root
 }
 
 // timespecToTime converts syscall.Timespec to time.Time.
