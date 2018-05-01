@@ -106,7 +106,7 @@ func TestReconfiguration_Streams(t *testing.T) {
 			t.Fatalf("Failed to create %s fifo: %v", outFifo, err)
 		}
 
-		state := utils.MountSetupWithOutputs(t, nil, os.Stderr, "-input="+inFifo, "-output="+outFifo)
+		state := utils.MountSetupWithOutputs(t, nil, os.Stderr, "--input="+inFifo, "--output="+outFifo)
 		defer state.TearDown(t)
 
 		input, err := os.OpenFile(inFifo, os.O_WRONLY, 0)
@@ -131,7 +131,7 @@ func TestReconfiguration_Steps(t *testing.T) {
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=ro:/:%ROOT%", "-mapping=rw:/initial:%ROOT%/initial")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=rw:/initial:%ROOT%/initial")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("some/read-only-dir"), 0755)
@@ -192,7 +192,7 @@ func TestReconfiguration_Unmap(t *testing.T) {
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=ro:/:%ROOT%", "-mapping=ro:/root-mapping:%ROOT%/foo", "-mapping=ro:/nested/mapping:%ROOT%/foo", "-mapping=ro:/deep/a/b/c/d:%ROOT%/foo")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=ro:/root-mapping:%ROOT%/foo", "--mapping=ro:/nested/mapping:%ROOT%/foo", "--mapping=ro:/deep/a/b/c/d:%ROOT%/foo")
 	defer state.TearDown(t)
 
 	config := `[
@@ -229,7 +229,7 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=ro:/:%ROOT%")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	checkMountPoint := func(wantExist string, wantNotExist string, wantFileContents string, wantLink string) {
@@ -306,7 +306,7 @@ func TestReconfiguration_Errors(t *testing.T) {
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
 
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=rw:/:%ROOT%")
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	checkBadConfig := func(config string, wantError string) {
@@ -428,7 +428,7 @@ func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 		defer stdoutWriter.Close()
 		output := bufio.NewScanner(stdoutReader)
 
-		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "-mapping=ro:/:%ROOT%")
+		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
 		// state.TearDown not deferred here because we want to explicitly control for any
 		// possible error it may report and abort the whole test early in that case.
 

@@ -215,7 +215,7 @@ func (s *MountState) TempPath(arg ...string) string {
 // the targetes of the mappings, and creates those paths.
 func createDirsRequiredByMappings(root string, args ...string) error {
 	for _, arg := range args {
-		if !strings.HasPrefix(arg, "-mapping=") {
+		if !strings.HasPrefix(arg, "--mapping=") {
 			continue // Not a mapping.
 		}
 		fields := strings.Split(arg, ":")
@@ -239,7 +239,7 @@ func createDirsRequiredByMappings(root string, args ...string) error {
 // mapping for the sandbox's root directory.
 func hasRootMapping(args ...string) bool {
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "-mapping=ro:/:") || strings.HasPrefix(arg, "-mapping=rw:/:") {
+		if strings.HasPrefix(arg, "--mapping=ro:/:") || strings.HasPrefix(arg, "--mapping=rw:/:") {
 			return true
 		}
 	}
