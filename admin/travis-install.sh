@@ -57,6 +57,13 @@ install_fuse() {
   esac
 }
 
+install_rust() {
+  # We need to manually install Rust because we can only specify a single
+  # language in .travis.yml, and that language is Go for now.
+  curl https://sh.rustup.rs -sSf | sh -s -- -y
+  PATH="${HOME}/.cargo/bin:${PATH}"
+}
+
 case "${DO}" in
   bazel)
     install_bazel
@@ -69,5 +76,10 @@ case "${DO}" in
 
   lint)
     install_bazel
+    ;;
+
+  rust)
+    install_fuse
+    install_rust
     ;;
 esac

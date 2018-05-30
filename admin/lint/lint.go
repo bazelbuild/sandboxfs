@@ -76,7 +76,16 @@ func isBlacklisted(workspaceDir string, candidate string) (bool, error) {
 	// Skip hidden files as we don't need to run checks on them.  (This is not strictly
 	// true, but it's simpler this way for now and the risk is low given that the hidden
 	// files we have are trivial.)
-	return strings.HasPrefix(relative, "."), nil
+	if strings.HasPrefix(relative, ".") {
+		return true, nil
+	}
+
+	// Skip the Rust build directory.
+	if strings.HasPrefix(candidate, "target/") {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // collectFiles scans the given directory recursively and returns the paths to all regular files

@@ -1,0 +1,20 @@
+[package]
+authors = ["Julio Merino <jmmv@google.com>"]
+categories = ["filesystems"]
+description = "A virtual file system for sandboxing"
+homepage = "https://github.com/bazelbuild/sandboxfs"
+keywords = ["bazel", "filesystem", "fuse", "sandboxing"]
+license = "Apache-2.0"
+name = "sandboxfs"
+readme = "README.md"
+repository = "https://github.com/bazelbuild/sandboxfs"
+version = "0.1.0"
+
+[badges]
+travis-ci = { repository = "bazelbuild/sandboxfs", branch = "master" }
+
+[dependencies]
+fuse = "0.3"
+getopts = "0.2"
+log = "0.4"
+env_logger = "0.5"

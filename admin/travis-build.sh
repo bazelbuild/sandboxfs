@@ -69,8 +69,128 @@ do_lint() {
   bazel run //admin/lint -- --verbose
 }
 
+do_rust() {
+  PATH="${HOME}/.cargo/bin:${PATH}"
+
+  # The Rust implementation of sandboxfs is still experimental and is unable to
+  # pass all integration tests.  This blacklist keeps track of which those are.
+  # Ideally, by the time this alternative implementation is ready, this list
+  # will be empty and we can then refactor this file to just test one version.
+  local blacklist=(
+    TestCli_Help
+    TestCli_Version
+    TestCli_VersionNotForRelease
+    TestCli_ExclusiveFlagsPriority
+    TestCli_Syntax
+    TestDebug_FuseOpsInLog
+    TestLayout_MountPointDoesNotExist
+    TestLayout_RootMustBeDirectory
+    TestLayout_TargetDoesNotExist
+    TestLayout_DuplicateMapping
+    TestLayout_TargetIsScaffoldDirectory
+    TestNesting_ScaffoldIntermediateComponents
+    TestNesting_ScaffoldIntermediateComponentsAreImmutable
+    TestNesting_ReadWriteWithinReadOnly
+    TestNesting_SameTarget
+    TestNesting_PreserveSymlinks
+    TestOptions_Allow
+    TestOptions_Syntax
+    TestProfiling_Http
+    TestProfiling_FileProfiles
+    TestProfiling_BadConfiguration
+    TestReadOnly_DirectoryStructure
+    TestReadOnly_FileContents
+    TestReadOnly_ReplaceUnderlyingFile
+    TestReadOnly_MoveUnderlyingDirectory
+    TestReadOnly_TargetDoesNotExist
+    TestReadOnly_RepeatedReadDirsWhileDirIsOpen
+    TestReadOnly_Attributes
+    TestReadOnly_Access
+    TestReadOnly_HardLinkCountsAreFixed
+    TestReadWrite_CreateFile
+    TestReadWrite_Remove
+    TestReadWrite_RewriteFile
+    TestReadWrite_RewriteFileWithShorterContent
+    TestReadWrite_InodeReassignedAfterRecreation
+    TestReadWrite_FstatOnDeletedNode
+    TestReadWrite_Truncate
+    TestReadWrite_FtruncateOnDeletedFile
+    TestReadWrite_NestedMappingsInheritDirectoryProperties
+    TestReadWrite_NestedMappingsClobberFiles
+    TestReadWrite_RenameFile
+    TestReadWrite_MoveFile
+    TestReadWrite_Mknod
+    TestReadWrite_Chmod
+    TestReadWrite_FchmodOnDeletedNode
+    TestReadWrite_Chown
+    TestReadWrite_FchownOnDeletedNode
+    TestReadWrite_Chtimes
+    TestReadWrite_FutimesOnDeletedNode
+    TestReadWrite_HardLinksNotSupported
+    TestReconfiguration_Streams
+    TestReconfiguration_Steps
+    TestReconfiguration_Unmap
+    TestReconfiguration_RemapInvalidatesCache
+    TestReconfiguration_Errors
+    TestReconfiguration_RaceSystemComponents
+    TestReconfiguration_DirectoryListings
+    TestReconfiguration_InodesAreStableForSameUnderlyingFiles
+    TestReconfiguration_WritableNodesAreDifferent
+    TestReconfiguration_FileSystemStillWorksAfterInputEOF
+    TestReconfiguration_StreamFileDoesNotExist
+    TestSignal_RaceBetweenSignalSetupAndMount
+    TestSignal_UnmountWhenCaught
+    TestSignal_QueuedWhileInUse
+  )
+
+  # TODO(jmmv): Replace by a Bazel-based build once the Rust rules are
+  # capable of doing so.
+  cargo build
+  local bin="$(pwd)/target/debug/sandboxfs"
+  cargo test --verbose
+
+  local all=(
+      $(go test -test.list=".*" github.com/bazelbuild/sandboxfs/integration \
+          -sandboxfs_binary=irrelevant | grep -v "^ok")
+  )
+
+  # Compute the list of tests to run by comparing the full list of tests that
+  # we got from the test program and taking out all blacklisted tests.  This is
+  # O(n^2), sure, but it doesn't matter: the list is small and this will go away
+  # at some point.
+  set +x
+  local valid=()
+  for t in "${all[@]}"; do
+    local blacklisted=no
+    for o in "${blacklist[@]}"; do
+      if [ "${t}" = "${o}" ]; then
+        blacklisted=yes
+        break
+      fi
+    done
+    if [ "${blacklisted}" = yes ]; then
+      echo "Skipping blacklisted test ${t}" 1>&2
+      continue
+    fi
+    valid+="${t}"
+  done
+  set -x
+
+  [ "${#valid[@]}" -gt 0 ] || return 0  # Only run tests if any are valid.
+  for t in "${valid[@]}"; do
+    go test -v -timeout=600s -test.run="^${t}$" \
+        github.com/bazelbuild/sandboxfs/integration \
+        -sandboxfs_binary="${bin}" -release_build=false
+
+    sudo -H "${rootenv[@]}" -s \
+        go test -v -timeout=600s -test.run="^${t}$" \
+        github.com/bazelbuild/sandboxfs/integration \
+        -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false
+  done
+}
+
 case "${DO}" in
-  bazel|gotools|lint)
+  bazel|gotools|lint|rust)
     "do_${DO}"
     ;;
 
