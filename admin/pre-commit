@@ -22,5 +22,5 @@ index_files="$(git status --porcelain --untracked-files=no \
 
 if [ -n "${index_files}" ]; then
   echo "Linting changed files..."
-  bazel run //admin/lint -- ${index_files} || exit 1
+  bazel run //admin/lint -- --verbose ${index_files} || exit 1
 fi
