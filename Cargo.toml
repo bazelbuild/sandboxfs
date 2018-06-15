@@ -14,7 +14,8 @@ version = "0.1.0"
 travis-ci = { repository = "bazelbuild/sandboxfs", branch = "master" }
 
 [dependencies]
+env_logger = "0.5"
+failure = "0.1"
 fuse = "0.3"
 getopts = "0.2"
 log = "0.4"
-env_logger = "0.5"

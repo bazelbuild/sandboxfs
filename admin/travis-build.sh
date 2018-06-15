@@ -176,6 +176,7 @@ do_rust() {
   done
   set -x
 
+  [ "${#valid[@]}" -gt 0 ] || return 0  # Only run tests if any are valid.
   for t in "${valid[@]}"; do
     go test -v -timeout=600s -test.run="^${t}$" \
         github.com/bazelbuild/sandboxfs/integration \

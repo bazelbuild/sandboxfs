@@ -13,37 +13,22 @@
 // under the License.
 
 extern crate env_logger;
+#[macro_use] extern crate failure;
 extern crate getopts;
 extern crate sandboxfs;
 
+use failure::Error;
 use getopts::Options;
 use std::env;
-use std::ffi::OsStr;
-use std::io;
 use std::path::Path;
 use std::process;
 use std::result::Result;
 
-/// Error-like type to encapsulate various different error conditions in the
-/// main program.
-#[derive(Debug)]
-enum MainError {
-    /// Execution failed due to a generic runtime error.
-    Runtime(String),
-    /// Execution failed due to a user-triggered error.
-    Usage(String),
-}
-
-impl From<io::Error> for MainError {
-    fn from(err: io::Error) -> Self {
-        MainError::Runtime(format!("{}", err))
-    }
-}
-
-impl From<getopts::Fail> for MainError {
-    fn from(err: getopts::Fail) -> Self {
-        MainError::Usage(format!("{}", err))
-    }
+/// Execution failure due to a user-triggered error.
+#[derive(Debug, Fail)]
+#[fail(display = "{}", message)]
+struct UsageError {
+    message: String,
 }
 
 /// Obtains the program name from the execution's first argument, or returns a
@@ -71,7 +56,7 @@ fn usage(program: &str, opts: &Options) {
 /// Program's entry point.  This is a "safe" version of `main` in the sense that
 /// this doesn't directly handle errors: all errors are returned to the caller
 /// for consistent reporter to the user depending on their type.
-fn safe_main(program: &str, args: &[String]) -> Result<(), MainError> {
+fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     env_logger::init();
 
     let mut opts = Options::new();
@@ -86,7 +71,9 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), MainError> {
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
     } else {
-        return Err(MainError::Usage("invalid number of arguments".to_string()));
+        return Err(Error::from(UsageError {
+            message: "invalid number of arguments".to_string(),
+        }));
     };
 
     sandboxfs::mount(Path::new(mount_point))?;
@@ -100,17 +87,19 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let program = program_name(&args, "sandboxfs");
 
-    match safe_main(&program, &args[1..]) {
-        Ok(_) => (),
-        Err(MainError::Runtime(message)) => {
-            eprintln!("{}: {}", program, message);
-            process::exit(1);
-        },
-        Err(MainError::Usage(message)) => {
-            eprintln!("Usage error: {}", message);
+    if let Err(err) = safe_main(&program, &args[1..]) {
+        if let Some(err) = err.cause().downcast_ref::<UsageError>() {
+            eprintln!("Usage error: {}", err);
             eprintln!("Type {} --help for more information", program);
             process::exit(2);
-        },
+        } else if let Some(err) = err.cause().downcast_ref::<getopts::Fail>() {
+            eprintln!("Usage error: {}", err);
+            eprintln!("Type {} --help for more information", program);
+            process::exit(2);
+        } else {
+            eprintln!("{}: {}", program, err);
+            process::exit(1);
+        }
     }
 }
 
