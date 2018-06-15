@@ -49,13 +49,17 @@ impl From<getopts::Fail> for MainError {
 /// Obtains the program name from the execution's first argument, or returns a
 /// default if the program name cannot be determined for whatever reason.
 fn program_name(args: &[String], default: &'static str) -> String {
-    args.get(0)
-        .as_ref()
-        .map(Path::new)
-        .and_then(Path::file_name)
-        .and_then(OsStr::to_str)
-        .map(String::from)
-        .unwrap_or(default.to_string())
+    let default = String::from(default);
+    match args.get(0) {
+        Some(arg0) => match Path::new(arg0).file_name() {
+            Some(basename) => match basename.to_str() {
+                Some(basename) => String::from(basename),
+                None => default,
+            },
+            None => default,
+        },
+        None => default,
+    }
 }
 
 /// Prints program usage information to stdout.

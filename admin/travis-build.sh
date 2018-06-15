@@ -143,8 +143,8 @@ do_rust() {
     TestSignal_QueuedWhileInUse
   )
 
-  # TODO(jmmv): Replace by a Bazel-based build once the Rust rules are
-  # capable of doing so.
+  # TODO(https://github.com/bazelbuild/rules_rust/issues/2): Replace by a
+  # Bazel-based build once the Rust rules are capable of doing so.
   cargo build
   local bin="$(pwd)/target/debug/sandboxfs"
   cargo test --verbose
@@ -176,7 +176,6 @@ do_rust() {
   done
   set -x
 
-  [ "${#valid[@]}" -gt 0 ] || return 0  # Only run tests if any are valid.
   for t in "${valid[@]}"; do
     go test -v -timeout=600s -test.run="^${t}$" \
         github.com/bazelbuild/sandboxfs/integration \
