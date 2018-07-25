@@ -88,11 +88,11 @@ fn main() {
     let program = program_name(&args, "sandboxfs");
 
     if let Err(err) = safe_main(&program, &args[1..]) {
-        if let Some(err) = err.cause().downcast_ref::<UsageError>() {
+        if let Some(err) = err.downcast_ref::<UsageError>() {
             eprintln!("Usage error: {}", err);
             eprintln!("Type {} --help for more information", program);
             process::exit(2);
-        } else if let Some(err) = err.cause().downcast_ref::<getopts::Fail>() {
+        } else if let Some(err) = err.downcast_ref::<getopts::Fail>() {
             eprintln!("Usage error: {}", err);
             eprintln!("Type {} --help for more information", program);
             process::exit(2);
