@@ -31,8 +31,8 @@ struct UsageError {
     message: String,
 }
 
-/// Obtains the program name from the execution's first argument, or returns a
-/// default if the program name cannot be determined for whatever reason.
+/// Obtains the program name from the execution's first argument, or returns a default if the
+/// program name cannot be determined for whatever reason.
 fn program_name(args: &[String], default: &'static str) -> String {
     let default = String::from(default);
     match args.get(0) {
@@ -53,9 +53,9 @@ fn usage(program: &str, opts: &Options) {
     print!("{}", opts.usage(&brief));
 }
 
-/// Program's entry point.  This is a "safe" version of `main` in the sense that
-/// this doesn't directly handle errors: all errors are returned to the caller
-/// for consistent reporter to the user depending on their type.
+/// Program's entry point.  This is a "safe" version of `main` in the sense that this doesn't
+/// directly handle errors: all errors are returned to the caller for consistent reporter to the
+/// user depending on their type.
 fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     env_logger::init();
 
@@ -71,18 +71,15 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
     } else {
-        return Err(Error::from(UsageError {
-            message: "invalid number of arguments".to_string(),
-        }));
+        return Err(Error::from(UsageError { message: "invalid number of arguments".to_string() }));
     };
 
     sandboxfs::mount(Path::new(mount_point))?;
     Ok(())
 }
 
-/// Program's entry point.  This delegates to `safe_main` for all program logic
-/// and is just in charge of consistently formatting and reporting all possible
-/// errors to the caller.
+/// Program's entry point.  This delegates to `safe_main` for all program logic and is just in
+/// charge of consistently formatting and reporting all possible errors to the caller.
 fn main() {
     let args: Vec<String> = env::args().collect();
     let program = program_name(&args, "sandboxfs");

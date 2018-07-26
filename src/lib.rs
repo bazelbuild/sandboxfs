@@ -26,7 +26,7 @@ struct SandboxFS {
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
     fn new() -> SandboxFS {
-      SandboxFS {}
+        SandboxFS {}
     }
 }
 
@@ -42,6 +42,5 @@ pub fn mount(mount_point: &Path) -> io::Result<()> {
     let fs = SandboxFS::new();
     info!("Mounting file system onto {:?}", mount_point);
     fuse::mount(fs, &mount_point, &options)
-        .map_err(|e| io::Error::new(
-            e.kind(), format!("mount on {:?} failed: {}", mount_point, e)))
+        .map_err(|e| io::Error::new(e.kind(), format!("mount on {:?} failed: {}", mount_point, e)))
 }
