@@ -41,6 +41,11 @@
     "editor.quickSuggestions": false
   },
 
+  "[rust]": {
+    "editor.rulers": [100],
+    "editor.wordWrapColumn": 100
+  },
+
   "[troff]": {
     "editor.quickSuggestions": false
   }

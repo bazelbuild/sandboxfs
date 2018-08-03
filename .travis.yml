@@ -31,6 +31,7 @@ env:
   - DO=bazel
   - DO=gotools
   - DO=lint
+  - DO=rust
 
 before_install: ./admin/travis-install.sh
 script: ./admin/travis-build.sh
@@ -51,3 +52,8 @@ matrix:
       go: 1.8
     - env: DO=lint
       os: osx
+
+    # For testing the Rust implementation, we only need to build the tests using
+    # one Go version.
+    - env: DO=rust
+      go: 1.8
