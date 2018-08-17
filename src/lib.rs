@@ -12,6 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+#[macro_use] extern crate failure;
 extern crate fuse;
 extern crate libc;
 #[macro_use] extern crate log;
@@ -39,11 +40,10 @@ impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
     fn new() -> SandboxFS {
         let root = {
-            let inode = fuse::FUSE_ROOT_ID;
             let now = time::get_time();
             let uid = unsafe { libc::getuid() } as u32;
             let gid = unsafe { libc::getgid() } as u32;
-            nodes::Dir::new_empty(inode, inode, now, uid, gid)
+            nodes::Dir::new_root(now, uid, gid)
         };
 
         let mut nodes = HashMap::new();
@@ -73,7 +73,7 @@ impl fuse::Filesystem for SandboxFS {
         let node = self.find_node(inode);
         match node.getattr() {
             Ok(attr) => reply.attr(&TTL, &attr),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => reply.error(e.errno()),
         }
     }
 
@@ -89,7 +89,7 @@ impl fuse::Filesystem for SandboxFS {
                 }
                 reply.entry(&TTL, &attr, 0);
             },
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => reply.error(e.errno()),
         }
     }
 
@@ -99,7 +99,7 @@ impl fuse::Filesystem for SandboxFS {
             let node = self.find_node(inode);
             match node.readdir(&mut reply) {
                 Ok(()) => reply.ok(),
-                Err(e) => reply.error(e.raw_os_error().unwrap()),
+                Err(e) => reply.error(e.errno()),
             }
         } else {
             assert!(offset > 0, "Do not know what to do with a negative offset");

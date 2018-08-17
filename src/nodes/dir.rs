@@ -17,10 +17,11 @@ extern crate libc;
 extern crate time;
 
 use std::ffi::OsStr;
-use std::io;
 use std::sync::{Arc, Mutex};
 use self::time::Timespec;
+use super::KernelError;
 use super::Node;
+use super::NodeResult;
 
 /// Representation of a directory node.
 pub struct Dir {
@@ -35,20 +36,16 @@ struct MutableDir {
 }
 
 impl Dir {
-    /// Creates a new scaffold directory identified by the given `inode`.
-    ///
-    /// `parent` specifies the inode number of the parent directory which may be the same as
-    /// `inode` when this directory represents the root of the file system.
+    /// Creates a new scaffold directory to represent the root directory.
     ///
     /// `time` is the timestamp to be used for all node times.
     ///
-    /// `uid` and `gid` indicate the ownership details of the node.  For scaffold directories, these
-    /// should always match the values of the currently-running process -- but not necessarily if we
-    /// want to let users customize these via flags at some point.
-    ///
-    /// Scaffold directories are in-memory directories not backed by any on-disk contents.  These
-    /// are used to represent user-specified mappings
-    pub fn new_empty(inode: u64, parent: u64, time: Timespec, uid: u32, gid: u32) -> Arc<Node> {
+    /// `uid` and `gid` indicate the ownership details of the node.  These should always match the
+    /// values of the currently-running process -- but not necessarily if we want to let users
+    /// customize these via flags at some point.
+    pub fn new_root(time: Timespec, uid: u32, gid: u32) -> Arc<Node> {
+        let inode = fuse::FUSE_ROOT_ID;
+
         let attr = fuse::FileAttr {
             ino: inode,
             kind: fuse::FileType::Directory,
@@ -66,7 +63,7 @@ impl Dir {
             flags: 0,
         };
 
-        let state = MutableDir { parent, attr };
+        let state = MutableDir { parent: inode, attr };
 
         Arc::new(Dir {
             inode,
@@ -80,16 +77,16 @@ impl Node for Dir {
         self.inode
     }
 
-    fn getattr(&self) -> io::Result<fuse::FileAttr> {
+    fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let state = self.state.lock().unwrap();
         Ok(state.attr.clone())
     }
 
-    fn lookup(&self, _name: &OsStr) -> io::Result<(Arc<Node>, fuse::FileAttr)> {
-        return Err(io::Error::from_raw_os_error(libc::ENOENT));
+    fn lookup(&self, _name: &OsStr) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        return Err(KernelError::from_errno(libc::ENOENT));
     }
 
-    fn readdir(&self, reply: &mut fuse::ReplyDirectory) -> io::Result<()> {
+    fn readdir(&self, reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
         let state = self.state.lock().unwrap();
 
         reply.add(self.inode, 0, fuse::FileType::Directory, ".");
