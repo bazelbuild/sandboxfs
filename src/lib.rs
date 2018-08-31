@@ -21,7 +21,8 @@ extern crate time;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::result::Result;
 use std::sync::{Arc, Mutex};
 use time::Timespec;
 
@@ -29,6 +30,52 @@ mod nodes;
 
 // TODO(jmmv): Make configurable via a flag and store inside SandboxFS.
 pub const TTL: Timespec = Timespec { sec: 60, nsec: 0 };
+
+/// An error indicating that a path has to be absolute but isn't.
+#[derive(Debug, Fail)]
+#[fail(display = "path {:?} is not absolute", path)]
+pub struct PathNotAbsoluteError {
+    path: PathBuf,
+}
+
+/// Mapping describes how an individual path within the sandbox is connected to an external path
+/// in the underlying file system.
+#[derive(Debug)]
+pub struct Mapping {
+    path: PathBuf,
+    underlying_path: PathBuf,
+    writable: bool,
+}
+
+impl Mapping {
+    /// Creates a new mapping from the individual components.
+    ///
+    /// `path` is the inside the sandbox's mount point where the `underlying_path` is exposed.
+    /// Both must be absolute paths.
+    pub fn new(path: &Path, underlying_path: &Path, writable: bool)
+        -> Result<Mapping, PathNotAbsoluteError> {
+        if !path.is_absolute() {
+            return Err(PathNotAbsoluteError { path: path.to_path_buf() });
+        }
+        if !underlying_path.is_absolute() {
+            return Err(PathNotAbsoluteError { path: underlying_path.to_path_buf() });
+        }
+
+        Ok(Mapping {
+            path: PathBuf::from(path),
+            underlying_path: PathBuf::from(underlying_path),
+            writable,
+        })
+    }
+}
+
+impl PartialEq for Mapping {
+    fn eq(&self, other: &Mapping) -> bool {
+        self.path == other.path
+            && self.underlying_path == other.underlying_path
+            && self.writable == other.writable
+    }
+}
 
 /// FUSE file system implementation of sandboxfs.
 struct SandboxFS {
@@ -112,14 +159,57 @@ impl fuse::Filesystem for SandboxFS {
     }
 }
 
-/// Mounts a new sandboxfs instance on the given `mount_point`.
-pub fn mount(mount_point: &Path) -> io::Result<()> {
+/// Mounts a new sandboxfs instance on the given `mount_point` and maps all `_mappings` within it.
+pub fn mount(mount_point: &Path, _mappings: &Vec<Mapping>) -> io::Result<()> {
     let options = ["-o", "ro", "-o", "fsname=sandboxfs"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
+    // TODO(jmmv): Handle the list of mappings by passing it into the file system.
     let fs = SandboxFS::new();
     info!("Mounting file system onto {:?}", mount_point);
     fuse::mount(fs, &mount_point, &options)
         .map_err(|e| io::Error::new(e.kind(), format!("mount on {:?} failed: {}", mount_point, e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mapping_new_ok() {
+        let mapping = Mapping::new(Path::new("/foo"), Path::new("/bar"), false).unwrap();
+        assert_eq!(Path::new("/foo"), mapping.path);
+        assert_eq!(Path::new("/bar"), mapping.underlying_path);
+        assert!(!mapping.writable);
+    }
+
+    #[test]
+    fn test_mapping_new_bad_path() {
+        let err = Mapping::new(Path::new("foo"), Path::new("/bar"), false).unwrap_err();
+        assert_eq!(Path::new("foo"), err.path);
+    }
+
+    #[test]
+    fn test_mapping_new_bad_underlying_path() {
+        let err = Mapping::new(Path::new("/foo"), Path::new("bar"), false).unwrap_err();
+        assert_eq!(Path::new("bar"), err.path);
+    }
+
+    #[test]
+    fn test_mapping_eq() {
+        let mapping1 = Mapping::new(Path::new("/foo"), Path::new("/bar"), false).unwrap();
+        let mapping2 = Mapping::new(Path::new("/foo"), Path::new("/bar"), false).unwrap();
+        assert_eq!(mapping1, mapping1);
+        assert_eq!(mapping1, mapping2);
+
+        let mapping3 = Mapping::new(Path::new("/foo2"), Path::new("/bar"), false).unwrap();
+        assert_ne!(mapping1, mapping3);
+
+        let mapping4 = Mapping::new(Path::new("/foo"), Path::new("/bar2"), false).unwrap();
+        assert_ne!(mapping1, mapping4);
+
+        let mapping5 = Mapping::new(Path::new("/foo"), Path::new("/bar"), true).unwrap();
+        assert_ne!(mapping1, mapping5);
+    }
 }
