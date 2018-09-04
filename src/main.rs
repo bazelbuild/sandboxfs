@@ -33,10 +33,13 @@ struct UsageError {
 
 /// Takes the list of strings that represent mappings (supplied via multiple instances of the
 /// `--mapping` flag) and returns a parsed representation of those flags.
-fn parse_mappings(args: &Vec<String>) -> Result<Vec<sandboxfs::Mapping>, UsageError> {
+fn parse_mappings<T: AsRef<str>, U: IntoIterator<Item=T>>(args: U)
+    -> Result<Vec<sandboxfs::Mapping>, UsageError> {
     let mut mappings = Vec::new();
 
     for arg in args {
+        let arg = arg.as_ref();
+
         let fields: Vec<&str> = arg.split(":").collect();
         if fields.len() != 3 {
             let message = format!("bad mapping {}: expected three colon-separated fields", arg);
@@ -108,7 +111,7 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
         return Ok(());
     }
 
-    let mappings = parse_mappings(&matches.opt_strs("mapping"))?;
+    let mappings = parse_mappings(matches.opt_strs("mapping").into_iter())?;
 
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
