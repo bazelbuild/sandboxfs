@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn test_parse_mappings_ok() {
-        let args = vec!("ro:/:/fake/root".to_string(), "rw:/foo:/bar".to_string());
+        let args = ["ro:/:/fake/root", "rw:/foo:/bar"];
         let exp_mappings = vec!(
             Mapping::new(Path::new("/"), Path::new("/fake/root"), false).unwrap(),
             Mapping::new(Path::new("/foo"), Path::new("/bar"), true).unwrap(),
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn test_parse_mappings_bad_format() {
         for arg in ["", "foo:bar", "foo:bar:baz:extra"].iter() {
-            let err = parse_mappings(&vec!(arg.to_string())).unwrap_err();
+            let err = parse_mappings(&[arg]).unwrap_err();
             assert_eq!(
                 format!("bad mapping {}: expected three colon-separated fields", arg),
                 format!("{}", err));
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_parse_mappings_bad_type() {
-        let args = vec!("rr:/foo:/bar".to_string());
+        let args = ["rr:/foo:/bar"];
         let err = parse_mappings(&args).unwrap_err();
         assert_eq!("bad mapping rr:/foo:/bar: type was rr but should be ro or rw",
             format!("{}", err));
@@ -183,14 +183,14 @@ mod tests {
 
     #[test]
     fn test_parse_mappings_bad_path() {
-        let args = vec!("ro:foo:/bar".to_string());
+        let args = ["ro:foo:/bar"];
         let err = parse_mappings(&args).unwrap_err();
         assert_eq!("bad mapping ro:foo:/bar: path \"foo\" is not absolute", format!("{}", err));
     }
 
     #[test]
     fn test_parse_mappings_bad_underlying_path() {
-        let args = vec!("ro:/foo:bar".to_string());
+        let args = ["ro:/foo:bar"];
         let err = parse_mappings(&args).unwrap_err();
         assert_eq!("bad mapping ro:/foo:bar: path \"bar\" is not absolute", format!("{}", err));
     }
