@@ -111,7 +111,7 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
         return Ok(());
     }
 
-    let mappings = parse_mappings(matches.opt_strs("mapping").into_iter())?;
+    let mappings = parse_mappings(matches.opt_strs("mapping"))?;
 
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
