@@ -53,20 +53,16 @@ impl Mapping {
     ///
     /// `path` is the inside the sandbox's mount point where the `underlying_path` is exposed.
     /// Both must be absolute paths.
-    pub fn new(path: &Path, underlying_path: &Path, writable: bool)
+    pub fn new(path: PathBuf, underlying_path: PathBuf, writable: bool)
         -> Result<Mapping, PathNotAbsoluteError> {
         if !path.is_absolute() {
-            return Err(PathNotAbsoluteError { path: path.to_path_buf() });
+            return Err(PathNotAbsoluteError { path: path });
         }
         if !underlying_path.is_absolute() {
-            return Err(PathNotAbsoluteError { path: underlying_path.to_path_buf() });
+            return Err(PathNotAbsoluteError { path: underlying_path });
         }
 
-        Ok(Mapping {
-            path: PathBuf::from(path),
-            underlying_path: PathBuf::from(underlying_path),
-            writable,
-        })
+        Ok(Mapping { path, underlying_path, writable })
     }
 }
 
@@ -174,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_mapping_new_ok() {
-        let mapping = Mapping::new(Path::new("/foo"), Path::new("/bar"), false).unwrap();
+        let mapping = Mapping::new(PathBuf::from("/foo"), PathBuf::from("/bar"), false).unwrap();
         assert_eq!(Path::new("/foo"), mapping.path);
         assert_eq!(Path::new("/bar"), mapping.underlying_path);
         assert!(!mapping.writable);
@@ -182,13 +178,13 @@ mod tests {
 
     #[test]
     fn test_mapping_new_bad_path() {
-        let err = Mapping::new(Path::new("foo"), Path::new("/bar"), false).unwrap_err();
+        let err = Mapping::new(PathBuf::from("foo"), PathBuf::from("/bar"), false).unwrap_err();
         assert_eq!(Path::new("foo"), err.path);
     }
 
     #[test]
     fn test_mapping_new_bad_underlying_path() {
-        let err = Mapping::new(Path::new("/foo"), Path::new("bar"), false).unwrap_err();
+        let err = Mapping::new(PathBuf::from("/foo"), PathBuf::from("bar"), false).unwrap_err();
         assert_eq!(Path::new("bar"), err.path);
     }
 }

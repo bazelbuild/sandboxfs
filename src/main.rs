@@ -20,7 +20,7 @@ extern crate sandboxfs;
 use failure::Error;
 use getopts::Options;
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::result::Result;
 
@@ -58,8 +58,8 @@ fn parse_mappings<T: AsRef<str>, U: IntoIterator<Item=T>>(args: U)
             }
         };
 
-        let path = Path::new(fields[1]);
-        let underlying_path = Path::new(fields[2]);
+        let path = PathBuf::from(fields[1]);
+        let underlying_path = PathBuf::from(fields[2]);
 
         match sandboxfs::Mapping::new(path, underlying_path, writable) {
             Ok(mapping) => mappings.push(mapping),
@@ -154,8 +154,8 @@ mod tests {
     fn test_parse_mappings_ok() {
         let args = ["ro:/:/fake/root", "rw:/foo:/bar"];
         let exp_mappings = vec!(
-            Mapping::new(Path::new("/"), Path::new("/fake/root"), false).unwrap(),
-            Mapping::new(Path::new("/foo"), Path::new("/bar"), true).unwrap(),
+            Mapping::new(PathBuf::from("/"), PathBuf::from("/fake/root"), false).unwrap(),
+            Mapping::new(PathBuf::from("/foo"), PathBuf::from("/bar"), true).unwrap(),
         );
         match parse_mappings(&args) {
             Ok(mappings) => assert_eq!(exp_mappings, mappings),
