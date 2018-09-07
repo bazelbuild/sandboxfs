@@ -64,6 +64,9 @@ fn parse_mappings<T: AsRef<str>, U: IntoIterator<Item=T>>(args: U)
         match sandboxfs::Mapping::new(path, underlying_path, writable) {
             Ok(mapping) => mappings.push(mapping),
             Err(e) => {
+                // TODO(jmmv): Figure how to best leverage failure's cause propagation.  May need
+                // to define a custom ErrorKind to represent UsageError, instead of having a special
+                // error type.
                 let message = format!("bad mapping {}: {}", arg, e);
                 return Err(UsageError { message });
             }
