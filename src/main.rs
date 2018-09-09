@@ -20,7 +20,7 @@ extern crate sandboxfs;
 use failure::Error;
 use getopts::Options;
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::result::Result;
 
@@ -29,6 +29,51 @@ use std::result::Result;
 #[fail(display = "{}", message)]
 struct UsageError {
     message: String,
+}
+
+/// Takes the list of strings that represent mappings (supplied via multiple instances of the
+/// `--mapping` flag) and returns a parsed representation of those flags.
+fn parse_mappings<T: AsRef<str>, U: IntoIterator<Item=T>>(args: U)
+    -> Result<Vec<sandboxfs::Mapping>, UsageError> {
+    let mut mappings = Vec::new();
+
+    for arg in args {
+        let arg = arg.as_ref();
+
+        let fields: Vec<&str> = arg.split(":").collect();
+        if fields.len() != 3 {
+            let message = format!("bad mapping {}: expected three colon-separated fields", arg);
+            return Err(UsageError { message });
+        }
+
+        let writable = {
+            if fields[0] == "ro" {
+                false
+            } else if fields[0] == "rw" {
+                true
+            } else {
+                let message = format!("bad mapping {}: type was {} but should be ro or rw",
+                    arg, fields[0]);
+                return Err(UsageError { message });
+            }
+        };
+
+        let path = PathBuf::from(fields[1]);
+        let underlying_path = PathBuf::from(fields[2]);
+
+        match sandboxfs::Mapping::new(path, underlying_path, writable) {
+            Ok(mapping) => mappings.push(mapping),
+            Err(e) => {
+                // TODO(jmmv): Figure how to best leverage failure's cause propagation.  May need
+                // to define a custom ErrorKind to represent UsageError, instead of having a special
+                // error type.
+                let message = format!("bad mapping {}: {}", arg, e);
+                return Err(UsageError { message });
+            }
+        }
+    }
+
+    Ok(mappings)
 }
 
 /// Obtains the program name from the execution's first argument, or returns a default if the
@@ -61,6 +106,7 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
 
     let mut opts = Options::new();
     opts.optflag("", "help", "prints usage information and exits");
+    opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
     let matches = opts.parse(args)?;
 
     if matches.opt_present("help") {
@@ -68,13 +114,15 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
         return Ok(());
     }
 
+    let mappings = parse_mappings(matches.opt_strs("mapping"))?;
+
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
     } else {
         return Err(Error::from(UsageError { message: "invalid number of arguments".to_string() }));
     };
 
-    sandboxfs::mount(Path::new(mount_point))?;
+    sandboxfs::mount(Path::new(mount_point), &mappings)?;
     Ok(())
 }
 
@@ -103,6 +151,52 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::sandboxfs::Mapping;
+
+    #[test]
+    fn test_parse_mappings_ok() {
+        let args = ["ro:/:/fake/root", "rw:/foo:/bar"];
+        let exp_mappings = vec!(
+            Mapping::new(PathBuf::from("/"), PathBuf::from("/fake/root"), false).unwrap(),
+            Mapping::new(PathBuf::from("/foo"), PathBuf::from("/bar"), true).unwrap(),
+        );
+        match parse_mappings(&args) {
+            Ok(mappings) => assert_eq!(exp_mappings, mappings),
+            Err(e) => panic!(e),
+        }
+    }
+
+    #[test]
+    fn test_parse_mappings_bad_format() {
+        for arg in ["", "foo:bar", "foo:bar:baz:extra"].iter() {
+            let err = parse_mappings(&[arg]).unwrap_err();
+            assert_eq!(
+                format!("bad mapping {}: expected three colon-separated fields", arg),
+                format!("{}", err));
+        }
+    }
+
+    #[test]
+    fn test_parse_mappings_bad_type() {
+        let args = ["rr:/foo:/bar"];
+        let err = parse_mappings(&args).unwrap_err();
+        assert_eq!("bad mapping rr:/foo:/bar: type was rr but should be ro or rw",
+            format!("{}", err));
+    }
+
+    #[test]
+    fn test_parse_mappings_bad_path() {
+        let args = ["ro:foo:/bar"];
+        let err = parse_mappings(&args).unwrap_err();
+        assert_eq!("bad mapping ro:foo:/bar: path \"foo\" is not absolute", format!("{}", err));
+    }
+
+    #[test]
+    fn test_parse_mappings_bad_underlying_path() {
+        let args = ["ro:/foo:bar"];
+        let err = parse_mappings(&args).unwrap_err();
+        assert_eq!("bad mapping ro:/foo:bar: path \"bar\" is not absolute", format!("{}", err));
+    }
 
     #[test]
     fn test_program_name_uses_default_on_errors() {
