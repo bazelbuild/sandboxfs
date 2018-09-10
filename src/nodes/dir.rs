@@ -16,7 +16,10 @@ extern crate fuse;
 extern crate libc;
 extern crate time;
 
+use super::conv;
 use std::ffi::OsStr;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use self::time::Timespec;
 use super::KernelError;
@@ -32,6 +35,7 @@ pub struct Dir {
 /// Holds the mutable data of a directory node.
 struct MutableDir {
     parent: u64,
+    underlying_path: Option<PathBuf>,
     attr: fuse::FileAttr,
 }
 
@@ -64,12 +68,40 @@ impl Dir {
             flags: 0,
         };
 
-        let state = MutableDir { parent: inode, attr };
+        let state = MutableDir {
+            parent: inode,
+            underlying_path: None,
+            attr,
+        };
 
         Arc::new(Dir {
             inode,
             state: Mutex::from(state),
         })
+    }
+
+    /// Creates a new directory whose contents are backed by another directory.
+    ///
+    /// `inode` is the node number to assign to the created in-memory directory and has no relation
+    /// to the underlying directory.  `underlying_path` indicates the path to the directory outside
+    /// of the sandbox that backs this one.  `fs_attr` contains the stat data for the given path.
+    ///
+    /// `fs_attr` is an input parameter because, by the time we decide to instantiate a directory
+    /// node (e.g. as we discover directory entries during readdir or lookup), we have already
+    /// issued a stat on the underlying file system and we cannot re-do it for efficiency reasons.
+    pub fn new_mapped(inode: u64, underlying_path: &Path, fs_attr: &fs::Metadata) -> Arc<Node> {
+        if !fs_attr.is_dir() {
+            panic!("Can only construct based on dirs");
+        }
+        let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
+
+        let state = MutableDir {
+            parent: inode,
+            underlying_path: Some(PathBuf::from(underlying_path)),
+            attr,
+        };
+
+        Arc::new(Dir { inode, state: Mutex::from(state) })
     }
 }
 
@@ -79,7 +111,22 @@ impl Node for Dir {
     }
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
-        let state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+
+        let new_attr = match state.underlying_path.as_ref() {
+            Some(path) => {
+                let fs_attr = fs::symlink_metadata(path)?;
+                if !fs_attr.is_dir() {
+                    warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
+                          state.underlying_path, &fs_attr);
+                    return Err(KernelError::from_errno(libc::EIO));
+                }
+                conv::attr_fs_to_fuse(path, self.inode, &fs_attr)
+            },
+            None => state.attr,
+        };
+        state.attr = new_attr;
+
         Ok(state.attr)
     }
 
