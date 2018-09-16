@@ -76,6 +76,9 @@ case "${DO}" in
 
   lint)
     install_bazel
+    install_fuse  # Needed by Clippy to build the fuse Rust dependency.
+    install_rust
+    rustup component add clippy-preview
     ;;
 
   rust)

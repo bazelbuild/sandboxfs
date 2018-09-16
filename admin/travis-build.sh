@@ -67,6 +67,7 @@ do_gotools() {
 
 do_lint() {
   bazel run //admin/lint -- --verbose
+  PATH="${HOME}/.cargo/bin:${PATH}" cargo clippy -- -D warnings
 }
 
 do_rust() {
