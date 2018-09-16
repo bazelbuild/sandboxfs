@@ -13,6 +13,7 @@
 // under the License.
 
 use fuse;
+use libc;
 use std::ffi::OsStr;
 use std::io;
 use std::sync::Arc;
@@ -42,7 +43,13 @@ impl KernelError {
 
 impl From<io::Error> for KernelError {
     fn from(e: io::Error) -> Self {
-        KernelError::from_errno(e.raw_os_error().unwrap())
+        match e.raw_os_error() {
+            Some(errno) => KernelError::from_errno(errno),
+            None => {
+                warn!("Got io::Error without an errno; propagating as EIO: {}", e);
+                KernelError::from_errno(libc::EIO)
+            },
+        }
     }
 }
 

@@ -179,16 +179,11 @@ mod tests {
         assert_eq!(BAD_TIME, timespec);
     }
 
-    /// Sets the permissions of a file to exactly those given, bypassing the umask.
-    fn chmod_exactly(path: &Path, perm: libc::mode_t) {
+    /// Sets the permissions of a file to exactly those given.
+    fn chmod(path: &Path, perm: libc::mode_t) {
         let path = path.as_os_str().to_str().unwrap().as_bytes();
         let path = CString::new(path).unwrap();
-        assert_eq!(0, unsafe {
-            let old_umask = libc::umask(0);
-            let ret = libc::chmod(path.as_ptr(), perm);
-            libc::umask(old_umask);
-            ret
-        });
+        assert_eq!(0, unsafe { libc::chmod(path.as_ptr(), perm) });
     }
 
     /// Creates a block or character device and enforces that it is created successfully.
@@ -312,7 +307,7 @@ mod tests {
         fs::create_dir(path.join("subdir1")).unwrap();
         fs::create_dir(path.join("subdir2")).unwrap();
 
-        chmod_exactly(&path, 0o750);
+        chmod(&path, 0o750);
         let atime = Timespec { sec: 12345, nsec: 0 };
         let mtime = Timespec { sec: 678, nsec: 0 };
         utimes(&path, &atime, &mtime);
@@ -352,7 +347,7 @@ mod tests {
         file.write_all(content.as_bytes()).unwrap();
         drop(file);
 
-        chmod_exactly(&path, 0o640);
+        chmod(&path, 0o640);
         let atime = Timespec { sec: 54321, nsec: 0 };
         let mtime = Timespec { sec: 876, nsec: 0 };
         utimes(&path, &atime, &mtime);
