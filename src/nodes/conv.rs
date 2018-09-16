@@ -113,7 +113,7 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
                 mode, path);
             0o400
         },
-        mode => (mode as u16) & !libc::S_IFMT,
+        mode => (mode as u16) & !(libc::S_IFMT as u16),
     };
 
     let rdev = match attr.rdev() {
