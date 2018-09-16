@@ -64,32 +64,26 @@ func getWorkspaceDir(file string) (string, error) {
 	return dir, nil
 }
 
-// isBlacklisted returns true if the given filename should not be linted.  The workspaceDir
-// directory must be absolute as returned by getWorkspaceDir() and the candidate must have that
-// path as a prefix.
-func isBlacklisted(workspaceDir string, candidate string) (bool, error) {
-	relative, err := filepath.Rel(workspaceDir, candidate)
-	if err != nil {
-		return false, fmt.Errorf("%s is not within the workspace %s", candidate, workspaceDir)
-	}
-
+// isBlacklisted returns true if the given filename should not be linted.  The candidate must be
+// given as a relative path to the workspace directory.
+func isBlacklisted(candidate string) bool {
 	// Skip hidden files as we don't need to run checks on them.  (This is not strictly
 	// true, but it's simpler this way for now and the risk is low given that the hidden
 	// files we have are trivial.)
-	if strings.HasPrefix(relative, ".") {
-		return true, nil
+	if strings.HasPrefix(candidate, ".") {
+		return true
 	}
 
 	// Skip the Rust build directory.
 	if strings.HasPrefix(candidate, "target/") {
-		return true, nil
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 // collectFiles scans the given directory recursively and returns the paths to all regular files
-// within it.
+// within it as relative paths to the given directory.
 func collectFiles(dir string) ([]string, error) {
 	files := make([]string, 0)
 
@@ -98,12 +92,12 @@ func collectFiles(dir string) ([]string, error) {
 			return err
 		}
 
-		if blacklisted, err := isBlacklisted(dir, path); blacklisted || err != nil {
-			return err
+		relative, err := filepath.Rel(dir, path)
+		if err != nil {
+			panic(fmt.Sprintf("%s is not within %s but it should have been", path, dir))
 		}
-
 		if info.Mode()&os.ModeType == 0 {
-			files = append(files, path)
+			files = append(files, relative)
 		}
 
 		return err
@@ -134,33 +128,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	var files []string
+	var relFiles []string
 	if len(flag.Args()) == 0 {
 		log.Printf("Searching for source files in %s", workspaceDir)
-		allFiles, err := collectFiles(workspaceDir)
+		relFiles, err = collectFiles(workspaceDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 			os.Exit(1)
 		}
-		files = allFiles
 	} else {
-		files = make([]string, 0, len(flag.Args()))
 		for _, file := range flag.Args() {
 			if filepath.IsAbs(file) {
 				fmt.Fprintf(os.Stderr, "ERROR: Explicitly-provided file names must be relative; %s was not\n", file)
 				os.Exit(1)
 			}
-			candidate := filepath.Join(workspaceDir, file)
-			blacklisted, err := isBlacklisted(workspaceDir, candidate)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
-				os.Exit(1)
-			}
-			if blacklisted {
-				log.Printf("Skipping linting of explicitly-specified %s because it is blacklisted", file)
-			} else {
-				files = append(files, candidate)
-			}
+		}
+		relFiles = flag.Args()
+	}
+
+	files := make([]string, 0, len(relFiles))
+	for _, file := range relFiles {
+		if isBlacklisted(file) {
+			log.Printf("Skipping linting of %s because it is blacklisted", file)
+		} else {
+			files = append(files, filepath.Join(workspaceDir, file))
 		}
 	}
 
