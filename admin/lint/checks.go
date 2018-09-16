@@ -15,8 +15,10 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -41,6 +43,38 @@ func checkLicense(file string) error {
 		if !matched {
 			return fmt.Errorf("license check failed for %s: %s not found", file, pattern)
 		}
+	}
+
+	return nil
+}
+
+// checkNoTabs checks if the given file contains any tabs as indentation and, if it does, returns
+// an error.
+func checkNoTabs(file string) error {
+	input, err := os.OpenFile(file, os.O_RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("failed to open %s for read: %v", file, err)
+	}
+	defer input.Close()
+
+	preg := regexp.MustCompile(`^ *\t`)
+
+	reader := bufio.NewReader(input)
+	lineNo := 1
+	done := false
+	for !done {
+		line, err := reader.ReadString('\n')
+		if err == io.EOF {
+			done = true
+			// Fall through to process the last line in case it's not empty (when the
+			// file didn't end with a newline).
+		} else if err != nil {
+			return fmt.Errorf("no tabs check failed for %s: %v", file, err)
+		}
+		if preg.MatchString(line) {
+			return fmt.Errorf("no tabs check failed for %s: indentation tabs found at line %d", file, lineNo)
+		}
+		lineNo++
 	}
 
 	return nil
@@ -134,6 +168,8 @@ func checkAll(file string) bool {
 	if filepath.Ext(file) == ".go" {
 		runCheck(checkGofmt, file)
 		runCheck(checkGolint, file)
+	} else {
+		runCheck(checkNoTabs, file)
 	}
 
 	return ok
