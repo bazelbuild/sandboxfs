@@ -179,13 +179,6 @@ mod tests {
         assert_eq!(BAD_TIME, timespec);
     }
 
-    /// Sets the permissions of a file to exactly those given.
-    fn chmod(path: &Path, perm: libc::mode_t) {
-        let path = path.as_os_str().to_str().unwrap().as_bytes();
-        let path = CString::new(path).unwrap();
-        assert_eq!(0, unsafe { libc::chmod(path.as_ptr(), perm) });
-    }
-
     /// Creates a block or character device and enforces that it is created successfully.
     fn mkdev(path: &Path, type_mask: libc::mode_t, dev: libc::dev_t) {
         assert!(type_mask == libc::S_IFBLK || type_mask == libc::S_IFCHR);
@@ -307,7 +300,7 @@ mod tests {
         fs::create_dir(path.join("subdir1")).unwrap();
         fs::create_dir(path.join("subdir2")).unwrap();
 
-        chmod(&path, 0o750);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o750)).unwrap();
         let atime = Timespec { sec: 12345, nsec: 0 };
         let mtime = Timespec { sec: 678, nsec: 0 };
         utimes(&path, &atime, &mtime);
@@ -347,7 +340,7 @@ mod tests {
         file.write_all(content.as_bytes()).unwrap();
         drop(file);
 
-        chmod(&path, 0o640);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
         let atime = Timespec { sec: 54321, nsec: 0 };
         let mtime = Timespec { sec: 876, nsec: 0 };
         utimes(&path, &atime, &mtime);
