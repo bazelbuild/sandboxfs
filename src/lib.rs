@@ -69,6 +69,106 @@ impl Mapping {
     }
 }
 
+/// Monotonically-increasing generator of identifiers.
+pub struct IdGenerator {
+    last_id: Mutex<u64>,
+}
+
+impl IdGenerator {
+    /// Constructs a new generator that starts at the given value.
+    fn new(start_value: u64) -> Self {
+        IdGenerator { last_id: Mutex::from(start_value) }
+    }
+
+    /// Obtains a new identifier.
+    pub fn next(&self) -> u64 {
+        let mut last_id = self.last_id.lock().unwrap();
+        let id = *last_id;
+        // TODO(https://github.com/rust-lang/rust/issues/51577): Drop :: prefix.
+        if id == ::std::u64::MAX {
+            panic!("Ran out of identifiers");
+        }
+        *last_id += 1;
+        id
+    }
+}
+
+/// Cache of sandboxfs nodes indexed by their underlying path.
+///
+/// This cache is critical to offer good performance during reconfigurations: if the identity of an
+/// underlying file changes across reconfigurations, the kernel will think it's a different file
+/// (even if it may not be) and will therefore not be able to take advantage of any caches.  You
+/// would think that avoiding kernel cache invalidations during the reconfiguration itself (e.g. if
+/// file `A` was mapped and is still mapped now, don't invalidate it) would be sufficient to avoid
+/// this problem, but it's not: `A` could be mapped, then unmapped, and then remapped again in three
+/// different reconfigurations, and we'd still not want to lose track of it.
+///
+/// Nodes should be inserted in this cache at creation time and removed from it when explicitly
+/// deleted by the user (because there is a chance they'll be recreated, and at that point we truly
+/// want to reload the data from disk).
+///
+/// TODO(jmmv): There currently is no cache expiration, which means that memory usage can grow
+/// unboundedly.  A preliminary attempt at expiring cache entries on a node's forget handler sounded
+/// promising (because then cache expiration would be delegated to the kernel)... but, on Linux, the
+/// kernel seems to be calling this very eagerly, rendering our cache useless.  I did not track down
+/// what exactly triggered the forget notifications though.
+#[derive(Default)]
+pub struct Cache {
+    entries: Mutex<HashMap<PathBuf, Arc<nodes::Node>>>,
+}
+
+impl Cache {
+    /// Gets a mapped node from the cache or creates a new one if not yet cached.
+    ///
+    /// The returned node represents the given underlying path uniquely.  If creation is needed, the
+    /// created node uses the given type and writable settings.
+    pub fn get_or_create(&self, ids: &IdGenerator, underlying_path: &Path, attr: &fs::Metadata,
+        writable: bool) -> Arc<nodes::Node> {
+        if attr.is_dir() {
+            // Directories cannot be cached because they contain entries that are created only
+            // in memory based on the mappings configuration.
+            //
+            // TODO(jmmv): Actually, they *could* be cached, but it's hard.  Investigate doing so
+            // after quantifying how much it may benefit performance.
+            return nodes::Dir::new_mapped(ids.next(), underlying_path, attr, writable);
+        }
+
+        let mut entries = self.entries.lock().unwrap();
+
+        if let Some(node) = entries.get(underlying_path) {
+            if node.writable() == writable {
+                // We have a match from the cache!  Return it immediately.
+                //
+                // It is tempting to ensure that the type of the cached node matches the type we
+                // want to return based on the metadata we have now in `attr`... but doing so does
+                // not really prevent problems: the type of the underlying file can change at any
+                // point in time.  We could check this here and the type could change immediately
+                // afterwards behind our backs, so don't bother.
+                return node.clone();
+            }
+
+            // We had a match... but node writability has changed; recreate the node.
+            //
+            // You may wonder why we care about this and not the file type as described above: the
+            // reason is that the writability property is a setting of the mappings, not a property
+            // of the underlying files, and thus it's a setting that we fully control and must keep
+            // correct across reconfigurations or across different mappings of the same files.
+            info!("Missed node caching opportunity because writability has changed for {:?}",
+                underlying_path)
+        }
+
+        let node: Arc<nodes::Node> = if attr.is_dir() {
+            panic!("Directory entries cannot be cached and are handled above");
+        } else if attr.file_type().is_symlink() {
+            nodes::Symlink::new_mapped(ids.next(), underlying_path, attr, writable)
+        } else {
+            nodes::File::new_mapped(ids.next(), underlying_path, attr, writable)
+        };
+        entries.insert(underlying_path.to_path_buf(), node.clone());
+        node
+    }
+}
+
 /// FUSE file system implementation of sandboxfs.
 struct SandboxFS {
     /// Mapping of inode numbers to in-memory nodes that tracks all files known by sandboxfs.
@@ -78,6 +178,9 @@ struct SandboxFS {
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
     fn new(mappings: &[Mapping]) -> io::Result<SandboxFS> {
+        let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
+        let cache = Cache::default();
+
         let root = {
             if mappings.is_empty() {
                 let now = time::get_time();
@@ -94,7 +197,8 @@ impl SandboxFS {
                         &fs_attr);
                     return Err(io::Error::from_raw_os_error(libc::EIO));
                 }
-                nodes::Dir::new_mapped(fuse::FUSE_ROOT_ID, &mappings[0].underlying_path, &fs_attr)
+                cache.get_or_create(&ids, &mappings[0].underlying_path, &fs_attr,
+                    mappings[0].writable)
             } else {
                 panic!("Unimplemented; only support zero or one mappings so far");
             }
@@ -183,6 +287,7 @@ pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempdir::TempDir;
 
     #[test]
     fn test_mapping_new_ok() {
@@ -202,5 +307,75 @@ mod tests {
     fn test_mapping_new_bad_underlying_path() {
         let err = Mapping::new(PathBuf::from("/foo"), PathBuf::from("bar"), false).unwrap_err();
         assert_eq!(Path::new("bar"), err.path);
+    }
+
+    #[test]
+    fn id_generator_ok() {
+        let ids = IdGenerator::new(10);
+        assert_eq!(10, ids.next());
+        assert_eq!(11, ids.next());
+        assert_eq!(12, ids.next());
+    }
+
+    #[test]
+    #[should_panic(expected = "Ran out of identifiers")]
+    fn id_generator_exhaustion() {
+        let ids = IdGenerator::new(std::u64::MAX);
+        ids.next();  // OK, still at limit.
+        ids.next();  // Should panic.
+    }
+
+    #[test]
+    fn cache_behavior() {
+        let tempdir = TempDir::new("test").unwrap();
+
+        let dir1 = tempdir.path().join("dir1");
+        fs::create_dir(&dir1).unwrap();
+        let dir1attr = fs::symlink_metadata(&dir1).unwrap();
+
+        let file1 = tempdir.path().join("file1");
+        drop(fs::File::create(&file1).unwrap());
+        let file1attr = fs::symlink_metadata(&file1).unwrap();
+
+        let file2 = tempdir.path().join("file2");
+        drop(fs::File::create(&file2).unwrap());
+        let file2attr = fs::symlink_metadata(&file2).unwrap();
+
+        let ids = IdGenerator::new(1);
+        let cache = Cache::default();
+
+        // Directories are not cached no matter what.
+        assert_eq!(1, cache.get_or_create(&ids, &dir1, &dir1attr, false).inode());
+        assert_eq!(2, cache.get_or_create(&ids, &dir1, &dir1attr, false).inode());
+        assert_eq!(3, cache.get_or_create(&ids, &dir1, &dir1attr, true).inode());
+
+        // Different files get different nodes.
+        assert_eq!(4, cache.get_or_create(&ids, &file1, &file1attr, false).inode());
+        assert_eq!(5, cache.get_or_create(&ids, &file2, &file2attr, true).inode());
+
+        // Files we queried before but with different writability get different nodes.
+        assert_eq!(6, cache.get_or_create(&ids, &file1, &file1attr, true).inode());
+        assert_eq!(7, cache.get_or_create(&ids, &file2, &file2attr, false).inode());
+
+        // We get cache hits when everything matches previous queries.
+        assert_eq!(6, cache.get_or_create(&ids, &file1, &file1attr, true).inode());
+        assert_eq!(7, cache.get_or_create(&ids, &file2, &file2attr, false).inode());
+
+        // We don't get cache hits for nodes whose writability changed.
+        assert_eq!(8, cache.get_or_create(&ids, &file1, &file1attr, false).inode());
+        assert_eq!(9, cache.get_or_create(&ids, &file2, &file2attr, true).inode());
+    }
+
+    #[test]
+    fn cache_nodes_support_all_file_types() {
+        let ids = IdGenerator::new(1);
+        let cache = Cache::default();
+
+        for (_fuse_type, path) in testutils::AllFileTypes::new().entries {
+            let fs_attr = fs::symlink_metadata(&path).unwrap();
+            // The following panics if it's impossible to represent the given file type, which is
+            // what we are testing.
+            cache.get_or_create(&ids, &path, &fs_attr, false);
+        }
     }
 }

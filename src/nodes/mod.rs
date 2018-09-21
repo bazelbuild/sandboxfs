@@ -15,12 +15,19 @@
 use fuse;
 use libc;
 use std::ffi::OsStr;
+use std::fs;
 use std::io;
+use std::path::PathBuf;
+use std::result::Result;
 use std::sync::Arc;
 
 mod conv;
 mod dir;
 pub use self::dir::Dir;
+mod file;
+pub use self::file::File;
+mod symlink;
+pub use self::symlink::Symlink;
 
 /// Type that represents an error understood by the kernel.
 #[derive(Debug, Fail)]
@@ -69,6 +76,12 @@ pub trait Node {
     /// to lock the node.
     fn inode(&self) -> u64;
 
+    /// Returns whether the node is writable or not.
+    ///
+    /// The node's writability is immutable and, as such, this information can be queried without
+    /// having to lock the node.
+    fn writable(&self) -> bool;
+
     /// Retrieves the node's metadata.
     fn getattr(&self) -> NodeResult<fuse::FileAttr>;
 
@@ -87,5 +100,35 @@ pub trait Node {
     /// for consistency with the handling of any errors returned by this function.
     fn readdir(&self, _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
         panic!("Not implemented");
+    }
+}
+
+/// Computes the new attributes for a node.
+///
+/// This is a helper function for the implementation of `getattr` and, as such, its signature is
+/// tightly coupled to the needs of that function.
+///
+/// `inode` is the inode number that the node has within sandboxfs.  `path` is the underlying path
+/// that the node is mapped to, or none if it's not mapped.  `check_type` is a lambda that validates
+/// the file type we obtain from a stat operation and returns the user-facing name of the node type
+/// as an error on a mismatch.
+///
+/// Returns the new attributes if the ones in the node have to be updated, or none if there are no
+/// attributes to update.
+pub fn get_new_attr<T>(inode: u64, path: Option<&PathBuf>, check_type: T)
+    -> NodeResult<Option<fuse::FileAttr>>
+    where T: Fn(fs::FileType) -> Result<(), &'static str>
+{
+    match path {
+        Some(path) => {
+            let fs_attr = fs::symlink_metadata(path)?;
+            if let Err(type_name) = check_type(fs_attr.file_type()) {
+                warn!("Path {:?} backing a {} node is no longer a {}; got {:?}",
+                        path, type_name, type_name, fs_attr.file_type());
+                return Err(KernelError::from_errno(libc::EIO));
+            }
+            Ok(Some(conv::attr_fs_to_fuse(path, inode, &fs_attr)))
+        },
+        None => Ok(None),
     }
 }
