@@ -198,8 +198,16 @@ mod tests {
     /// Sets the atime and mtime of a file to the given values.
     fn utimes(path: &Path, atime: &Timespec, mtime: &Timespec) {
         let times = [
-            libc::timeval { tv_sec: atime.sec, tv_usec: atime.nsec / 1000 },
-            libc::timeval { tv_sec: mtime.sec, tv_usec: mtime.nsec / 1000 },
+            // The explicit casts below are required to deal with platform size differences in the
+            // libc::timeval definition.
+            libc::timeval {
+                tv_sec: atime.sec as libc::time_t,
+                tv_usec: atime.nsec as libc::suseconds_t / 1000,
+            },
+            libc::timeval {
+                tv_sec: mtime.sec as libc::time_t,
+                tv_usec: mtime.nsec as libc::suseconds_t / 1000,
+            },
         ];
         let path = path.as_os_str().to_str().unwrap().as_bytes();
         let path = CString::new(path).unwrap();
