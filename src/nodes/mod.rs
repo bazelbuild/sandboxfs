@@ -34,7 +34,7 @@ impl KernelError {
 
     /// Obtains the errno code contained in this error, which can be fed back into the kernel.
     pub fn errno(&self) -> i32 {
-        return self.errno;
+        self.errno
     }
 }
 

@@ -40,7 +40,7 @@ fn parse_mappings<T: AsRef<str>, U: IntoIterator<Item=T>>(args: U)
     for arg in args {
         let arg = arg.as_ref();
 
-        let fields: Vec<&str> = arg.split(":").collect();
+        let fields: Vec<&str> = arg.split(':').collect();
         if fields.len() != 3 {
             let message = format!("bad mapping {}: expected three colon-separated fields", arg);
             return Err(UsageError { message });

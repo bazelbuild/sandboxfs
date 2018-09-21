@@ -56,7 +56,7 @@ impl Mapping {
     pub fn new(path: PathBuf, underlying_path: PathBuf, writable: bool)
         -> Result<Mapping, PathNotAbsoluteError> {
         if !path.is_absolute() {
-            return Err(PathNotAbsoluteError { path: path });
+            return Err(PathNotAbsoluteError { path });
         }
         if !underlying_path.is_absolute() {
             return Err(PathNotAbsoluteError { path: underlying_path });
@@ -149,7 +149,7 @@ impl fuse::Filesystem for SandboxFS {
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
-pub fn mount(mount_point: &Path, mappings: &Vec<Mapping>) -> io::Result<()> {
+pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> io::Result<()> {
     let options = ["-o", "ro", "-o", "fsname=sandboxfs"]
         .iter()
         .map(|o| o.as_ref())

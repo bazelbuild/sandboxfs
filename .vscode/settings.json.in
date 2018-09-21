@@ -25,6 +25,9 @@
   "go.toolsGopath": "__TOOLS_GOPATH__",
   "go.useLanguageServer": true,
 
+  "rust.cfg_test": true,
+  "rust.clippy_preference": "on",
+
   "[go]": {
     "editor.insertSpaces": false,
     "editor.rulers": [100],

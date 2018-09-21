@@ -46,6 +46,7 @@ impl Dir {
     pub fn new_root(time: Timespec, uid: u32, gid: u32) -> Arc<Node> {
         let inode = fuse::FUSE_ROOT_ID;
 
+        #[cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
         let attr = fuse::FileAttr {
             ino: inode,
             kind: fuse::FileType::Directory,
@@ -79,11 +80,11 @@ impl Node for Dir {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let state = self.state.lock().unwrap();
-        Ok(state.attr.clone())
+        Ok(state.attr)
     }
 
     fn lookup(&self, _name: &OsStr) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
-        return Err(KernelError::from_errno(libc::ENOENT));
+        Err(KernelError::from_errno(libc::ENOENT))
     }
 
     fn readdir(&self, reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
