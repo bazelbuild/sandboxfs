@@ -215,7 +215,7 @@ mod tests {
         let path = dir.path().join("entry");
         create_entry(&path);
         let fs_type = fs::symlink_metadata(&path).unwrap().file_type();
-        assert_eq!(exp_type, filetype_fs_to_fuse(&path, &fs_type));
+        assert_eq!(exp_type, filetype_fs_to_fuse(&path, fs_type));
     }
 
     #[test]
