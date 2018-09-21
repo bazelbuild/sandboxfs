@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex};
 use time::Timespec;
 
 mod nodes;
+#[cfg(test)] mod testutils;
 
 // TODO(jmmv): Make configurable via a flag and store inside SandboxFS.
 pub const TTL: Timespec = Timespec { sec: 60, nsec: 0 };

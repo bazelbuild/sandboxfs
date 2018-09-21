@@ -152,9 +152,9 @@ mod tests {
     use std::ffi::CString;
     use std::fs::File;
     use std::io::Write;
-    use std::os::unix;
     use std::time::Duration;
     use tempdir::TempDir;
+    use testutils;
 
     #[test]
     fn test_system_time_to_timespec_ok() {
@@ -180,21 +180,6 @@ mod tests {
         assert_eq!(BAD_TIME, timespec);
     }
 
-    /// Creates a block or character device and enforces that it is created successfully.
-    fn mkdev(path: &Path, type_mask: libc::mode_t, dev: libc::dev_t) {
-        assert!(type_mask == libc::S_IFBLK || type_mask == libc::S_IFCHR);
-        let path = path.as_os_str().to_str().unwrap().as_bytes();
-        let path = CString::new(path).unwrap();
-        assert_eq!(0, unsafe { libc::mknod(path.as_ptr(), 0o444 | type_mask, dev) });
-    }
-
-    /// Creates a named pipe and enforces that it is created successfully.
-    fn mkfifo(path: &Path) {
-        let path = path.as_os_str().to_str().unwrap().as_bytes();
-        let path = CString::new(path).unwrap();
-        assert_eq!(0, unsafe { libc::mkfifo(path.as_ptr(), 0o444) });
-    }
-
     /// Sets the atime and mtime of a file to the given values.
     fn utimes(path: &Path, atime: &Timespec, mtime: &Timespec) {
         let times = [
@@ -214,70 +199,13 @@ mod tests {
         assert_eq!(0, unsafe { libc::utimes(path.as_ptr(), &times[0]) });
     }
 
-    /// Runs a test for `filetype_fs_to_fuse_test` for a single file type.
-    ///
-    /// `exp_type` is the expected return value of the function call, and `create_entry` is a
-    /// lambda that should create a file of the desired type in the path given to it.
-    fn do_filetype_fs_to_fuse_test<T: Fn(&Path) -> ()>(exp_type: fuse::FileType, create_entry: T) {
-        let dir = TempDir::new("test").unwrap();
-        let path = dir.path().join("entry");
-        create_entry(&path);
-        let fs_type = fs::symlink_metadata(&path).unwrap().file_type();
-        assert_eq!(exp_type, filetype_fs_to_fuse(&path, fs_type));
-    }
-
     #[test]
-    fn test_filetype_fs_to_fuse_blockdevice() {
-        let uid = unsafe { libc::getuid() } as u32;
-        if uid != 0 {
-            warn!("Not running as root; cannot create a block device");
-            return;
+    fn test_filetype_fs_to_fuse() {
+        let files = testutils::AllFileTypes::new();
+        for (exp_type, path) in files.entries {
+            let fs_type = fs::symlink_metadata(&path).unwrap().file_type();
+            assert_eq!(exp_type, filetype_fs_to_fuse(&path, fs_type));
         }
-
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::BlockDevice, |path| { mkdev(&path, libc::S_IFBLK, 50); });
-    }
-
-    #[test]
-    fn test_filetype_fs_to_fuse_chardevice() {
-        let uid = unsafe { libc::getuid() } as u32;
-        if uid != 0 {
-            warn!("Not running as root; cannot create a char device");
-            return;
-        }
-
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::CharDevice, |path| { mkdev(&path, libc::S_IFCHR, 50); });
-    }
-
-    #[test]
-    fn test_filetype_fs_to_fuse_directory() {
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::Directory, |path| { fs::create_dir(&path).unwrap(); });
-    }
-
-    #[test]
-    fn test_filetype_fs_to_fuse_namedpipe() {
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::NamedPipe, |path| { mkfifo(&path); });
-    }
-
-    #[test]
-    fn test_filetype_fs_to_fuse_regular() {
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::RegularFile, |path| { File::create(path).unwrap(); });
-    }
-
-    #[test]
-    fn test_filetype_fs_to_fuse_socket() {
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::Socket, |path| { unix::net::UnixListener::bind(&path).unwrap(); });
-    }
-
-    #[test]
-    fn test_filetype_fs_to_fuse_symlink() {
-        do_filetype_fs_to_fuse_test(
-            fuse::FileType::Symlink, |path| { unix::fs::symlink("irrelevant", &path).unwrap(); });
     }
 
     #[test]
