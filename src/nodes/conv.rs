@@ -58,7 +58,7 @@ fn system_time_to_timespec(path: &Path, name: &str, time: &io::Result<SystemTime
 /// If the given file type cannot be mapped to a FUSE file type (because we don't know about that
 /// type or, most likely, because the file type is bogus), logs a warning and returns a regular
 /// file type with the assumption that most operations should work on it.
-fn filetype_fs_to_fuse(path: &Path, fs_type: &fs::FileType) -> fuse::FileType {
+fn filetype_fs_to_fuse(path: &Path, fs_type: fs::FileType) -> fuse::FileType {
     if fs_type.is_block_device() {
         fuse::FileType::BlockDevice
     } else if fs_type.is_char_device() {
@@ -87,6 +87,7 @@ fn filetype_fs_to_fuse(path: &Path, fs_type: &fs::FileType) -> fuse::FileType {
 ///
 /// Any errors encountered along the conversion process are logged and the corresponding field is
 /// replaced by a reasonable value that should work.  In other words: all errors are swallowed.
+#[cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
 pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::FileAttr {
     let nlink = if attr.is_dir() {
         2  // "." entry plus whichever initial named node points at this.
@@ -108,7 +109,7 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
 
     let perm = match attr.permissions().mode() {
         // TODO(https://github.com/rust-lang/rust/issues/51577): Drop :: prefix.
-        mode if mode > ::std::u16::MAX as u32 => {
+        mode if mode > u32::from(::std::u16::MAX) => {
             warn!("File system returned mode {} for {:?}, which is too large; set to 0400",
                 mode, path);
             0o400
@@ -118,7 +119,7 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
 
     let rdev = match attr.rdev() {
         // TODO(https://github.com/rust-lang/rust/issues/51577): Drop :: prefix.
-        rdev if rdev > ::std::u32::MAX as u64 => {
+        rdev if rdev > u64::from(::std::u32::MAX) => {
             warn!("File system returned rdev {} for {:?}, which is too large; set to 0",
                 rdev, path);
             0
@@ -128,7 +129,7 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
 
     fuse::FileAttr {
         ino: inode,
-        kind: filetype_fs_to_fuse(path, &attr.file_type()),
+        kind: filetype_fs_to_fuse(path, attr.file_type()),
         nlink: nlink,
         size: len,
         blocks: 0, // TODO(jmmv): Reevaluate what blocks should be.

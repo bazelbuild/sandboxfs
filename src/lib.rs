@@ -76,9 +76,9 @@ struct SandboxFS {
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn new(mappings: &Vec<Mapping>) -> io::Result<SandboxFS> {
+    fn new(mappings: &[Mapping]) -> io::Result<SandboxFS> {
         let root = {
-            if mappings.len() == 0 {
+            if mappings.is_empty() {
                 let now = time::get_time();
                 let uid = unsafe { libc::getuid() } as u32;
                 let gid = unsafe { libc::getgid() } as u32;
