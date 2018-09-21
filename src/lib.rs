@@ -16,10 +16,12 @@
 extern crate fuse;
 extern crate libc;
 #[macro_use] extern crate log;
+#[cfg(test)] extern crate tempdir;
 extern crate time;
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::result::Result;
@@ -74,19 +76,36 @@ struct SandboxFS {
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn new() -> SandboxFS {
+    fn new(mappings: &[Mapping]) -> io::Result<SandboxFS> {
         let root = {
-            let now = time::get_time();
-            let uid = unsafe { libc::getuid() } as u32;
-            let gid = unsafe { libc::getgid() } as u32;
-            nodes::Dir::new_root(now, uid, gid)
+            if mappings.is_empty() {
+                let now = time::get_time();
+                let uid = unsafe { libc::getuid() } as u32;
+                let gid = unsafe { libc::getgid() } as u32;
+                nodes::Dir::new_root(now, uid, gid)
+            } else if mappings.len() == 1 {
+                if mappings[0].path != Path::new("/") {
+                    panic!("Unimplemented; only support a single mapping for the root directory");
+                }
+                let fs_attr = fs::symlink_metadata(&mappings[0].underlying_path)?;
+                if !fs_attr.is_dir() {
+                    warn!("Path {:?} is not a directory; got {:?}", &mappings[0].underlying_path,
+                        &fs_attr);
+                    return Err(io::Error::from_raw_os_error(libc::EIO));
+                }
+                nodes::Dir::new_mapped(fuse::FUSE_ROOT_ID, &mappings[0].underlying_path, &fs_attr)
+            } else {
+                panic!("Unimplemented; only support zero or one mappings so far");
+            }
         };
 
         let mut nodes = HashMap::new();
+        assert_eq!(fuse::FUSE_ROOT_ID, root.inode());
         nodes.insert(root.inode(), root);
-        SandboxFS {
+
+        Ok(SandboxFS {
             nodes: Arc::from(Mutex::from(nodes)),
-        }
+        })
     }
 
     /// Gets a node given its `inode`.
@@ -154,11 +173,7 @@ pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> io::Result<()> {
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-
-    // TODO(jmmv): Handle the list of mappings by passing it into the file system.
-    let _mappings = mappings;
-
-    let fs = SandboxFS::new();
+    let fs = SandboxFS::new(mappings)?;
     info!("Mounting file system onto {:?}", mount_point);
     fuse::mount(fs, &mount_point, &options)
         .map_err(|e| io::Error::new(e.kind(), format!("mount on {:?} failed: {}", mount_point, e)))

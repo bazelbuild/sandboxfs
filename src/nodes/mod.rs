@@ -13,9 +13,12 @@
 // under the License.
 
 use fuse;
+use libc;
 use std::ffi::OsStr;
+use std::io;
 use std::sync::Arc;
 
+mod conv;
 mod dir;
 pub use self::dir::Dir;
 
@@ -35,6 +38,18 @@ impl KernelError {
     /// Obtains the errno code contained in this error, which can be fed back into the kernel.
     pub fn errno(&self) -> i32 {
         self.errno
+    }
+}
+
+impl From<io::Error> for KernelError {
+    fn from(e: io::Error) -> Self {
+        match e.raw_os_error() {
+            Some(errno) => KernelError::from_errno(errno),
+            None => {
+                warn!("Got io::Error without an errno; propagating as EIO: {}", e);
+                KernelError::from_errno(libc::EIO)
+            },
+        }
     }
 }
 
