@@ -280,27 +280,6 @@ mod tests {
             fuse::FileType::Symlink, |path| { unix::fs::symlink("irrelevant", &path).unwrap(); });
     }
 
-    /// Asserts that two FUSE file attributes are equal.
-    ///
-    /// TODO(jmmv): Upstream an Eq implementation for fuse::Fileattr so that this becomes more
-    /// reliable and can provide nicer diagnostics on differences.
-    fn assert_fileattrs_eq(attr1: &fuse::FileAttr, attr2: &fuse::FileAttr) {
-        assert_eq!(attr1.ino, attr2.ino);
-        assert_eq!(attr1.kind, attr2.kind);
-        assert_eq!(attr1.nlink, attr2.nlink);
-        assert_eq!(attr1.size, attr2.size);
-        assert_eq!(attr1.blocks, attr2.blocks);
-        assert_eq!(attr1.atime, attr2.atime);
-        assert_eq!(attr1.mtime, attr2.mtime);
-        assert_eq!(attr1.ctime, attr2.ctime);
-        assert_eq!(attr1.crtime, attr2.crtime);
-        assert_eq!(attr1.perm, attr2.perm);
-        assert_eq!(attr1.uid, attr2.uid);
-        assert_eq!(attr1.gid, attr2.gid);
-        assert_eq!(attr1.rdev, attr2.rdev);
-        assert_eq!(attr1.flags, attr2.flags);
-    }
-
     #[test]
     fn test_attr_fs_to_fuse_directory() {
         let dir = TempDir::new("test").unwrap();
@@ -336,7 +315,7 @@ mod tests {
         // modified and may not be queryable, so stub them out.
         attr.ctime = BAD_TIME;
         attr.crtime = BAD_TIME;
-        assert_fileattrs_eq(&exp_attr, &attr);
+        assert_eq!(&exp_attr, &attr);
     }
 
     #[test]
@@ -376,6 +355,6 @@ mod tests {
         // modified and may not be queryable, so stub them out.
         attr.ctime = BAD_TIME;
         attr.crtime = BAD_TIME;
-        assert_fileattrs_eq(&exp_attr, &attr);
+        assert_eq!(&exp_attr, &attr);
     }
 }
