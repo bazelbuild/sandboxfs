@@ -15,28 +15,12 @@
 #![cfg(test)]
 
 use fuse;
-use libc;
+use nix::{sys, unistd};
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::fs;
 use std::os::unix;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tempdir::TempDir;
-
-/// Creates a block or character device and enforces that it is created successfully.
-fn mkdev(path: &Path, type_mask: libc::mode_t, dev: libc::dev_t) {
-    assert!(type_mask == libc::S_IFBLK || type_mask == libc::S_IFCHR);
-    let path = path.as_os_str().to_str().unwrap().as_bytes();
-    let path = CString::new(path).unwrap();
-    assert_eq!(0, unsafe { libc::mknod(path.as_ptr(), 0o444 | type_mask, dev) });
-}
-
-/// Creates a named pipe and enforces that it is created successfully.
-fn mkfifo(path: &Path) {
-    let path = path.as_os_str().to_str().unwrap().as_bytes();
-    let path = CString::new(path).unwrap();
-    assert_eq!(0, unsafe { libc::mkfifo(path.as_ptr(), 0o444) });
-}
 
 /// Holds a temporary directory and files of all possible kinds within it.
 ///
@@ -59,13 +43,15 @@ impl AllFileTypes {
 
         let mut entries: HashMap<fuse::FileType, PathBuf> = HashMap::new();
 
-        if unsafe { libc::getuid() } == 0 {
+        if unistd::getuid().is_root() {
             let block_device = root.path().join("block_device");
-            mkdev(&block_device, libc::S_IFBLK, 50);
+            sys::stat::mknod(
+                &block_device, sys::stat::SFlag::S_IFBLK, sys::stat::Mode::S_IRUSR, 50).unwrap();
             entries.insert(fuse::FileType::BlockDevice, block_device);
 
             let char_device = root.path().join("char_device");
-            mkdev(&char_device, libc::S_IFCHR, 50);
+            sys::stat::mknod(
+                &char_device, sys::stat::SFlag::S_IFCHR, sys::stat::Mode::S_IRUSR, 50).unwrap();
             entries.insert(fuse::FileType::CharDevice, char_device);
         } else {
             warn!("Not running as root; cannot create block/char devices");
@@ -76,7 +62,7 @@ impl AllFileTypes {
         entries.insert(fuse::FileType::Directory, directory);
 
         let named_pipe = root.path().join("named_pipe");
-        mkfifo(&named_pipe);
+        unistd::mkfifo(&named_pipe, sys::stat::Mode::S_IRUSR).unwrap();
         entries.insert(fuse::FileType::NamedPipe, named_pipe);
 
         let regular = root.path().join("regular");
