@@ -15,9 +15,11 @@
 extern crate fuse;
 extern crate time;
 
+use {Cache, IdGenerator};
 use nix::{errno, unistd};
 use self::time::Timespec;
-use std::ffi::OsStr;
+use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -38,6 +40,7 @@ struct MutableDir {
     parent: u64,
     underlying_path: Option<PathBuf>,
     attr: fuse::FileAttr,
+    children: HashMap<OsString, Arc<Node>>,
 }
 
 impl Dir {
@@ -71,7 +74,8 @@ impl Dir {
         let state = MutableDir {
             parent: inode,
             underlying_path: None,
-            attr,
+            attr: attr,
+            children: HashMap::new(),
         };
 
         Arc::new(Dir {
@@ -100,7 +104,8 @@ impl Dir {
         let state = MutableDir {
             parent: inode,
             underlying_path: Some(PathBuf::from(underlying_path)),
-            attr,
+            attr: attr,
+            children: HashMap::new(),
         };
 
         Arc::new(Dir { inode, writable, state: Mutex::from(state) })
@@ -138,15 +143,60 @@ impl Node for Dir {
         Ok(state.attr)
     }
 
-    fn lookup(&self, _name: &OsStr) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
-        Err(KernelError::from_errno(errno::Errno::ENOENT))
+    fn lookup(&self, name: &OsStr, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+
+        if let Some(node) = state.children.get(name) {
+            let refreshed_attr = node.getattr()?;
+            return Ok((node.clone(), refreshed_attr))
+        }
+
+        let (child, attr) = {
+            let path = match state.underlying_path.as_ref() {
+                Some(underlying_path) => underlying_path.join(name),
+                None => return Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            };
+            let fs_attr = fs::symlink_metadata(&path)?;
+            let node = cache.get_or_create(ids, &path, &fs_attr, self.writable);
+            let attr = conv::attr_fs_to_fuse(path.as_path(), node.inode(), &fs_attr);
+            (node, attr)
+        };
+        state.children.insert(name.to_os_string(), child.clone());
+        Ok((child, attr))
     }
 
-    fn readdir(&self, reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
-        let state = self.state.lock().unwrap();
+    fn readdir(&self, ids: &IdGenerator, cache: &Cache, reply: &mut fuse::ReplyDirectory)
+        -> NodeResult<()> {
+        let mut state = self.state.lock().unwrap();
 
         reply.add(self.inode, 0, fuse::FileType::Directory, ".");
         reply.add(state.parent, 1, fuse::FileType::Directory, "..");
+        let mut pos = 2;
+
+        // TODO(jmmv): Handle user-provided mappings before underlying entries.
+
+        if state.underlying_path.as_ref().is_none() {
+            return Ok(());
+        }
+
+        let entries = fs::read_dir(state.underlying_path.as_ref().unwrap())?;
+        for entry in entries {
+            let entry = entry?;
+            let name = entry.file_name();
+            let fs_attr = entry.metadata()?;
+
+            let path = state.underlying_path.as_ref().unwrap().join(&name);
+            let child = cache.get_or_create(ids, &path, &fs_attr, self.writable);
+
+            reply.add(child.inode(), pos,
+                conv::filetype_fs_to_fuse(&path, fs_attr.file_type()), &name);
+            // Do the insertion into state.children after calling reply.add() to be able to move
+            // the name into the key without having to copy it again.
+            state.children.insert(name, child.clone());
+
+            pos += 1;
+        }
         Ok(())
     }
 }
