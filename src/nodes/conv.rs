@@ -58,7 +58,7 @@ fn system_time_to_timespec(path: &Path, name: &str, time: &io::Result<SystemTime
 /// If the given file type cannot be mapped to a FUSE file type (because we don't know about that
 /// type or, most likely, because the file type is bogus), logs a warning and returns a regular
 /// file type with the assumption that most operations should work on it.
-fn filetype_fs_to_fuse(path: &Path, fs_type: fs::FileType) -> fuse::FileType {
+pub fn filetype_fs_to_fuse(path: &Path, fs_type: fs::FileType) -> fuse::FileType {
     if fs_type.is_block_device() {
         fuse::FileType::BlockDevice
     } else if fs_type.is_char_device() {

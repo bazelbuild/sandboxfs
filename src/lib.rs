@@ -170,8 +170,14 @@ impl Cache {
 
 /// FUSE file system implementation of sandboxfs.
 struct SandboxFS {
+    /// Monotonically-increasing generator of identifiers for this file system instance.
+    ids: IdGenerator,
+
     /// Mapping of inode numbers to in-memory nodes that tracks all files known by sandboxfs.
     nodes: Arc<Mutex<HashMap<u64, Arc<nodes::Node>>>>,
+
+    /// Cache of sandboxfs nodes indexed by their underlying path.
+    cache: Arc<Cache>,
 }
 
 impl SandboxFS {
@@ -207,8 +213,11 @@ impl SandboxFS {
         assert_eq!(fuse::FUSE_ROOT_ID, root.inode());
         nodes.insert(root.inode(), root);
 
+        #[cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
         Ok(SandboxFS {
+            ids: ids,
             nodes: Arc::from(Mutex::from(nodes)),
+            cache: Arc::from(cache),
         })
     }
 
@@ -238,7 +247,7 @@ impl fuse::Filesystem for SandboxFS {
 
     fn lookup(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
-        match dir_node.lookup(name) {
+        match dir_node.lookup(name, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 {
                     let mut nodes = self.nodes.lock().unwrap();
@@ -256,7 +265,7 @@ impl fuse::Filesystem for SandboxFS {
                mut reply: fuse::ReplyDirectory) {
         if offset == 0 {
             let node = self.find_node(inode);
-            match node.readdir(&mut reply) {
+            match node.readdir(&self.ids, &self.cache, &mut reply) {
                 Ok(()) => reply.ok(),
                 Err(e) => reply.error(e.errno()),
             }
