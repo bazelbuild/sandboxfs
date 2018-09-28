@@ -83,7 +83,7 @@ impl IdGenerator {
 
     /// Obtains a new identifier.
     pub fn next(&self) -> u64 {
-        let id = self.last_id.fetch_add(1, Ordering::SeqCst);
+        let id = self.last_id.fetch_add(1, Ordering::AcqRel);
         // TODO(https://github.com/rust-lang/rust/issues/51577): Drop :: prefix.
         if id >= ::std::u64::MAX as usize {
             panic!("Ran out of identifiers");
