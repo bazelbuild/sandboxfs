@@ -90,7 +90,11 @@ pub trait Node {
     ///
     /// The attributes are returned to avoid having to relock the node on the caller side in order
     /// to supply those attributes to the kernel.
-    fn lookup(&self, _name: &OsStr) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when lookup discovers an underlying node that was not yet known.
+    fn lookup(&self, _name: &OsStr, _ids: &super::IdGenerator, _cache: &super::Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
         panic!("Not implemented");
     }
 
@@ -98,7 +102,11 @@ pub trait Node {
     ///
     /// It is the responsibility of the caller to invoke `reply.ok()` on the reply object.  This is
     /// for consistency with the handling of any errors returned by this function.
-    fn readdir(&self, _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when readdir discovers an underlying node that was not yet known.
+    fn readdir(&self, _ids: &super::IdGenerator, _cache: &super::Cache,
+        _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
         panic!("Not implemented");
     }
 }

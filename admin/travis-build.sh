@@ -102,11 +102,9 @@ do_rust() {
     TestReadOnly_DirectoryStructure
     TestReadOnly_FileContents
     TestReadOnly_ReplaceUnderlyingFile
-    TestReadOnly_MoveUnderlyingDirectory
     TestReadOnly_TargetDoesNotExist
     TestReadOnly_RepeatedReadDirsWhileDirIsOpen
     TestReadOnly_Attributes
-    TestReadOnly_Access
     TestReadOnly_HardLinkCountsAreFixed
     TestReadWrite_CreateFile
     TestReadWrite_Remove
