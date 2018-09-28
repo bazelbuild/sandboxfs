@@ -29,6 +29,7 @@ use super::NodeResult;
 /// Representation of a directory node.
 pub struct Dir {
     inode: u64,
+    writable: bool,
     state: Mutex<MutableDir>,
 }
 
@@ -76,6 +77,7 @@ impl Dir {
 
         Arc::new(Dir {
             inode,
+            writable: false,
             state: Mutex::from(state),
         })
     }
@@ -89,7 +91,8 @@ impl Dir {
     /// `fs_attr` is an input parameter because, by the time we decide to instantiate a directory
     /// node (e.g. as we discover directory entries during readdir or lookup), we have already
     /// issued a stat on the underlying file system and we cannot re-do it for efficiency reasons.
-    pub fn new_mapped(inode: u64, underlying_path: &Path, fs_attr: &fs::Metadata) -> Arc<Node> {
+    pub fn new_mapped(inode: u64, underlying_path: &Path, fs_attr: &fs::Metadata, writable: bool)
+        -> Arc<Node> {
         if !fs_attr.is_dir() {
             panic!("Can only construct based on dirs");
         }
@@ -101,7 +104,7 @@ impl Dir {
             attr,
         };
 
-        Arc::new(Dir { inode, state: Mutex::from(state) })
+        Arc::new(Dir { inode, writable, state: Mutex::from(state) })
     }
 }
 
@@ -110,22 +113,18 @@ impl Node for Dir {
         self.inode
     }
 
+    fn writable(&self) -> bool {
+        self.writable
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
 
-        let new_attr = match state.underlying_path.as_ref() {
-            Some(path) => {
-                let fs_attr = fs::symlink_metadata(path)?;
-                if !fs_attr.is_dir() {
-                    warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
-                          state.underlying_path, &fs_attr);
-                    return Err(KernelError::from_errno(libc::EIO));
-                }
-                conv::attr_fs_to_fuse(path, self.inode, &fs_attr)
-            },
-            None => state.attr,
-        };
-        state.attr = new_attr;
+        let check_type = |t: fs::FileType| if t.is_dir() { Ok(()) } else { Err("directory") };
+        if let Some(attr) = super::get_new_attr(
+            self.inode, state.underlying_path.as_ref(), check_type)? {
+            state.attr = attr;
+        }
 
         Ok(state.attr)
     }
