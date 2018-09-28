@@ -26,6 +26,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::result::Result;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use time::Timespec;
 
 mod nodes;
@@ -71,25 +72,23 @@ impl Mapping {
 
 /// Monotonically-increasing generator of identifiers.
 pub struct IdGenerator {
-    last_id: Mutex<u64>,
+    last_id: AtomicUsize,
 }
 
 impl IdGenerator {
     /// Constructs a new generator that starts at the given value.
     fn new(start_value: u64) -> Self {
-        IdGenerator { last_id: Mutex::from(start_value) }
+        IdGenerator { last_id: AtomicUsize::new(start_value as usize) }
     }
 
     /// Obtains a new identifier.
     pub fn next(&self) -> u64 {
-        let mut last_id = self.last_id.lock().unwrap();
-        let id = *last_id;
+        let id = self.last_id.fetch_add(1, Ordering::SeqCst);
         // TODO(https://github.com/rust-lang/rust/issues/51577): Drop :: prefix.
-        if id == ::std::u64::MAX {
+        if id >= ::std::u64::MAX as usize {
             panic!("Ran out of identifiers");
         }
-        *last_id += 1;
-        id
+        id as u64
     }
 }
 
