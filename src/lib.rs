@@ -180,6 +180,9 @@ struct SandboxFS {
     /// Mapping of inode numbers to in-memory nodes that tracks all files known by sandboxfs.
     nodes: Arc<Mutex<HashMap<u64, Arc<nodes::Node>>>>,
 
+    /// Mapping of handle numbers to file open handles.
+    handles: Arc<Mutex<HashMap<u64, Arc<nodes::Handle>>>>,
+
     /// Cache of sandboxfs nodes indexed by their underlying path.
     cache: Arc<Cache>,
 }
@@ -218,6 +221,7 @@ impl SandboxFS {
         Ok(SandboxFS {
             ids: ids,
             nodes: Arc::from(Mutex::from(nodes)),
+            handles: Arc::from(Mutex::from(HashMap::new())),
             cache: Arc::from(cache),
         })
     }
@@ -230,10 +234,18 @@ impl SandboxFS {
     /// numbers we have previously told it about.
     fn find_node(&mut self, inode: u64) -> Arc<nodes::Node> {
         let nodes = self.nodes.lock().unwrap();
-        match nodes.get(&inode) {
-            Some(node) => node.clone(),
-            None => panic!("Kernel requested unknown inode {}", inode),
-        }
+        nodes.get(&inode).expect("Kernel requested unknown inode").clone()
+    }
+
+    /// Gets a handle given its identifier.
+    ///
+    /// We assume that the identifier is valid and that we have a known handle for it; otherwise,
+    /// we crash.  The rationale for this is that this function is always called on handles
+    /// requested by the kernel, and we can trust that the kernel will only ever ask us for handles
+    /// numbers we have previously told it about.
+    fn find_handle(&mut self, fh: u64) -> Arc<nodes::Handle> {
+        let handles = self.handles.lock().unwrap();
+        handles.get(&fh).expect("Kernel requested unknown handle").clone()
     }
 }
 
@@ -262,6 +274,32 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
+    fn open(&mut self, _req: &fuse::Request, inode: u64, flags: u32, reply: fuse::ReplyOpen) {
+        let node = self.find_node(inode);
+
+        match node.open(flags) {
+            Ok(handle) => {
+                let fh = self.ids.next();
+                {
+                    let mut handles = self.handles.lock().unwrap();
+                    handles.insert(fh, handle);
+                }
+                reply.opened(fh, flags);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
+    fn read(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, offset: i64, size: u32,
+        reply: fuse::ReplyData) {
+        let handle = self.find_handle(fh);
+
+        match handle.read(offset, size) {
+            Ok(data) => reply.data(&data),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
     fn readdir(&mut self, _req: &fuse::Request, inode: u64, _handle: u64, offset: i64,
                mut reply: fuse::ReplyDirectory) {
         if offset == 0 {
@@ -286,6 +324,15 @@ impl fuse::Filesystem for SandboxFS {
             Ok(target) => reply.data(target.as_os_str().as_bytes()),
             Err(e) => reply.error(e.errno_as_i32()),
         }
+    }
+
+    fn release(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, _flags: u32, _lock_owner: u64,
+        _flush: bool, reply: fuse::ReplyEmpty) {
+        {
+            let mut handles = self.handles.lock().unwrap();
+            handles.remove(&fh).expect("Kernel tried to release unknown handle");
+        }
+        reply.ok();
     }
 }
 

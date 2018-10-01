@@ -100,8 +100,6 @@ do_rust() {
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
     TestReadOnly_DirectoryStructure
-    TestReadOnly_FileContents
-    TestReadOnly_ReplaceUnderlyingFile
     TestReadOnly_TargetDoesNotExist
     TestReadOnly_RepeatedReadDirsWhileDirIsOpen
     TestReadOnly_Attributes

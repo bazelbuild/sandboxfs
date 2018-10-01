@@ -62,6 +62,12 @@ impl From<io::Error> for KernelError {
 /// Generic result type for of all node operations.
 pub type NodeResult<T> = Result<T, KernelError>;
 
+/// Abstract representation of an open file handle.
+pub trait Handle {
+    /// Reads `size` bytes from the open file starting at `offset`.
+    fn read(&self, offset: i64, size: u32) -> NodeResult<Vec<u8>>;
+}
+
 /// Abstract representation of a file system node.
 ///
 /// Due to the way nodes and node operations are represented in the kernel, this trait exposes a
@@ -94,6 +100,11 @@ pub trait Node {
     /// nodes, used when lookup discovers an underlying node that was not yet known.
     fn lookup(&self, _name: &OsStr, _ids: &super::IdGenerator, _cache: &super::Cache)
         -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented");
+    }
+
+    /// Opens the file and returns an open file handle for it.
+    fn open(&self, _flags: u32) -> NodeResult<Arc<Handle>> {
         panic!("Not implemented");
     }
 
