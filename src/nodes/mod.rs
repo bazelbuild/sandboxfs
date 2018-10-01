@@ -16,6 +16,7 @@ use fuse;
 use nix::errno::Errno;
 use std::ffi::OsStr;
 use std::io;
+use std::path::PathBuf;
 use std::result::Result;
 use std::sync::Arc;
 
@@ -107,6 +108,11 @@ pub trait Node {
     /// nodes, used when readdir discovers an underlying node that was not yet known.
     fn readdir(&self, _ids: &super::IdGenerator, _cache: &super::Cache,
         _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
+    /// Reads the target of a symlink.
+    fn readlink(&self) -> NodeResult<PathBuf> {
         panic!("Not implemented");
     }
 }

@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::result::Result;
 use std::sync::{Arc, Mutex};
@@ -276,6 +277,14 @@ impl fuse::Filesystem for SandboxFS {
             // completed the first read and is asking us for extra entries -- of which there will
             // be none.
             reply.ok();
+        }
+    }
+
+    fn readlink(&mut self, _req: &fuse::Request, inode: u64, reply: fuse::ReplyData) {
+        let node = self.find_node(inode);
+        match node.readlink() {
+            Ok(target) => reply.data(target.as_os_str().as_bytes()),
+            Err(e) => reply.error(e.errno_as_i32()),
         }
     }
 }

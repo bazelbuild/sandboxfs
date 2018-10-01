@@ -82,4 +82,10 @@ impl Node for Symlink {
 
         Ok(state.attr)
     }
+
+    fn readlink(&self) -> NodeResult<PathBuf> {
+        let state = self.state.lock().unwrap();
+
+        Ok(fs::read_link(&state.underlying_path)?)
+    }
 }
