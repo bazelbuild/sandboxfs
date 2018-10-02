@@ -119,10 +119,20 @@ impl Node for Dir {
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
 
-        let check_type = |t: fs::FileType| if t.is_dir() { Ok(()) } else { Err("directory") };
-        if let Some(attr) = super::get_new_attr(
-            self.inode, state.underlying_path.as_ref(), check_type)? {
-            state.attr = attr;
+        let new_attr = match state.underlying_path.as_ref() {
+            Some(path) => {
+                let fs_attr = fs::symlink_metadata(path)?;
+                if !fs_attr.is_dir() {
+                    warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
+                        path, fs_attr.file_type());
+                    return Err(KernelError::from_errno(errno::Errno::EIO));
+                }
+                Some(conv::attr_fs_to_fuse(path, self.inode, &fs_attr))
+            },
+            None => None,
+        };
+        if let Some(new_attr) = new_attr {
+            state.attr = new_attr;
         }
 
         Ok(state.attr)
