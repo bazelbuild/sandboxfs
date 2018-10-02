@@ -87,7 +87,6 @@ fn filetype_fs_to_fuse(path: &Path, fs_type: fs::FileType) -> fuse::FileType {
 ///
 /// Any errors encountered along the conversion process are logged and the corresponding field is
 /// replaced by a reasonable value that should work.  In other words: all errors are swallowed.
-#[cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
 pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::FileAttr {
     let nlink = if attr.is_dir() {
         2  // "." entry plus whichever initial named node points at this.

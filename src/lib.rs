@@ -12,6 +12,8 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+#![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
+
 #[macro_use] extern crate failure;
 extern crate fuse;
 #[macro_use] extern crate log;

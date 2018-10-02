@@ -51,7 +51,6 @@ impl Dir {
     pub fn new_root(time: Timespec, uid: unistd::Uid, gid: unistd::Gid) -> Arc<Node> {
         let inode = fuse::FUSE_ROOT_ID;
 
-        #[cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
         let attr = fuse::FileAttr {
             ino: inode,
             kind: fuse::FileType::Directory,
