@@ -13,7 +13,6 @@
 // under the License.
 
 extern crate fuse;
-extern crate libc;
 extern crate time;
 
 use std::fs;

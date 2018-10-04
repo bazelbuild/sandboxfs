@@ -13,9 +13,9 @@
 // under the License.
 
 extern crate fuse;
-extern crate libc;
 extern crate time;
 
+use nix::{errno, unistd};
 use self::time::Timespec;
 use std::ffi::OsStr;
 use std::fs;
@@ -48,7 +48,7 @@ impl Dir {
     /// `uid` and `gid` indicate the ownership details of the node.  These should always match the
     /// values of the currently-running process -- but not necessarily if we want to let users
     /// customize these via flags at some point.
-    pub fn new_root(time: Timespec, uid: u32, gid: u32) -> Arc<Node> {
+    pub fn new_root(time: Timespec, uid: unistd::Uid, gid: unistd::Gid) -> Arc<Node> {
         let inode = fuse::FUSE_ROOT_ID;
 
         #[cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
@@ -63,8 +63,8 @@ impl Dir {
             ctime: time,
             crtime: time,
             perm: 0o555 as u16,  // Scaffold directories cannot be mutated by the user.
-            uid: uid,
-            gid: gid,
+            uid: uid.as_raw(),
+            gid: gid.as_raw(),
             rdev: 0,
             flags: 0,
         };
@@ -130,7 +130,7 @@ impl Node for Dir {
     }
 
     fn lookup(&self, _name: &OsStr) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
-        Err(KernelError::from_errno(libc::ENOENT))
+        Err(KernelError::from_errno(errno::Errno::ENOENT))
     }
 
     fn readdir(&self, reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {

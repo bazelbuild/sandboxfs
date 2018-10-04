@@ -14,11 +14,12 @@
 
 #[macro_use] extern crate failure;
 extern crate fuse;
-extern crate libc;
 #[macro_use] extern crate log;
+extern crate nix;
 #[cfg(test)] extern crate tempdir;
 extern crate time;
 
+use nix::{errno, unistd};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -183,9 +184,7 @@ impl SandboxFS {
         let root = {
             if mappings.is_empty() {
                 let now = time::get_time();
-                let uid = unsafe { libc::getuid() } as u32;
-                let gid = unsafe { libc::getgid() } as u32;
-                nodes::Dir::new_root(now, uid, gid)
+                nodes::Dir::new_root(now, unistd::getuid(), unistd::getgid())
             } else if mappings.len() == 1 {
                 if mappings[0].path != Path::new("/") {
                     panic!("Unimplemented; only support a single mapping for the root directory");
@@ -194,7 +193,7 @@ impl SandboxFS {
                 if !fs_attr.is_dir() {
                     warn!("Path {:?} is not a directory; got {:?}", &mappings[0].underlying_path,
                         &fs_attr);
-                    return Err(io::Error::from_raw_os_error(libc::EIO));
+                    return Err(io::Error::from_raw_os_error(errno::Errno::EIO as i32));
                 }
                 cache.get_or_create(&ids, &mappings[0].underlying_path, &fs_attr,
                     mappings[0].writable)
@@ -232,7 +231,7 @@ impl fuse::Filesystem for SandboxFS {
         let node = self.find_node(inode);
         match node.getattr() {
             Ok(attr) => reply.attr(&TTL, &attr),
-            Err(e) => reply.error(e.errno()),
+            Err(e) => reply.error(e.errno_as_i32()),
         }
     }
 
@@ -248,7 +247,7 @@ impl fuse::Filesystem for SandboxFS {
                 }
                 reply.entry(&TTL, &attr, 0);
             },
-            Err(e) => reply.error(e.errno()),
+            Err(e) => reply.error(e.errno_as_i32()),
         }
     }
 
@@ -258,7 +257,7 @@ impl fuse::Filesystem for SandboxFS {
             let node = self.find_node(inode);
             match node.readdir(&mut reply) {
                 Ok(()) => reply.ok(),
-                Err(e) => reply.error(e.errno()),
+                Err(e) => reply.error(e.errno_as_i32()),
             }
         } else {
             assert!(offset > 0, "Do not know what to do with a negative offset");

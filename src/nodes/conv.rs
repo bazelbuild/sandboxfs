@@ -13,7 +13,7 @@
 // under the License.
 
 use fuse;
-use libc;
+use nix::sys;
 use std::fs;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -114,7 +114,7 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
                 mode, path);
             0o400
         },
-        mode => (mode as u16) & !(libc::S_IFMT as u16),
+        mode => (mode as u16) & !(sys::stat::SFlag::S_IFMT.bits() as u16),
     };
 
     let rdev = match attr.rdev() {
@@ -149,7 +149,8 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
 mod tests {
     use super::*;
 
-    use std::ffi::CString;
+    use nix::{errno, unistd};
+    use nix::sys::time::TimeValLike;
     use std::fs::File;
     use std::io::Write;
     use std::time::Duration;
@@ -176,27 +177,8 @@ mod tests {
     fn test_system_time_to_timespec_missing() {
         let timespec = system_time_to_timespec(
             &Path::new("irrelevant"), "irrelevant",
-            &Err(io::Error::from_raw_os_error(libc::ENOENT)));
+            &Err(io::Error::from_raw_os_error(errno::Errno::ENOENT as i32)));
         assert_eq!(BAD_TIME, timespec);
-    }
-
-    /// Sets the atime and mtime of a file to the given values.
-    fn utimes(path: &Path, atime: &Timespec, mtime: &Timespec) {
-        let times = [
-            // The explicit casts below are required to deal with platform size differences in the
-            // libc::timeval definition.
-            libc::timeval {
-                tv_sec: atime.sec as libc::time_t,
-                tv_usec: atime.nsec as libc::suseconds_t / 1000,
-            },
-            libc::timeval {
-                tv_sec: mtime.sec as libc::time_t,
-                tv_usec: mtime.nsec as libc::suseconds_t / 1000,
-            },
-        ];
-        let path = path.as_os_str().to_str().unwrap().as_bytes();
-        let path = CString::new(path).unwrap();
-        assert_eq!(0, unsafe { libc::utimes(path.as_ptr(), &times[0]) });
     }
 
     #[test]
@@ -217,9 +199,8 @@ mod tests {
         fs::create_dir(path.join("subdir2")).unwrap();
 
         fs::set_permissions(&path, fs::Permissions::from_mode(0o750)).unwrap();
-        let atime = Timespec { sec: 12345, nsec: 0 };
-        let mtime = Timespec { sec: 678, nsec: 0 };
-        utimes(&path, &atime, &mtime);
+        sys::stat::utimes(&path, &sys::time::TimeVal::seconds(12345),
+            &sys::time::TimeVal::seconds(678)).unwrap();
 
         let exp_attr = fuse::FileAttr {
             ino: 1234,  // Ensure underlying inode is not propagated.
@@ -227,13 +208,13 @@ mod tests {
             nlink: 2, // TODO(jmmv): Should account for subdirs.
             size: 2,
             blocks: 0,
-            atime: atime,
-            mtime: mtime,
+            atime: Timespec { sec: 12345, nsec: 0 },
+            mtime: Timespec { sec: 678, nsec: 0 },
             ctime: BAD_TIME,
             crtime: BAD_TIME,
             perm: 0o750,
-            uid: unsafe { libc::getuid() },
-            gid: unsafe { libc::getgid() },
+            uid: unistd::getuid().as_raw(),
+            gid: unistd::getgid().as_raw(),
             rdev: 0,
             flags: 0,
         };
@@ -257,9 +238,8 @@ mod tests {
         drop(file);
 
         fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
-        let atime = Timespec { sec: 54321, nsec: 0 };
-        let mtime = Timespec { sec: 876, nsec: 0 };
-        utimes(&path, &atime, &mtime);
+        sys::stat::utimes(&path, &sys::time::TimeVal::seconds(54321),
+            &sys::time::TimeVal::seconds(876)).unwrap();
 
         let exp_attr = fuse::FileAttr {
             ino: 42,  // Ensure underlying inode is not propagated.
@@ -267,13 +247,13 @@ mod tests {
             nlink: 1,
             size: content.len() as u64,
             blocks: 0,
-            atime: atime,
-            mtime: mtime,
+            atime: Timespec { sec: 54321, nsec: 0 },
+            mtime: Timespec { sec: 876, nsec: 0 },
             ctime: BAD_TIME,
             crtime: BAD_TIME,
             perm: 0o640,
-            uid: unsafe { libc::getuid() },
-            gid: unsafe { libc::getgid() },
+            uid: unistd::getuid().as_raw(),
+            gid: unistd::getgid().as_raw(),
             rdev: 0,
             flags: 0,
         };

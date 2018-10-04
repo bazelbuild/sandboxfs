@@ -13,7 +13,7 @@
 // under the License.
 
 use fuse;
-use libc;
+use nix::errno::Errno;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
@@ -33,28 +33,28 @@ pub use self::symlink::Symlink;
 #[derive(Debug, Fail)]
 #[fail(display = "errno={}", errno)]
 pub struct KernelError {
-    errno: i32,
+    errno: Errno,
 }
 
 impl KernelError {
     /// Constructs a new error given a raw errno code.
-    fn from_errno(errno: i32) -> KernelError {
+    fn from_errno(errno: Errno) -> KernelError {
         KernelError { errno }
     }
 
-    /// Obtains the errno code contained in this error, which can be fed back into the kernel.
-    pub fn errno(&self) -> i32 {
-        self.errno
+    /// Obtains the errno code contained in this error as an integer.
+    pub fn errno_as_i32(&self) -> i32 {
+        self.errno as i32
     }
 }
 
 impl From<io::Error> for KernelError {
     fn from(e: io::Error) -> Self {
         match e.raw_os_error() {
-            Some(errno) => KernelError::from_errno(errno),
+            Some(errno) => KernelError::from_errno(Errno::from_i32(errno)),
             None => {
                 warn!("Got io::Error without an errno; propagating as EIO: {}", e);
-                KernelError::from_errno(libc::EIO)
+                KernelError::from_errno(Errno::EIO)
             },
         }
     }
@@ -125,7 +125,7 @@ pub fn get_new_attr<T>(inode: u64, path: Option<&PathBuf>, check_type: T)
             if let Err(type_name) = check_type(fs_attr.file_type()) {
                 warn!("Path {:?} backing a {} node is no longer a {}; got {:?}",
                         path, type_name, type_name, fs_attr.file_type());
-                return Err(KernelError::from_errno(libc::EIO));
+                return Err(KernelError::from_errno(Errno::EIO));
             }
             Ok(Some(conv::attr_fs_to_fuse(path, inode, &fs_attr)))
         },
