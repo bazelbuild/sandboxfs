@@ -32,6 +32,20 @@ following command after cloning the tree:
 
     man ./cmd/sandboxfs/sandboxfs.1
 
+## Go and Rust
+
+The current implementation of sandboxfs (the one you get when you follow
+the installation instructions) is written in Go.  This is known to work
+well but has some performance problems caused by the way the Go FUSE
+bindings work (see e.g. https://github.com/bazil/fuse/issues/129).
+
+A prototype rewrite in Rust showed the potential of obtaining much better
+performance and also highlighted multiple concurrency issues in the
+current Go implementation.  As a result, a decision was made to reimplement
+sandboxfs in Rust for safety and performance reasons.  The `src`
+subdirectory contains the still-partial reimplementation, which will be a
+drop-in replacement for the Go one once complete.
+
 ## Contributing
 
 If you'd like to contribute to sandboxfs, there is plenty of work to be
