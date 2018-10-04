@@ -85,24 +85,14 @@ do_rust() {
     TestCli_Syntax
     TestDebug_FuseOpsInLog
     TestLayout_MountPointDoesNotExist
-    TestLayout_RootMustBeDirectory
-    TestLayout_TargetDoesNotExist
-    TestLayout_DuplicateMapping
-    TestLayout_TargetIsScaffoldDirectory
-    TestNesting_ScaffoldIntermediateComponents
-    TestNesting_ScaffoldIntermediateComponentsAreImmutable
     TestNesting_ReadWriteWithinReadOnly
     TestNesting_SameTarget
-    TestNesting_PreserveSymlinks
     TestOptions_Allow
     TestOptions_Syntax
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
-    TestReadOnly_DirectoryStructure
-    TestReadOnly_RepeatedReadDirsWhileDirIsOpen
     TestReadOnly_Attributes
-    TestReadOnly_HardLinkCountsAreFixed
     TestReadWrite_CreateFile
     TestReadWrite_Remove
     TestReadWrite_RewriteFile

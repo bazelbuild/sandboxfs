@@ -55,7 +55,12 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 	file := filepath.Join(tempDir, "file")
 	utils.MustWriteFile(t, file, 0644, "")
 
-	wantStderr := "unable to init sandbox: cannot map file " + file + " at root: must be a directory\n"
+	var wantStderr string
+	if utils.GetConfig().RustVariant {
+		wantStderr = "Failed to map root: .*" + file + ".* not a directory"
+	} else {
+		wantStderr = "unable to init sandbox: cannot map file " + file + " at root: must be a directory\n"
+	}
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+file, "irrelevant-mount-point")
 	if err != nil {
@@ -70,7 +75,12 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 }
 
 func TestLayout_TargetDoesNotExist(t *testing.T) {
-	wantStderr := "failed to stat /non-existent when mapping /.*\n"
+	var wantStderr string
+	if utils.GetConfig().RustVariant {
+		wantStderr = "Failed to map root: stat failed .*/non-existent"
+	} else {
+		wantStderr = "failed to stat /non-existent when mapping /.*\n"
+	}
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
 	if err != nil {
@@ -91,7 +101,12 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	wantStderr := "unable to init sandbox: cannot map /a/a: already mapped\n"
+	var wantStderr string
+	if utils.GetConfig().RustVariant {
+		wantStderr = "Failed to map .*\"/a/a\".* Already mapped\n"
+	} else {
+		wantStderr = "unable to init sandbox: cannot map /a/a: already mapped\n"
+	}
 
 	path1 := filepath.Join(tempDir, "1")
 	utils.MustWriteFile(t, path1, 0644, "")
@@ -120,7 +135,12 @@ func TestLayout_TargetIsScaffoldDirectory(t *testing.T) {
 	file := filepath.Join(tempDir, "file")
 	utils.MustWriteFile(t, file, 0644, "")
 
-	wantStderr := "unable to init sandbox: cannot map /a: already mapped\n"
+	var wantStderr string
+	if utils.GetConfig().RustVariant {
+		wantStderr = "Failed to map .*\"/a\".* Already mapped"
+	} else {
+		wantStderr = "unable to init sandbox: cannot map /a: already mapped\n"
+	}
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/a/b/c:"+tempDir, "--mapping=ro:/a:"+file, "irrelevant-mount-point")
 	if err != nil {

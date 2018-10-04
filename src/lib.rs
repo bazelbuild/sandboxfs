@@ -22,11 +22,9 @@ extern crate nix;
 extern crate time;
 
 use failure::{Error, ResultExt};
-use nix::{errno, unistd};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
-use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
@@ -96,6 +94,12 @@ impl Mapping {
         }
 
         Ok(Mapping { path, underlying_path, writable })
+    }
+
+    /// Returns true if this is a mapping for the root directory.
+    fn is_root(&self) -> bool {
+        let mut components = self.path.components();
+        components.next() == Some(Component::RootDir) && components.next().is_none()
     }
 }
 
@@ -212,34 +216,44 @@ struct SandboxFS {
     cache: Arc<Cache>,
 }
 
+/// Creates the initial node hierarchy based on a collection of `mappings`.
+fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
+    -> Result<Arc<nodes::Node>, Error> {
+    let (root, rest) = if mappings.is_empty() {
+        (nodes::Dir::new_empty(ids.next(), None), mappings)
+    } else {
+        let first = &mappings[0];
+        if first.is_root() {
+            let fs_attr = fs::symlink_metadata(&first.underlying_path)
+                .context(format!("Failed to map root: stat failed for {:?}",
+                                 &first.underlying_path))?;
+            ensure!(fs_attr.is_dir(), "Failed to map root: {:?} is not a directory",
+                    &first.underlying_path);
+            (nodes::Dir::new_mapped(ids.next(), &first.underlying_path, &fs_attr, first.writable),
+                &mappings[1..])
+        } else {
+            (nodes::Dir::new_empty(ids.next(), None), mappings)
+        }
+    };
+
+    for mapping in rest {
+        let components = mapping.path.components().collect::<Vec<_>>();
+        assert_eq!(Component::RootDir, components[0], "Paths in mappings are always absolute");
+        root.map(&components[1..], &mapping.underlying_path, mapping.writable, &ids, &cache)
+            .context(format!("Failed to map {:?}", &mapping.path))?;
+    }
+
+    Ok(root)
+}
+
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
     fn new(mappings: &[Mapping]) -> Result<SandboxFS, Error> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
         let cache = Cache::default();
 
-        let root = {
-            if mappings.is_empty() {
-                let now = time::get_time();
-                nodes::Dir::new_root(now, unistd::getuid(), unistd::getgid())
-            } else if mappings.len() == 1 {
-                if mappings[0].path != Path::new("/") {
-                    panic!("Unimplemented; only support a single mapping for the root directory");
-                }
-                let fs_attr = fs::symlink_metadata(&mappings[0].underlying_path)?;
-                if !fs_attr.is_dir() {
-                    warn!("Path {:?} is not a directory; got {:?}", &mappings[0].underlying_path,
-                        &fs_attr);
-                    return Err(io::Error::from_raw_os_error(errno::Errno::EIO as i32).into());
-                }
-                cache.get_or_create(&ids, &mappings[0].underlying_path, &fs_attr,
-                    mappings[0].writable)
-            } else {
-                panic!("Unimplemented; only support zero or one mappings so far");
-            }
-        };
-
         let mut nodes = HashMap::new();
+        let root = create_root(mappings, &ids, &cache)?;
         assert_eq!(fuse::FUSE_ROOT_ID, root.inode());
         nodes.insert(root.inode(), root);
 
@@ -412,6 +426,16 @@ mod tests {
     fn test_mapping_new_underlying_path_is_not_absolute() {
         let err = Mapping::new(PathBuf::from("/foo"), PathBuf::from("bar"), false).unwrap_err();
         assert_eq!(MappingError::PathNotAbsolute { path: PathBuf::from("bar") }, err);
+    }
+
+    #[test]
+    fn test_mapping_is_root() {
+        let irrelevant = PathBuf::from("/some/place");
+        assert!(Mapping::new(PathBuf::from("/"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(Mapping::new(PathBuf::from("///"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(Mapping::new(PathBuf::from("/./"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(!Mapping::new(PathBuf::from("/a"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(!Mapping::new(PathBuf::from("/a/b"), irrelevant.clone(), false).unwrap().is_root());
     }
 
     #[test]
