@@ -15,7 +15,6 @@
 use fuse;
 use nix::errno::Errno;
 use std::ffi::OsStr;
-use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::result::Result;
@@ -63,6 +62,12 @@ impl From<io::Error> for KernelError {
 /// Generic result type for of all node operations.
 pub type NodeResult<T> = Result<T, KernelError>;
 
+/// Abstract representation of an open file handle.
+pub trait Handle {
+    /// Reads `size` bytes from the open file starting at `offset`.
+    fn read(&self, offset: i64, size: u32) -> NodeResult<Vec<u8>>;
+}
+
 /// Abstract representation of a file system node.
 ///
 /// Due to the way nodes and node operations are represented in the kernel, this trait exposes a
@@ -90,45 +95,35 @@ pub trait Node {
     ///
     /// The attributes are returned to avoid having to relock the node on the caller side in order
     /// to supply those attributes to the kernel.
-    fn lookup(&self, _name: &OsStr) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when lookup discovers an underlying node that was not yet known.
+    fn lookup(&self, _name: &OsStr, _ids: &super::IdGenerator, _cache: &super::Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented");
+    }
+
+    /// Opens the file and returns an open file handle for it.
+    fn open(&self, _flags: u32) -> NodeResult<Arc<Handle>> {
         panic!("Not implemented");
     }
 
     /// Reads all directory entries into the given reply object.
     ///
-    /// It is the responsibility of the caller to invoke `reply.ok()` on the reply object.  This is
-    /// for consistency with the handling of any errors returned by this function.
-    fn readdir(&self, _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
+    /// While this takes a `fuse::ReplyDirectory` object as a parameter for efficiency reasons, it
+    /// is the responsibility of the caller to invoke `reply.ok()` and `reply.error()` on the same
+    /// reply object.  This is for consistency with the handling of any errors returned by this and
+    /// other functions.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when readdir discovers an underlying node that was not yet known.
+    fn readdir(&self, _ids: &super::IdGenerator, _cache: &super::Cache,
+        _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
         panic!("Not implemented");
     }
-}
 
-/// Computes the new attributes for a node.
-///
-/// This is a helper function for the implementation of `getattr` and, as such, its signature is
-/// tightly coupled to the needs of that function.
-///
-/// `inode` is the inode number that the node has within sandboxfs.  `path` is the underlying path
-/// that the node is mapped to, or none if it's not mapped.  `check_type` is a lambda that validates
-/// the file type we obtain from a stat operation and returns the user-facing name of the node type
-/// as an error on a mismatch.
-///
-/// Returns the new attributes if the ones in the node have to be updated, or none if there are no
-/// attributes to update.
-pub fn get_new_attr<T>(inode: u64, path: Option<&PathBuf>, check_type: T)
-    -> NodeResult<Option<fuse::FileAttr>>
-    where T: Fn(fs::FileType) -> Result<(), &'static str>
-{
-    match path {
-        Some(path) => {
-            let fs_attr = fs::symlink_metadata(path)?;
-            if let Err(type_name) = check_type(fs_attr.file_type()) {
-                warn!("Path {:?} backing a {} node is no longer a {}; got {:?}",
-                        path, type_name, type_name, fs_attr.file_type());
-                return Err(KernelError::from_errno(Errno::EIO));
-            }
-            Ok(Some(conv::attr_fs_to_fuse(path, inode, &fs_attr)))
-        },
-        None => Ok(None),
+    /// Reads the target of a symlink.
+    fn readlink(&self) -> NodeResult<PathBuf> {
+        panic!("Not implemented");
     }
 }

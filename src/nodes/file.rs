@@ -15,12 +15,21 @@
 extern crate fuse;
 extern crate time;
 
+use nix::{errno, fcntl};
+use nodes::{conv, Handle, KernelError, Node, NodeResult};
 use std::fs;
+use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use super::conv;
-use super::Node;
-use super::NodeResult;
+
+impl Handle for fs::File {
+    fn read(&self, offset: i64, size: u32) -> NodeResult<Vec<u8>> {
+        let mut buffer = vec![0; size as usize];
+        let n = self.read_at(&mut buffer[..size as usize], offset as u64)?;
+        buffer.truncate(n);
+        Ok(buffer)
+    }
+}
 
 /// Representation of a file node.
 ///
@@ -34,7 +43,7 @@ pub struct File {
 
 /// Holds the mutable data of a file node.
 struct MutableFile {
-    underlying_path: Option<PathBuf>,
+    underlying_path: PathBuf,
     attr: fuse::FileAttr,
 }
 
@@ -61,7 +70,7 @@ impl File {
         let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
 
         let state = MutableFile {
-            underlying_path: Some(PathBuf::from(underlying_path)),
+            underlying_path: PathBuf::from(underlying_path),
             attr,
         };
 
@@ -81,13 +90,35 @@ impl Node for File {
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
 
-        let check_type = |t: fs::FileType|
-            if File::supports_type(t) { Ok(()) } else { Err("non-directory / non-symlink") };
-        if let Some(attr) = super::get_new_attr(
-            self.inode, state.underlying_path.as_ref(), check_type)? {
-            state.attr = attr;
+        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
+        if !File::supports_type(fs_attr.file_type()) {
+            warn!("Path {:?} backing a file node is no longer a file; got {:?}",
+                &state.underlying_path, fs_attr.file_type());
+            return Err(KernelError::from_errno(errno::Errno::EIO));
         }
+        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, self.inode, &fs_attr);
 
         Ok(state.attr)
+    }
+
+    fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
+        let state = self.state.lock().unwrap();
+
+        let flags = flags as i32;
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        if flags & (fcntl::OFlag::O_WRONLY | fcntl::OFlag::O_RDWR).bits() != 0 {
+            if !self.writable {
+                return Err(KernelError::from_errno(errno::Errno::EACCES));
+            }
+            if flags & fcntl::OFlag::O_WRONLY.bits() != 0 {
+                options.read(false);
+            }
+            options.write(true);
+        }
+        options.custom_flags(flags);
+
+        let file = options.open(&state.underlying_path)?;
+        Ok(Arc::from(file))
     }
 }
