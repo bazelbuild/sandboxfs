@@ -148,7 +148,7 @@ do_rust() {
 
   local all=(
       $(go test -test.list=".*" github.com/bazelbuild/sandboxfs/integration \
-          -sandboxfs_binary=irrelevant | grep -v "^ok")
+          -sandboxfs_binary=irrelevant -rust_variant=true | grep -v "^ok")
   )
 
   # Compute the list of tests to run by comparing the full list of tests that
@@ -182,7 +182,8 @@ do_rust() {
     sudo -H "${rootenv[@]}" -s \
         go test -v -timeout=600s -test.run="^${t}$" \
         github.com/bazelbuild/sandboxfs/integration \
-        -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false
+        -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false \
+        -rust_variant=true
   done
 }
 
