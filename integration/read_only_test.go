@@ -134,21 +134,6 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 	}
 }
 
-func TestReadOnly_TargetDoesNotExist(t *testing.T) {
-	wantStderr := `failed to stat /non-existent when mapping /:`
-
-	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(stdout) > 0 {
-		t.Errorf("Got %s; want stdout to be empty", stdout)
-	}
-	if !utils.MatchesRegexp(wantStderr, stderr) {
-		t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
-	}
-}
-
 func TestReadOnly_RepeatedReadDirsWhileDirIsOpen(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=ro:/dir:%ROOT%/dir", "--mapping=ro:/scaffold/abc:%ROOT%/dir")
 	defer state.TearDown(t)

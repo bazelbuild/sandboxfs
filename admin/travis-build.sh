@@ -100,7 +100,6 @@ do_rust() {
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
     TestReadOnly_DirectoryStructure
-    TestReadOnly_TargetDoesNotExist
     TestReadOnly_RepeatedReadDirsWhileDirIsOpen
     TestReadOnly_Attributes
     TestReadOnly_HardLinkCountsAreFixed
