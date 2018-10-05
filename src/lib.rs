@@ -28,7 +28,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -40,12 +40,21 @@ mod nodes;
 // TODO(jmmv): Make configurable via a flag and store inside SandboxFS.
 pub const TTL: Timespec = Timespec { sec: 60, nsec: 0 };
 
-/// An error indicating that a path has to be absolute but isn't.
-#[derive(Debug, Fail)]
-#[fail(display = "path {:?} is not absolute", path)]
-pub struct PathNotAbsoluteError {
-    /// The path that caused this error.
-    pub path: PathBuf,
+/// An error indicating that a mapping specification (coming from the command line or from a
+/// reconfiguration operation) is invalid.
+#[derive(Debug, Eq, Fail, PartialEq)]
+pub enum MappingError {
+    /// A path was required to be absolute but wasn't.
+    #[fail(display = "path {:?} is not absolute", path)]
+    PathNotAbsolute {
+        path: PathBuf,
+    },
+
+    /// A path contains non-normalized components (like "..").
+    #[fail(display = "path {:?} is not normalized", path)]
+    PathNotNormalized {
+        path: PathBuf,
+    },
 }
 
 /// Mapping describes how an individual path within the sandbox is connected to an external path
@@ -56,19 +65,34 @@ pub struct Mapping {
     underlying_path: PathBuf,
     writable: bool,
 }
-
 impl Mapping {
     /// Creates a new mapping from the individual components.
     ///
     /// `path` is the inside the sandbox's mount point where the `underlying_path` is exposed.
-    /// Both must be absolute paths.
+    /// Both must be absolute paths.  `path` must also not contain dot-dot components, though it
+    /// may contain dot components and repeated path separators.
     pub fn new(path: PathBuf, underlying_path: PathBuf, writable: bool)
-        -> Result<Mapping, PathNotAbsoluteError> {
+        -> Result<Mapping, MappingError> {
         if !path.is_absolute() {
-            return Err(PathNotAbsoluteError { path });
+            return Err(MappingError::PathNotAbsolute { path });
         }
+        let is_normalized = {
+            let mut components = path.components();
+            assert_eq!(components.next(), Some(Component::RootDir), "Path expected to be absolute");
+            let is_normal: fn(&Component) -> bool = |c| match c {
+                Component::CurDir => panic!("Dot components ought to have been skipped"),
+                Component::Normal(_) => true,
+                Component::ParentDir | Component::Prefix(_) => false,
+                Component::RootDir => panic!("Root directory should have already been handled"),
+            };
+            components.skip_while(is_normal).next().is_none()
+        };
+        if !is_normalized {
+            return Err(MappingError::PathNotNormalized{ path });
+        }
+
         if !underlying_path.is_absolute() {
-            return Err(PathNotAbsoluteError { path: underlying_path });
+            return Err(MappingError::PathNotAbsolute { path: underlying_path });
         }
 
         Ok(Mapping { path, underlying_path, writable })
@@ -356,22 +380,38 @@ mod tests {
 
     #[test]
     fn test_mapping_new_ok() {
-        let mapping = Mapping::new(PathBuf::from("/foo"), PathBuf::from("/bar"), false).unwrap();
-        assert_eq!(Path::new("/foo"), mapping.path);
-        assert_eq!(Path::new("/bar"), mapping.underlying_path);
+        let mapping = Mapping::new(
+            PathBuf::from("/foo/.///bar"),  // Must be absolute and normalized.
+            PathBuf::from("/bar/./baz/../abc"),  // Must be absolute but needn't be normalized.
+            false).unwrap();
+        assert_eq!(PathBuf::from("/foo/bar"), mapping.path);
+        assert_eq!(PathBuf::from("/bar/baz/../abc"), mapping.underlying_path);
         assert!(!mapping.writable);
     }
 
     #[test]
-    fn test_mapping_new_bad_path() {
+    fn test_mapping_new_path_is_not_absolute() {
         let err = Mapping::new(PathBuf::from("foo"), PathBuf::from("/bar"), false).unwrap_err();
-        assert_eq!(Path::new("foo"), err.path);
+        assert_eq!(MappingError::PathNotAbsolute { path: PathBuf::from("foo") }, err);
     }
 
     #[test]
-    fn test_mapping_new_bad_underlying_path() {
+    fn test_mapping_new_path_is_not_normalized() {
+        let trailing_dotdot = PathBuf::from("/foo/..");
+        assert_eq!(
+            MappingError::PathNotNormalized { path: trailing_dotdot.clone() },
+            Mapping::new(trailing_dotdot, PathBuf::from("/bar"), false).unwrap_err());
+
+        let intermediate_dotdot = PathBuf::from("/foo/../bar/baz");
+        assert_eq!(
+            MappingError::PathNotNormalized { path: intermediate_dotdot.clone() },
+            Mapping::new(intermediate_dotdot, PathBuf::from("/bar"), true).unwrap_err());
+    }
+
+    #[test]
+    fn test_mapping_new_underlying_path_is_not_absolute() {
         let err = Mapping::new(PathBuf::from("/foo"), PathBuf::from("bar"), false).unwrap_err();
-        assert_eq!(Path::new("bar"), err.path);
+        assert_eq!(MappingError::PathNotAbsolute { path: PathBuf::from("bar") }, err);
     }
 
     #[test]
