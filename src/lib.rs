@@ -21,6 +21,7 @@ extern crate nix;
 #[cfg(test)] extern crate tempdir;
 extern crate time;
 
+use failure::{Error, ResultExt};
 use nix::{errno, unistd};
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -189,7 +190,7 @@ struct SandboxFS {
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn new(mappings: &[Mapping]) -> io::Result<SandboxFS> {
+    fn new(mappings: &[Mapping]) -> Result<SandboxFS, Error> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
         let cache = Cache::default();
 
@@ -205,7 +206,7 @@ impl SandboxFS {
                 if !fs_attr.is_dir() {
                     warn!("Path {:?} is not a directory; got {:?}", &mappings[0].underlying_path,
                         &fs_attr);
-                    return Err(io::Error::from_raw_os_error(errno::Errno::EIO as i32));
+                    return Err(Error::from(io::Error::from_raw_os_error(errno::Errno::EIO as i32)));
                 }
                 cache.get_or_create(&ids, &mappings[0].underlying_path, &fs_attr,
                     mappings[0].writable)
@@ -337,15 +338,15 @@ impl fuse::Filesystem for SandboxFS {
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
-pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> io::Result<()> {
+pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> Result<(), Error> {
     let options = ["-o", "ro", "-o", "fsname=sandboxfs"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
     let fs = SandboxFS::new(mappings)?;
     info!("Mounting file system onto {:?}", mount_point);
-    fuse::mount(fs, &mount_point, &options)
-        .map_err(|e| io::Error::new(e.kind(), format!("mount on {:?} failed: {}", mount_point, e)))
+    fuse::mount(fs, &mount_point, &options).context(format!("mount on {:?} failed", mount_point))?;
+    Ok(())
 }
 
 #[cfg(test)]
