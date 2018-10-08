@@ -17,16 +17,13 @@ extern crate time;
 
 use {Cache, IdGenerator};
 use nix::{errno, unistd};
-use self::time::Timespec;
+use nodes::{KernelError, Node, NodeResult, conv};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use super::conv;
-use super::KernelError;
-use super::Node;
-use super::NodeResult;
+use time::Timespec;
 
 /// Representation of a directory node.
 pub struct Dir {
