@@ -230,7 +230,7 @@ impl SandboxFS {
                 if !fs_attr.is_dir() {
                     warn!("Path {:?} is not a directory; got {:?}", &mappings[0].underlying_path,
                         &fs_attr);
-                    return Err(Error::from(io::Error::from_raw_os_error(errno::Errno::EIO as i32)));
+                    return Err(io::Error::from_raw_os_error(errno::Errno::EIO as i32).into());
                 }
                 cache.get_or_create(&ids, &mappings[0].underlying_path, &fs_attr,
                     mappings[0].writable)

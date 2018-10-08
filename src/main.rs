@@ -119,7 +119,7 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
     } else {
-        return Err(Error::from(UsageError { message: "invalid number of arguments".to_string() }));
+        return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
     sandboxfs::mount(Path::new(mount_point), &mappings)?;
