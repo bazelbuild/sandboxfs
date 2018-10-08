@@ -12,6 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+use {Cache, IdGenerator};
 use fuse;
 use nix::errno::Errno;
 use std::ffi::OsStr;
@@ -98,7 +99,7 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when lookup discovers an underlying node that was not yet known.
-    fn lookup(&self, _name: &OsStr, _ids: &super::IdGenerator, _cache: &super::Cache)
+    fn lookup(&self, _name: &OsStr, _ids: &IdGenerator, _cache: &Cache)
         -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
         panic!("Not implemented");
     }
@@ -117,8 +118,8 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when readdir discovers an underlying node that was not yet known.
-    fn readdir(&self, _ids: &super::IdGenerator, _cache: &super::Cache,
-        _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
+    fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _reply: &mut fuse::ReplyDirectory)
+        -> NodeResult<()> {
         panic!("Not implemented");
     }
 

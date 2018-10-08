@@ -162,8 +162,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use sandboxfs::Mapping;
     use super::*;
-    use super::sandboxfs::Mapping;
 
     #[test]
     fn test_parse_mappings_ok() {
