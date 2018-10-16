@@ -98,8 +98,7 @@ impl Mapping {
 
     /// Returns true if this is a mapping for the root directory.
     fn is_root(&self) -> bool {
-        let mut components = self.path.components();
-        components.next() == Some(Component::RootDir) && components.next().is_none()
+        self.path.parent().is_none()
     }
 }
 
@@ -219,8 +218,10 @@ struct SandboxFS {
 /// Creates the initial node hierarchy based on a collection of `mappings`.
 fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
     -> Result<Arc<nodes::Node>, Error> {
+    let now = time::get_time();
+
     let (root, rest) = if mappings.is_empty() {
-        (nodes::Dir::new_empty(ids.next(), None), mappings)
+        (nodes::Dir::new_empty(ids.next(), None, now), mappings)
     } else {
         let first = &mappings[0];
         if first.is_root() {
@@ -232,13 +233,14 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
             (nodes::Dir::new_mapped(ids.next(), &first.underlying_path, &fs_attr, first.writable),
                 &mappings[1..])
         } else {
-            (nodes::Dir::new_empty(ids.next(), None), mappings)
+            (nodes::Dir::new_empty(ids.next(), None, now), mappings)
         }
     };
 
     for mapping in rest {
         let components = mapping.path.components().collect::<Vec<_>>();
-        assert_eq!(Component::RootDir, components[0], "Paths in mappings are always absolute");
+        debug_assert_eq!(Component::RootDir, components[0],
+            "Paths in mappings are always absolute");
         root.map(&components[1..], &mapping.underlying_path, mapping.writable, &ids, &cache)
             .context(format!("Failed to map {:?}", &mapping.path))?;
     }

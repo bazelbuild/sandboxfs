@@ -30,8 +30,8 @@ use std::sync::{Arc, Mutex};
 ///
 /// This assumes that the input path is normalized and that the very first component is a normal
 /// component as defined by `Component::Normal`.
-fn split_components<'a>(components: &'a [Component]) -> (&'a OsStr, &'a [Component<'a>]) {
-    assert!(!components.is_empty());
+fn split_components<'a>(components: &'a [Component<'a>]) -> (&'a OsStr, &'a [Component<'a>]) {
+    debug_assert!(!components.is_empty());
     let name = match components[0] {
         Component::Normal(name) => name,
         _ => panic!("Input list of components is not normalized"),
@@ -63,11 +63,8 @@ struct MutableDir {
 impl Dir {
     /// Creates a new scaffold directory to represent an in-memory directory.
     ///
-    /// The directory's timestamps are all set to the current time, and the ownership is set to the
-    /// current user.
-    pub fn new_empty(inode: u64, parent: Option<&Node>) -> Arc<Node> {
-        let now = time::get_time();
-
+    /// The directory's timestamps are set to `now` and the ownership is set to the current user.
+    pub fn new_empty(inode: u64, parent: Option<&Node>, now: time::Timespec) -> Arc<Node> {
         let attr = fuse::FileAttr {
             ino: inode,
             kind: fuse::FileType::Directory,
@@ -133,32 +130,27 @@ impl Dir {
     ///
     /// This is purely a helper function for `map`.  As a result, the caller is responsible for
     /// inserting the new directory into the children of the current directory.
-    fn new_scaffold_child(&self, underlying_path: Option<&PathBuf>, name: &OsStr, ids: &IdGenerator)
-        -> Arc<Node> {
-        match underlying_path {
-            Some(path) => {
-                let child_path = path.join(name);
-                match fs::symlink_metadata(&child_path) {
-                    Ok(fs_attr) => {
-                        if fs_attr.is_dir() {
-                            Dir::new_mapped(ids.next(), &child_path, &fs_attr, self.writable)
-                        } else {
-                            info!("Mapping clobbers non-directory {} with an immutable directory",
-                                child_path.display());
-                            Dir::new_empty(ids.next(), Some(self))
-                        }
-                    },
-                    Err(e) => {
-                        if e.kind() != io::ErrorKind::NotFound {
-                            warn!("Mapping clobbers {} due to an IO error: {}",
-                                child_path.display(), e);
-                        }
-                        Dir::new_empty(ids.next(), Some(self))
-                    },
-                }
-            },
-            None => Dir::new_empty(ids.next(), Some(self)),
+    fn new_scaffold_child(&self, underlying_path: Option<&PathBuf>, name: &OsStr, ids: &IdGenerator,
+        now: time::Timespec) -> Arc<Node> {
+        if let Some(path) = underlying_path {
+            let child_path = path.join(name);
+            match fs::symlink_metadata(&child_path) {
+                Ok(fs_attr) => {
+                    if fs_attr.is_dir() {
+                        return Dir::new_mapped(ids.next(), &child_path, &fs_attr, self.writable);
+                    }
+
+                    info!("Mapping clobbers non-directory {} with an immutable directory",
+                        child_path.display());
+                },
+                Err(e) => {
+                    if e.kind() != io::ErrorKind::NotFound {
+                        warn!("Mapping clobbers {} due to an error: {}", child_path.display(), e);
+                    }
+                },
+            }
         }
+        Dir::new_empty(ids.next(), Some(self), now)
     }
 }
 
@@ -193,7 +185,7 @@ impl Node for Dir {
                 .context(format!("Stat failed for {:?}", underlying_path))?;
             cache.get_or_create(ids, underlying_path, &fs_attr, writable)
         } else {
-            self.new_scaffold_child(state.underlying_path.as_ref(), name, ids)
+            self.new_scaffold_child(state.underlying_path.as_ref(), name, ids, time::get_time())
         };
 
         let dirent = Dirent { node: child.clone(), explicit_mapping: true };
@@ -264,6 +256,10 @@ impl Node for Dir {
         reply.add(state.parent, 1, fuse::FileType::Directory, "..");
         let mut pos = 2;
 
+        // First, return the entries that correspond to explicit mappings performed by the user at
+        // either mount time or during a reconfiguration.  Those should clobber any on-disk
+        // contents that we discover later when we issue the readdir on the underlying directory,
+        // if any.
         for (name, dirent) in &state.children {
             if dirent.explicit_mapping {
                 reply.add(dirent.node.inode(), pos, dirent.node.file_type_cached(), name);
@@ -282,6 +278,8 @@ impl Node for Dir {
 
             if let Some(dirent) = state.children.get(&name) {
                 if dirent.explicit_mapping {
+                    // Found an on-disk entry that also corresponds to an explicit mapping by the
+                    // user.  Nothing to do: we already handled this case above.
                     continue;
                 }
             }
@@ -298,6 +296,11 @@ impl Node for Dir {
                 node: child.clone(),
                 explicit_mapping: false,
             };
+            // TODO(jmmv): We should remove stale entries at some point (possibly here), but the Go
+            // variant does not do this so any implications of this are not tested.  The reason this
+            // hasn't caused trouble yet is because: on readdir, we don't use any contents from
+            // state.children that correspond to unmapped entries, and any stale entries visited
+            // during lookup will result in an ENOENT.
             state.children.insert(name, dirent);
 
             pos += 1;
