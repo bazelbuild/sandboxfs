@@ -87,6 +87,11 @@ impl Node for File {
         self.writable
     }
 
+    fn file_type_cached(&self) -> fuse::FileType {
+        let state = self.state.lock().unwrap();
+        state.attr.kind
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
 

@@ -69,6 +69,10 @@ impl Node for Symlink {
         self.writable
     }
 
+    fn file_type_cached(&self) -> fuse::FileType {
+        fuse::FileType::Symlink
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
 

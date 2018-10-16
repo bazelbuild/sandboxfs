@@ -13,11 +13,12 @@
 // under the License.
 
 use {Cache, IdGenerator};
+use failure::Error;
 use fuse;
 use nix::errno::Errno;
 use std::ffi::OsStr;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::result::Result;
 use std::sync::Arc;
 
@@ -87,6 +88,29 @@ pub trait Node {
     /// The node's writability is immutable and, as such, this information can be queried without
     /// having to lock the node.
     fn writable(&self) -> bool;
+
+    /// Retrieves the node's file type without refreshing it from disk.
+    ///
+    /// Knowing the file type is necessary only in the very specific case of returning explicitly
+    /// mapped directory entries as part of readdir.  We can tolerate not refreshing this
+    /// information as part of the readdir, which would be costly.  The worst that can happen is
+    /// that, if the type of an underlying path changes, readdir wouldn't notice until the cached
+    /// `getattr` data becomes stale; given that this will always be a problem for `Dir`s and
+    /// `Symlink`s (on which we don't allow type changes at all), it's OK.
+    fn file_type_cached(&self) -> fuse::FileType;
+
+    /// Maps a path onto a node and creates intermediate components as immutable directories.
+    ///
+    /// `_components` is the path to map, broken down into components, and relative to the current
+    /// node.  `_underlying_path` is the target to use for the created node.  `_writable` indicates
+    /// the final node's writability, but intermediate nodes are creates as not writable.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when this algorithm instantiates any new node.
+    fn map(&self, _components: &[Component], _underlying_path: &Path, _writable: bool,
+        _ids: &IdGenerator, _cache: &Cache) -> Result<(), Error> {
+        panic!("Not implemented")
+    }
 
     /// Retrieves the node's metadata.
     fn getattr(&self) -> NodeResult<fuse::FileAttr>;
