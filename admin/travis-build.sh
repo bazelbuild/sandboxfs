@@ -99,18 +99,14 @@ do_rust() {
     TestReadWrite_RewriteFileWithShorterContent
     TestReadWrite_InodeReassignedAfterRecreation
     TestReadWrite_FstatOnDeletedNode
-    TestReadWrite_Truncate
     TestReadWrite_FtruncateOnDeletedFile
     TestReadWrite_NestedMappingsInheritDirectoryProperties
     TestReadWrite_NestedMappingsClobberFiles
     TestReadWrite_RenameFile
     TestReadWrite_MoveFile
     TestReadWrite_Mknod
-    TestReadWrite_Chmod
     TestReadWrite_FchmodOnDeletedNode
-    TestReadWrite_Chown
     TestReadWrite_FchownOnDeletedNode
-    TestReadWrite_Chtimes
     TestReadWrite_FutimesOnDeletedNode
     TestReadWrite_HardLinksNotSupported
     TestReconfiguration_Streams

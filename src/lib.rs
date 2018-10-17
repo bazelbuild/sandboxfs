@@ -22,6 +22,8 @@ extern crate nix;
 extern crate time;
 
 use failure::{Error, ResultExt};
+use nix::errno::Errno;
+use nix::{sys, unistd};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs;
@@ -429,11 +431,38 @@ impl fuse::Filesystem for SandboxFS {
         panic!("Required RW operation not yet implemented");
     }
 
-    fn setattr(&mut self, _req: &fuse::Request, _inode: u64, _mode: Option<u32>, _uid: Option<u32>,
-        _gid: Option<u32>, _size: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>,
+    fn setattr(&mut self, _req: &fuse::Request, inode: u64, mode: Option<u32>, uid: Option<u32>,
+        gid: Option<u32>, size: Option<u64>, atime: Option<Timespec>, mtime: Option<Timespec>,
         _fh: Option<u64>, _crtime: Option<Timespec>, _chgtime: Option<Timespec>,
-        _bkuptime: Option<Timespec>, _flags: Option<u32>, _reply: fuse::ReplyAttr) {
-        panic!("Required RW operation not yet implemented");
+        _bkuptime: Option<Timespec>, _flags: Option<u32>, reply: fuse::ReplyAttr) {
+        let node = self.find_node(inode);
+        if !node.writable() {
+            reply.error(Errno::EACCES as i32);
+            return;
+        }
+
+        let nix_mode = mode.map(|m| sys::stat::Mode::from_bits_truncate(m as sys::stat::mode_t));
+        if mode.is_some() {
+            let mode = mode.unwrap() as sys::stat::mode_t;
+            let nix_mode = nix_mode.expect("Must be present if mode is present").bits();
+            if mode != nix_mode {
+                warn!("setattr on inode {} with mode {} can only apply mode {}",
+                    inode, mode, nix_mode);
+            }
+        }
+
+        let values = nodes::AttrDelta {
+            mode: nix_mode,
+            uid: uid.map(unistd::Uid::from_raw),
+            gid: gid.map(unistd::Gid::from_raw),
+            atime: atime.map(nodes::conv::timespec_to_timeval),
+            mtime: mtime.map(nodes::conv::timespec_to_timeval),
+            size: size,
+        };
+        match node.setattr(&values) {
+            Ok(attr) => reply.attr(&TTL, &attr),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn symlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _link: &Path,

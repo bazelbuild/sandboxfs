@@ -28,7 +28,7 @@ rev = "4b23d3962c1baff6483caabf1ca15068216a7506"
 [dependencies.nix]
 # TODO(jmmv): Replace this with 0.12 once released.
 git = "https://github.com/nix-rust/nix.git"
-rev = "771a2fc793f3b1a1d85408578ff3b054f22b041b"
+rev = "eef3a432d57e8f830e05fede6e3099dcb689aa6b"
 
 [dev-dependencies]
 tempdir = "0.3"

@@ -14,6 +14,7 @@
 
 use fuse;
 use nix::sys;
+use nix::sys::time::TimeValLike;
 use std::fs;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -48,6 +49,12 @@ fn system_time_to_timespec(path: &Path, name: &str, time: &io::Result<SystemTime
             BAD_TIME
         },
     }
+}
+
+/// Converts a `time::Timespec` object into a `sys::time::TimeVal`.
+pub fn timespec_to_timeval(spec: Timespec) -> sys::time::TimeVal {
+    const S_TO_NS: i64 = 1000 * 1000 * 1000;
+    sys::time::TimeVal::nanoseconds(spec.sec * S_TO_NS + i64::from(spec.nsec))
 }
 
 /// Converts a file type as returned by the file system to a FUSE file type.
@@ -155,6 +162,14 @@ mod tests {
     use std::time::Duration;
     use tempdir::TempDir;
     use testutils;
+
+    #[test]
+    fn test_timespec_to_timeval() {
+        let spec = Timespec { sec: 123, nsec: 45000 };
+        let val = timespec_to_timeval(spec);
+        assert_eq!(123, val.tv_sec());
+        assert_eq!(45, val.tv_usec());
+    }
 
     #[test]
     fn test_system_time_to_timespec_ok() {

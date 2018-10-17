@@ -16,7 +16,7 @@ extern crate fuse;
 extern crate time;
 
 use nix::errno;
-use nodes::{conv, KernelError, Node, NodeResult};
+use nodes::{AttrDelta, KernelError, Node, NodeResult, conv, setattr};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -58,6 +58,19 @@ impl Symlink {
 
         Arc::new(Symlink { inode, writable, state: Mutex::from(state) })
     }
+
+    /// Same as `getattr` but with the node already locked.
+    fn getattr_unlocked(inode: u64, state: &mut MutableSymlink) -> NodeResult<fuse::FileAttr> {
+        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
+        if !fs_attr.file_type().is_symlink() {
+            warn!("Path {:?} backing a symlink node is no longer a symlink; got {:?}",
+                &state.underlying_path, fs_attr.file_type());
+            return Err(KernelError::from_errno(errno::Errno::EIO));
+        }
+        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, inode, &fs_attr);
+
+        Ok(state.attr)
+    }
 }
 
 impl Node for Symlink {
@@ -75,21 +88,18 @@ impl Node for Symlink {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-
-        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
-        if !fs_attr.file_type().is_symlink() {
-            warn!("Path {:?} backing a symlink node is no longer a symlink; got {:?}",
-                &state.underlying_path, fs_attr.file_type());
-            return Err(KernelError::from_errno(errno::Errno::EIO));
-        }
-        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, self.inode, &fs_attr);
-
-        Ok(state.attr)
+        Symlink::getattr_unlocked(self.inode, &mut state)
     }
 
     fn readlink(&self) -> NodeResult<PathBuf> {
         let state = self.state.lock().unwrap();
 
         Ok(fs::read_link(&state.underlying_path)?)
+    }
+
+    fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
+        let mut state = self.state.lock().unwrap();
+        setattr(&state.underlying_path, &state.attr, delta)?;
+        Symlink::getattr_unlocked(self.inode, &mut state)
     }
 }
