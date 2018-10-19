@@ -15,6 +15,7 @@
 use {Cache, IdGenerator};
 use failure::Error;
 use fuse;
+use nix;
 use nix::errno::Errno;
 use std::ffi::OsStr;
 use std::io;
@@ -61,13 +62,41 @@ impl From<io::Error> for KernelError {
     }
 }
 
+impl From<nix::Error> for KernelError {
+    fn from(e: nix::Error) -> Self {
+        match e {
+            nix::Error::Sys(errno) => KernelError::from_errno(errno),
+            _ => {
+                warn!("Got nix::Error without an errno; propagating as EIO: {}", e);
+                KernelError::from_errno(Errno::EIO)
+            }
+        }
+    }
+}
+
 /// Generic result type for of all node operations.
 pub type NodeResult<T> = Result<T, KernelError>;
 
 /// Abstract representation of an open file handle.
 pub trait Handle {
     /// Reads `size` bytes from the open file starting at `offset`.
-    fn read(&self, offset: i64, size: u32) -> NodeResult<Vec<u8>>;
+    fn read(&self, _offset: i64, _size: u32) -> NodeResult<Vec<u8>> {
+        panic!("Not implemented")
+    }
+
+    /// Reads all directory entries into the given reply object.
+    ///
+    /// While this takes a `fuse::ReplyDirectory` object as a parameter for efficiency reasons, it
+    /// is the responsibility of the caller to invoke `reply.ok()` and `reply.error()` on the same
+    /// reply object.  This is for consistency with the handling of any errors returned by this and
+    /// other functions.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when readdir discovers an underlying node that was not yet known.
+    fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _reply: &mut fuse::ReplyDirectory)
+        -> NodeResult<()> {
+        panic!("Not implemented");
+    }
 }
 
 /// Abstract representation of a file system node.
@@ -130,20 +159,6 @@ pub trait Node {
 
     /// Opens the file and returns an open file handle for it.
     fn open(&self, _flags: u32) -> NodeResult<Arc<Handle>> {
-        panic!("Not implemented");
-    }
-
-    /// Reads all directory entries into the given reply object.
-    ///
-    /// While this takes a `fuse::ReplyDirectory` object as a parameter for efficiency reasons, it
-    /// is the responsibility of the caller to invoke `reply.ok()` and `reply.error()` on the same
-    /// reply object.  This is for consistency with the handling of any errors returned by this and
-    /// other functions.
-    ///
-    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
-    /// nodes, used when readdir discovers an underlying node that was not yet known.
-    fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _reply: &mut fuse::ReplyDirectory)
-        -> NodeResult<()> {
         panic!("Not implemented");
     }
 

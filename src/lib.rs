@@ -288,6 +288,36 @@ impl SandboxFS {
         let handles = self.handles.lock().unwrap();
         handles.get(&fh).expect("Kernel requested unknown handle").clone()
     }
+
+    /// Opens a new handle for the given `inode`.
+    ///
+    /// This is a helper function to implement the symmetric `open` and `opendir` hooks.
+    fn open_common(&mut self, inode: u64, flags: u32, reply: fuse::ReplyOpen) {
+        let node = self.find_node(inode);
+
+        match node.open(flags) {
+            Ok(handle) => {
+                let fh = self.ids.next();
+                {
+                    let mut handles = self.handles.lock().unwrap();
+                    handles.insert(fh, handle);
+                }
+                reply.opened(fh, flags);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
+    /// Releases the given file handle `fh`.
+    ///
+    /// This is a helper function to implement the symmetric `release` and `releasedir` hooks.
+    fn release_common(&mut self, fh: u64, reply: fuse::ReplyEmpty) {
+        {
+            let mut handles = self.handles.lock().unwrap();
+            handles.remove(&fh).expect("Kernel tried to release an unknown handle");
+        }
+        reply.ok();
+    }
 }
 
 impl fuse::Filesystem for SandboxFS {
@@ -336,19 +366,11 @@ impl fuse::Filesystem for SandboxFS {
     }
 
     fn open(&mut self, _req: &fuse::Request, inode: u64, flags: u32, reply: fuse::ReplyOpen) {
-        let node = self.find_node(inode);
+        self.open_common(inode, flags, reply)
+    }
 
-        match node.open(flags) {
-            Ok(handle) => {
-                let fh = self.ids.next();
-                {
-                    let mut handles = self.handles.lock().unwrap();
-                    handles.insert(fh, handle);
-                }
-                reply.opened(fh, flags);
-            },
-            Err(e) => reply.error(e.errno_as_i32()),
-        }
+    fn opendir(&mut self, _req: &fuse::Request, inode: u64, flags: u32, reply: fuse::ReplyOpen) {
+        self.open_common(inode, flags, reply)
     }
 
     fn read(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, offset: i64, size: u32,
@@ -361,17 +383,17 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn readdir(&mut self, _req: &fuse::Request, inode: u64, _handle: u64, offset: i64,
+    fn readdir(&mut self, _req: &fuse::Request, _inode: u64, handle: u64, offset: i64,
                mut reply: fuse::ReplyDirectory) {
         if offset == 0 {
-            let node = self.find_node(inode);
-            match node.readdir(&self.ids, &self.cache, &mut reply) {
+            let handle = self.find_handle(handle);
+            match handle.readdir(&self.ids, &self.cache, &mut reply) {
                 Ok(()) => reply.ok(),
                 Err(e) => reply.error(e.errno_as_i32()),
             }
         } else {
             assert!(offset > 0, "Do not know what to do with a negative offset");
-            // Our node.readdir() implementation reads the whole directory in one go.  Therefore,
+            // Our handle.readdir() implementation reads the whole directory in one go.  Therefore,
             // if we get an offset different than zero, it's because the kernel has already
             // completed the first read and is asking us for extra entries -- of which there will
             // be none.
@@ -389,11 +411,12 @@ impl fuse::Filesystem for SandboxFS {
 
     fn release(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, _flags: u32, _lock_owner: u64,
         _flush: bool, reply: fuse::ReplyEmpty) {
-        {
-            let mut handles = self.handles.lock().unwrap();
-            handles.remove(&fh).expect("Kernel tried to release unknown handle");
-        }
-        reply.ok();
+        self.release_common(fh, reply)
+    }
+
+    fn releasedir(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, _flags: u32,
+        reply: fuse::ReplyEmpty) {
+        self.release_common(fh, reply)
     }
 
     fn rename(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _newparent: u64,
