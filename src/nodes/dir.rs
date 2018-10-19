@@ -17,10 +17,12 @@ extern crate time;
 
 use {Cache, IdGenerator};
 use failure::{Error, ResultExt};
-use nix::{errno, unistd};
-use nodes::{KernelError, Node, NodeResult, conv};
+use nix::{errno, fcntl, sys, unistd};
+use nix::dir as rawdir;
+use nodes::{Handle, KernelError, Node, NodeResult, conv};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -39,6 +41,99 @@ fn split_components<'a>(components: &'a [Component<'a>]) -> (&'a OsStr, &'a [Com
     (name, &components[1..])
 }
 
+/// Handle for an open directory.
+struct OpenDir {
+    // These are copies of the fields that also exist in the Dir corresponding to this OpenDir.
+    // Ideally we could just hold an immutable reference to the Dir instance... but this is hard
+    // to do because, when opendir() gets called on an abstract Node, we do not get access to the
+    // Arc<Node> that corresponds to it (to clone it).  Given that these values are immutable on
+    // the node, holding a copy here is fine.
+    inode: u64,
+    writable: bool,
+    state: Arc<Mutex<MutableDir>>,
+
+    /// Handle for the open directory file descriptor.  This is `None` if the directory does not
+    /// have an underlying path.
+    handle: Mutex<Option<rawdir::Dir>>,
+}
+
+impl Handle for OpenDir {
+    fn readdir(&self, ids: &IdGenerator, cache: &Cache, reply: &mut fuse::ReplyDirectory)
+        -> NodeResult<()> {
+        let mut state = self.state.lock().unwrap();
+
+        reply.add(self.inode, 0, fuse::FileType::Directory, ".");
+        reply.add(state.parent, 1, fuse::FileType::Directory, "..");
+        let mut pos = 2;
+
+        // First, return the entries that correspond to explicit mappings performed by the user at
+        // either mount time or during a reconfiguration.  Those should clobber any on-disk
+        // contents that we discover later when we issue the readdir on the underlying directory,
+        // if any.
+        for (name, dirent) in &state.children {
+            if dirent.explicit_mapping {
+                reply.add(dirent.node.inode(), pos, dirent.node.file_type_cached(), name);
+                pos += 1;
+            }
+        }
+
+        let mut handle = self.handle.lock().unwrap();
+
+        if handle.is_none() {
+            debug_assert!(state.underlying_path.is_none());
+            return Ok(());
+        }
+        debug_assert!(state.underlying_path.is_some());
+        let handle = handle.as_mut().unwrap();
+        for entry in handle.iter() {
+            let entry = entry?;
+            let name = entry.file_name();
+
+            let name = OsStr::from_bytes(name.to_bytes()).to_os_string();
+
+            if let Some(dirent) = state.children.get(&name) {
+                if dirent.explicit_mapping {
+                    // Found an on-disk entry that also corresponds to an explicit mapping by the
+                    // user.  Nothing to do: we already handled this case above.
+                    continue;
+                }
+            }
+
+            let path = state.underlying_path.as_ref().unwrap().join(&name);
+
+            // TODO(jmmv): In theory we shouldn't need to issue a stat for every entry during a
+            // readdir.  However, it's much easier to handle things this way because we currently
+            // require a file's metadata in order to instantiate a node.  Note that the Go variant
+            // of this code does the same and an attempt to "fix" this resulted in more complex
+            // code and no visible performance gains.  That said, it'd be worth to investigate this
+            // again.
+            let fs_attr = fs::symlink_metadata(&path)?;
+
+            let fs_type = conv::filetype_fs_to_fuse(&path, fs_attr.file_type());
+            let child = cache.get_or_create(ids, &path, &fs_attr, self.writable);
+
+            reply.add(child.inode(), pos, fs_type, &name);
+            // Do the insertion into state.children after calling reply.add() to be able to move
+            // the name into the key without having to copy it again.
+            let dirent = Dirent {
+                node: child.clone(),
+                explicit_mapping: false,
+            };
+            // TODO(jmmv): We should remove stale entries at some point (possibly here), but the Go
+            // variant does not do this so any implications of this are not tested.  The reason this
+            // hasn't caused trouble yet is because: on readdir, we don't use any contents from
+            // state.children that correspond to unmapped entries, and any stale entries visited
+            // during lookup will result in an ENOENT.
+            state.children.insert(name, dirent);
+
+            pos += 1;
+        }
+        // No need to worry about rewinding handle.iter() for future reads on the same OpenDir:
+        // the rawdir::Dir implementation does this for us.
+        Ok(())
+    }
+}
+
 /// Representation of a directory entry.
 struct Dirent {
     node: Arc<Node>,
@@ -49,7 +144,7 @@ struct Dirent {
 pub struct Dir {
     inode: u64,
     writable: bool,
-    state: Mutex<MutableDir>,
+    state: Arc<Mutex<MutableDir>>,
 }
 
 /// Holds the mutable data of a directory node.
@@ -92,7 +187,7 @@ impl Dir {
         Arc::new(Dir {
             inode: inode,
             writable: false,
-            state: Mutex::from(state),
+            state: Arc::from(Mutex::from(state)),
         })
     }
 
@@ -119,7 +214,7 @@ impl Dir {
             children: HashMap::new(),
         };
 
-        Arc::new(Dir { inode, writable, state: Mutex::from(state) })
+        Arc::new(Dir { inode, writable, state: Arc::from(Mutex::from(state)) })
     }
 
     /// Creates a new scaffold directory as a child of the current one.
@@ -248,63 +343,24 @@ impl Node for Dir {
         Ok((child, attr))
     }
 
-    fn readdir(&self, ids: &IdGenerator, cache: &Cache, reply: &mut fuse::ReplyDirectory)
-        -> NodeResult<()> {
-        let mut state = self.state.lock().unwrap();
+    fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
+        let flags = flags as i32;
+        let oflag = fcntl::OFlag::from_bits_truncate(flags);
 
-        reply.add(self.inode, 0, fuse::FileType::Directory, ".");
-        reply.add(state.parent, 1, fuse::FileType::Directory, "..");
-        let mut pos = 2;
+        let handle = {
+            let state = self.state.lock().unwrap();
 
-        // First, return the entries that correspond to explicit mappings performed by the user at
-        // either mount time or during a reconfiguration.  Those should clobber any on-disk
-        // contents that we discover later when we issue the readdir on the underlying directory,
-        // if any.
-        for (name, dirent) in &state.children {
-            if dirent.explicit_mapping {
-                reply.add(dirent.node.inode(), pos, dirent.node.file_type_cached(), name);
-                pos += 1;
+            match state.underlying_path.as_ref() {
+                Some(path) => Some(rawdir::Dir::open(path, oflag, sys::stat::Mode::S_IRUSR)?),
+                None => None,
             }
-        }
+        };
 
-        if state.underlying_path.as_ref().is_none() {
-            return Ok(());
-        }
-
-        let entries = fs::read_dir(state.underlying_path.as_ref().unwrap())?;
-        for entry in entries {
-            let entry = entry?;
-            let name = entry.file_name();
-
-            if let Some(dirent) = state.children.get(&name) {
-                if dirent.explicit_mapping {
-                    // Found an on-disk entry that also corresponds to an explicit mapping by the
-                    // user.  Nothing to do: we already handled this case above.
-                    continue;
-                }
-            }
-
-            let path = state.underlying_path.as_ref().unwrap().join(&name);
-            let fs_attr = entry.metadata()?;
-            let fs_type = conv::filetype_fs_to_fuse(&path, fs_attr.file_type());
-            let child = cache.get_or_create(ids, &path, &fs_attr, self.writable);
-
-            reply.add(child.inode(), pos, fs_type, &name);
-            // Do the insertion into state.children after calling reply.add() to be able to move
-            // the name into the key without having to copy it again.
-            let dirent = Dirent {
-                node: child.clone(),
-                explicit_mapping: false,
-            };
-            // TODO(jmmv): We should remove stale entries at some point (possibly here), but the Go
-            // variant does not do this so any implications of this are not tested.  The reason this
-            // hasn't caused trouble yet is because: on readdir, we don't use any contents from
-            // state.children that correspond to unmapped entries, and any stale entries visited
-            // during lookup will result in an ENOENT.
-            state.children.insert(name, dirent);
-
-            pos += 1;
-        }
-        Ok(())
+        Ok(Arc::from(OpenDir {
+            inode: self.inode,
+            writable: self.writable,
+            state: self.state.clone(),
+            handle: Mutex::from(handle),
+        }))
     }
 }
