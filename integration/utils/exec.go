@@ -46,6 +46,15 @@ type runState struct {
 	err bytes.Buffer
 }
 
+// setRustEnv configures sandboxfs's logging via environment variables.
+func setRustEnv(cmd *exec.Cmd) {
+	if cmd.Env == nil {
+		cmd.Env = os.Environ()
+	}
+	cmd.Env = append(cmd.Env, "RUST_BACKTRACE=1")
+	cmd.Env = append(cmd.Env, "RUST_LOG=info")
+}
+
 // run starts a background process to run sandboxfs and passes it the given arguments.
 func run(arg ...string) (*runState, error) {
 	bin := GetConfig().SandboxfsBinary
@@ -54,6 +63,7 @@ func run(arg ...string) (*runState, error) {
 	state.cmd = exec.Command(bin, arg...)
 	state.cmd.Stdout = &state.out
 	state.cmd.Stderr = &state.err
+	setRustEnv(state.cmd)
 	if err := state.cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, arg, err)
 	}
@@ -143,6 +153,7 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, user *Un
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	SetCredential(cmd, user)
+	setRustEnv(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("failed to start %s with arguments %v: %v", bin, args, err)
 	}
