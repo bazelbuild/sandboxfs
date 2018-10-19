@@ -291,12 +291,22 @@ impl SandboxFS {
 }
 
 impl fuse::Filesystem for SandboxFS {
+    fn create(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32, _flags: u32,
+        _reply: fuse::ReplyCreate) {
+        panic!("Required RW operation not yet implemented");
+    }
+
     fn getattr(&mut self, _req: &fuse::Request, inode: u64, reply: fuse::ReplyAttr) {
         let node = self.find_node(inode);
         match node.getattr() {
             Ok(attr) => reply.attr(&TTL, &attr),
             Err(e) => reply.error(e.errno_as_i32()),
         }
+    }
+
+    fn link(&mut self, _req: &fuse::Request, _inode: u64, _newparent: u64, _newname: &OsStr,
+        _reply: fuse::ReplyEntry) {
+        panic!("Required RW operation not yet implemented");
     }
 
     fn lookup(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEntry) {
@@ -313,6 +323,16 @@ impl fuse::Filesystem for SandboxFS {
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
+    }
+
+    fn mkdir(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32,
+        _reply: fuse::ReplyEntry) {
+        panic!("Required RW operation not yet implemented");
+    }
+
+    fn mknod(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32, _rdev: u32,
+        _reply: fuse::ReplyEntry) {
+        panic!("Required RW operation not yet implemented");
     }
 
     fn open(&mut self, _req: &fuse::Request, inode: u64, flags: u32, reply: fuse::ReplyOpen) {
@@ -375,11 +395,40 @@ impl fuse::Filesystem for SandboxFS {
         }
         reply.ok();
     }
+
+    fn rename(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _newparent: u64,
+        _newname: &OsStr, _reply: fuse::ReplyEmpty) {
+        panic!("Required RW operation not yet implemented");
+    }
+
+    fn rmdir(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
+        _reply: fuse::ReplyEmpty) {
+        panic!("Required RW operation not yet implemented");
+    }
+
+    fn setattr(&mut self, _req: &fuse::Request, _inode: u64, _mode: Option<u32>, _uid: Option<u32>,
+        _gid: Option<u32>, _size: Option<u64>, _atime: Option<Timespec>, _mtime: Option<Timespec>,
+        _fh: Option<u64>, _crtime: Option<Timespec>, _chgtime: Option<Timespec>,
+        _bkuptime: Option<Timespec>, _flags: Option<u32>, _reply: fuse::ReplyAttr) {
+        panic!("Required RW operation not yet implemented");
+    }
+
+    fn symlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _link: &Path,
+        _reply: fuse::ReplyEntry) {
+        panic!("Required RW operation not yet implemented");
+    }
+
+    fn unlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
+        _reply: fuse::ReplyEmpty) {
+        panic!("Required RW operation not yet implemented");
+    }
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> Result<(), Error> {
-    let options = ["-o", "ro", "-o", "fsname=sandboxfs"]
+    // TODO(jmmv): Support passing in arbitrary FUSE options from the command line, like "-o ro",
+    // or expose a good subset of them.
+    let options = ["-o", "fsname=sandboxfs"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
