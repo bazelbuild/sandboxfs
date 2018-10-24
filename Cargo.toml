@@ -21,10 +21,9 @@ log = "0.4"
 time = "0.1"
 
 [dependencies.fuse]
-# TODO(https://github.com/zargony/rust-fuse/pull/111): Replace this with
-# the upstream address (or a Crates release) once incorporated.
-git = "https://github.com/jmmv/rust-fuse.git"
-rev = "152d2ad2fa8831be33fa5e691cc59ce9c51ece7a"
+# TODO(jmmv): Replace this with 0.4 once released.
+git = "https://github.com/zargony/rust-fuse.git"
+rev = "4b23d3962c1baff6483caabf1ca15068216a7506"
 
 [dependencies.nix]
 # TODO(jmmv): Replace this with 0.12 once released.
