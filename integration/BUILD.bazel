@@ -37,5 +37,6 @@ go_test(
         "//integration/utils:go_default_library",
         "//internal/sandbox:go_default_library",
         "@org_bazil_fuse//:go_default_library",
+        "@org_golang_x_sys//unix:go_default_library",
     ],
 )
