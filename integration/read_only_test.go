@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
@@ -373,6 +375,61 @@ func TestReadOnly_HardLinkCountsAreFixed(t *testing.T) {
 				t.Errorf("Want hard link count for %s to be %d; got %d", d.file, d.wantNlink, stat.Nlink)
 			}
 		})
+	}
+}
+
+func TestReadOnly_ReadFromDirFails(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	fd, err := unix.Open(state.MountPath("dir"), unix.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("Failed to open directory %s: %v", state.MountPath("dir"), err)
+	}
+	defer unix.Close(fd)
+
+	buffer := make([]byte, 1024)
+	_, err = unix.Read(fd, buffer)
+	if err == nil || err != unix.EISDIR {
+		t.Errorf("Want error to be EISDIR; got %v", err)
+	}
+}
+
+func TestReadOnly_ReaddirFromFileFails(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
+
+	fd, err := unix.Open(state.MountPath("file"), unix.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("Failed to open file %s: %v", state.MountPath("file"), err)
+	}
+	defer unix.Close(fd)
+
+	// It is unfortunate that the error we get in this failure condition is different across
+	// operating systems, but given that this case is handled within the the FUSE library (the
+	// sandboxfs process never has a chance to see the invalid request), we cannot do much.
+	var wantErr error
+	switch runtime.GOOS {
+	case "darwin":
+		wantErr = unix.EINVAL
+	case "linux":
+		if utils.GetConfig().RustVariant {
+			wantErr = unix.EINVAL
+		} else {
+			wantErr = unix.ENOTDIR
+		}
+	default:
+		t.Fatalf("Don't know how this test behaves in this platform")
+	}
+
+	buffer := make([]byte, 1024)
+	_, err = unix.ReadDirent(fd, buffer)
+	if err == nil || err != wantErr {
+		t.Errorf("Want error to be %v; got %v", wantErr, err)
 	}
 }
 
