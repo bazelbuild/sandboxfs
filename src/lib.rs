@@ -441,15 +441,15 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        let nix_mode = mode.map(|m| sys::stat::Mode::from_bits_truncate(m as sys::stat::mode_t));
-        if mode.is_some() {
-            let mode = mode.unwrap() as sys::stat::mode_t;
-            let nix_mode = nix_mode.expect("Must be present if mode is present").bits();
-            if mode != nix_mode {
-                warn!("setattr on inode {} with mode {} can only apply mode {}",
-                    inode, mode, nix_mode);
+        let nix_mode = mode.map(|m| {
+            let sys_mode = m as sys::stat::mode_t;
+            let nix_mode = sys::stat::Mode::from_bits_truncate(sys_mode);
+            if sys_mode != nix_mode.bits() {
+                warn!("setattr on inode {} with mode {} can only apply mode {:?}",
+                    inode, sys_mode, nix_mode);
             }
-        }
+            nix_mode
+        });
 
         let values = nodes::AttrDelta {
             mode: nix_mode,

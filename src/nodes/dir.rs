@@ -250,21 +250,15 @@ impl Dir {
 
     /// Same as `getattr` but with the node already locked.
     fn getattr_unlocked(inode: u64, state: &mut MutableDir) -> NodeResult<fuse::FileAttr> {
-        let new_attr = match state.underlying_path.as_ref() {
-            Some(path) => {
-                let fs_attr = fs::symlink_metadata(path)?;
-                if !fs_attr.is_dir() {
-                    warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
-                        path, fs_attr.file_type());
-                    return Err(KernelError::from_errno(errno::Errno::EIO));
-                }
-                Some(conv::attr_fs_to_fuse(path, inode, &fs_attr))
-            },
-            None => None,
+        if let Some(path) = &state.underlying_path {
+            let fs_attr = fs::symlink_metadata(path)?;
+            if !fs_attr.is_dir() {
+                warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
+                    path, fs_attr.file_type());
+                return Err(KernelError::from_errno(errno::Errno::EIO));
+            }
+            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
         };
-        if let Some(new_attr) = new_attr {
-            state.attr = new_attr;
-        }
 
         Ok(state.attr)
     }
@@ -370,7 +364,7 @@ impl Node for Dir {
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        if let Some(path) = state.underlying_path.as_ref() {
+        if let Some(path) = &state.underlying_path {
             setattr(path, &state.attr, delta)?;
         }
         Dir::getattr_unlocked(self.inode, &mut state)

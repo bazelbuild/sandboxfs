@@ -52,9 +52,11 @@ fn system_time_to_timespec(path: &Path, name: &str, time: &io::Result<SystemTime
 }
 
 /// Converts a `time::Timespec` object into a `sys::time::TimeVal`.
+// TODO(jmmv): Consider upstreaming this function or a constructor for TimeVal that takes the two
+// components separately.
 pub fn timespec_to_timeval(spec: Timespec) -> sys::time::TimeVal {
-    const S_TO_NS: i64 = 1000 * 1000 * 1000;
-    sys::time::TimeVal::nanoseconds(spec.sec * S_TO_NS + i64::from(spec.nsec))
+    use sys::time::TimeVal;
+    TimeVal::seconds(spec.sec) + TimeVal::nanoseconds(spec.nsec.into())
 }
 
 /// Converts a file type as returned by the file system to a FUSE file type.
