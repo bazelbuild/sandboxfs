@@ -109,10 +109,11 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
         attr.len()
     };
 
-    // TODO(jmmv): Using the underlying ctimes is slightly wrong because the ctimes track changes
-    // to the inodes.  In most cases, operations that flow via sandboxfs will affect the underlying
-    // ctime and propagate through here, which is fine, but other operations are purely in-memory.
-    // To properly handle those cases, we should have our own ctime handling.
+    // TODO(https://github.com/bazelbuild/sandboxfs/issues/43): Using the underlying ctimes is
+    // slightly wrong because the ctimes track changes to the inodes.  In most cases, operations
+    // that flow via sandboxfs will affect the underlying ctime and propagate through here, which is
+    // fine, but other operations are purely in-memory.  To properly handle those cases, we should
+    // have our own ctime handling.
     let ctime = Timespec { sec: attr.ctime(), nsec: attr.ctime_nsec() as i32 };
 
     let perm = match attr.permissions().mode() {

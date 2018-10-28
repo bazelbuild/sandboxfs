@@ -95,7 +95,8 @@ pub type NodeResult<T> = Result<T, KernelError>;
 /// kernel, as computing the updated metadata here would be inaccurate.  The reason is that we don't
 /// track ctimes ourselves so any modifications to the file cause the backing ctime to be updated
 /// and we need to obtain it.
-/// TODO(jmmv): Compute the modified fuse::FileAttr and return it once we track ctimes.
+/// TODO(https://github.com/bazelbuild/sandboxfs/issues/43): Compute the modified fuse::FileAttr and
+/// return it once we track ctimes.
 ///
 /// This tries to apply as many properties as possible in case of errors.  When errors occur,
 /// returns the first that was encountered.
