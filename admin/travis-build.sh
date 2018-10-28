@@ -86,17 +86,13 @@ do_rust() {
     TestDebug_FuseOpsInLog
     TestLayout_MountPointDoesNotExist
     TestNesting_ReadWriteWithinReadOnly
-    TestNesting_SameTarget
     TestOptions_Allow
     TestOptions_Syntax
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
     TestReadOnly_Attributes
-    TestReadWrite_CreateFile
     TestReadWrite_Remove
-    TestReadWrite_RewriteFile
-    TestReadWrite_RewriteFileWithShorterContent
     TestReadWrite_InodeReassignedAfterRecreation
     TestReadWrite_FstatOnDeletedNode
     TestReadWrite_FtruncateOnDeletedFile

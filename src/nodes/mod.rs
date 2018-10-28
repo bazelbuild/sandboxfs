@@ -143,7 +143,7 @@ pub fn setattr(path: &Path, attr: &fuse::FileAttr, delta: &AttrDelta) -> Result<
 
 /// Abstract representation of an open file handle.
 pub trait Handle {
-    /// Reads `size` bytes from the open file starting at `offset`.
+    /// Reads `_size` bytes from the open file starting at `_offset`.
     fn read(&self, _offset: i64, _size: u32) -> NodeResult<Vec<u8>> {
         panic!("Not implemented")
     }
@@ -159,6 +159,11 @@ pub trait Handle {
     /// nodes, used when readdir discovers an underlying node that was not yet known.
     fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _reply: &mut fuse::ReplyDirectory)
         -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
+    /// Writes the bytes held in `_data` to the open file starting at `_offset`.
+    fn write(&self, _offset: i64, _data: &[u8]) -> NodeResult<u32> {
         panic!("Not implemented");
     }
 }
@@ -209,6 +214,19 @@ pub trait Node {
     /// nodes, used when this algorithm instantiates any new node.
     fn map(&self, _components: &[Component], _underlying_path: &Path, _writable: bool,
         _ids: &IdGenerator, _cache: &Cache) -> Result<(), Error> {
+        panic!("Not implemented")
+    }
+
+    /// Creates a new file with `_name` and `_mode` and opens it with `_flags`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+    fn create(&self, _name: &OsStr, _mode: u32, _flags: u32, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, Arc<Handle>, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 

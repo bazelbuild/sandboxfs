@@ -15,10 +15,10 @@
 extern crate fuse;
 extern crate time;
 
-use nix::{errno, fcntl};
+use nix::errno;
 use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::fs;
-use std::os::unix::fs::{FileExt, OpenOptionsExt};
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +28,21 @@ impl Handle for fs::File {
         let n = self.read_at(&mut buffer[..size as usize], offset as u64)?;
         buffer.truncate(n);
         Ok(buffer)
+    }
+
+    fn write(&self, offset: i64, mut data: &[u8]) -> NodeResult<u32> {
+        const MAX_WRITE: usize = std::u32::MAX as usize;
+        if data.len() > MAX_WRITE {
+            // We only do this check because FUSE wants an u32 as the return value but data could
+            // theoretically be bigger.
+            // TODO(jmmv): Should fix the FUSE libraries to just expose Rust API-friendly quantities
+            // (usize in this case) and handle the kernel/Rust boundary internally.
+            warn!("Truncating too-long write to {} (asked for {} bytes)", MAX_WRITE, data.len());
+            data = &data[..MAX_WRITE];
+        }
+        let n = self.write_at(data, offset as u64)?;
+        debug_assert!(n <= MAX_WRITE, "Size bounds checked above");
+        Ok(n as u32)
     }
 }
 
@@ -113,20 +128,7 @@ impl Node for File {
     fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
         let state = self.state.lock().unwrap();
 
-        let flags = flags as i32;
-        let mut options = fs::OpenOptions::new();
-        options.read(true);
-        if flags & (fcntl::OFlag::O_WRONLY | fcntl::OFlag::O_RDWR).bits() != 0 {
-            if !self.writable {
-                return Err(KernelError::from_errno(errno::Errno::EPERM));
-            }
-            if flags & fcntl::OFlag::O_WRONLY.bits() != 0 {
-                options.read(false);
-            }
-            options.write(true);
-        }
-        options.custom_flags(flags);
-
+        let options = conv::flags_to_openoptions(flags, self.writable)?;
         let file = options.open(&state.underlying_path)?;
         Ok(Arc::from(file))
     }
