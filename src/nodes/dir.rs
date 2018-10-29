@@ -23,7 +23,7 @@ use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -420,6 +420,16 @@ impl Node for Dir {
         -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         Dir::lookup_locked(self.writable, &mut state, name, ids, cache)
+    }
+
+    fn mkdir(&self, name: &OsStr, mode: u32, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        fs::DirBuilder::new().mode(mode).create(&path)?;
+        Dir::post_create_lookup(self.writable, &mut state, &path, name,
+            fuse::FileType::Directory, ids, cache)
     }
 
     fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {

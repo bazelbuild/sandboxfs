@@ -85,7 +85,6 @@ do_rust() {
     TestCli_Syntax
     TestDebug_FuseOpsInLog
     TestLayout_MountPointDoesNotExist
-    TestNesting_ReadWriteWithinReadOnly
     TestOptions_Allow
     TestOptions_Syntax
     TestProfiling_Http
@@ -97,7 +96,6 @@ do_rust() {
     TestReadWrite_FstatOnDeletedNode
     TestReadWrite_FtruncateOnDeletedFile
     TestReadWrite_NestedMappingsInheritDirectoryProperties
-    TestReadWrite_NestedMappingsClobberFiles
     TestReadWrite_RenameFile
     TestReadWrite_MoveFile
     TestReadWrite_Mknod
