@@ -104,7 +104,6 @@ do_rust() {
     TestReadWrite_FchmodOnDeletedNode
     TestReadWrite_FchownOnDeletedNode
     TestReadWrite_FutimesOnDeletedNode
-    TestReadWrite_HardLinksNotSupported
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap

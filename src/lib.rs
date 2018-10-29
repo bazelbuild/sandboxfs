@@ -368,8 +368,9 @@ impl fuse::Filesystem for SandboxFS {
     }
 
     fn link(&mut self, _req: &fuse::Request, _inode: u64, _newparent: u64, _newname: &OsStr,
-        _reply: fuse::ReplyEntry) {
-        panic!("Required RW operation not yet implemented");
+        reply: fuse::ReplyEntry) {
+        // We don't support hardlinks at this point.
+        reply.error(Errno::EPERM as i32);
     }
 
     fn lookup(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEntry) {
