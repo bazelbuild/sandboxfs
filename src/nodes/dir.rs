@@ -432,6 +432,47 @@ impl Node for Dir {
             fuse::FileType::Directory, ids, cache)
     }
 
+    fn mknod(&self, name: &OsStr, mode: u32, rdev: u32, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        if mode > u32::from(std::u16::MAX) {
+            warn!("mknod got too-big mode {} (exceeds {})", mode, std::u16::MAX);
+        }
+        let mode = mode as sys::stat::mode_t;
+
+        // We have to break apart the incoming mode into a separate file type flag and a permissions
+        // set... only to have mknod() combine them later once again.  Doesn't make a lot of sense
+        // but that the API we get from nix, hence ensure we are doing the right thing.
+        let (sflag, perm) = {
+            let sflag = sys::stat::SFlag::from_bits_truncate(mode);
+            let perm = sys::stat::Mode::from_bits_truncate(mode);
+
+            let truncated_mode = sflag.bits() | perm.bits();
+            if truncated_mode != mode {
+                warn!("mknod cannot only handle {} from mode {}", truncated_mode, mode);
+            }
+
+            (sflag, perm)
+        };
+
+        let exp_filetype = match sflag {
+            sys::stat::SFlag::S_IFCHR => fuse::FileType::CharDevice,
+            sys::stat::SFlag::S_IFBLK => fuse::FileType::BlockDevice,
+            sys::stat::SFlag::S_IFIFO => fuse::FileType::NamedPipe,
+            _ => {
+                warn!("mknod received request to create {} with type {:?}, which is not supported",
+                    path.display(), sflag);
+                return Err(KernelError::from_errno(errno::Errno::EIO));
+            },
+        };
+
+        #[cfg_attr(feature = "cargo-clippy", allow(cast_lossless))]
+        sys::stat::mknod(&path, sflag, perm, rdev as sys::stat::dev_t)?;
+        Dir::post_create_lookup(self.writable, &mut state, &path, name, exp_filetype, ids, cache)
+    }
+
     fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
         let flags = flags as i32;
         let oflag = fcntl::OFlag::from_bits_truncate(flags);

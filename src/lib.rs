@@ -406,9 +406,21 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn mknod(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32, _rdev: u32,
-        _reply: fuse::ReplyEntry) {
-        panic!("Required RW operation not yet implemented");
+    fn mknod(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, rdev: u32,
+        reply: fuse::ReplyEntry) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.mknod(name, mode, rdev, &self.ids, &self.cache) {
+            Ok((node, attr)) => {
+                self.insert_node(node);
+                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn open(&mut self, _req: &fuse::Request, inode: u64, flags: u32, reply: fuse::ReplyOpen) {

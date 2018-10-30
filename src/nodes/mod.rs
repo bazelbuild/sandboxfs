@@ -258,6 +258,18 @@ pub trait Node {
         panic!("Not implemented")
     }
 
+    /// Creates a new special file with `_name`, `_mode`, and `_rdev`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    fn mknod(&self, _name: &OsStr, _mode: u32, _rdev: u32, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented")
+    }
+
     /// Opens the file and returns an open file handle for it.
     fn open(&self, _flags: u32) -> NodeResult<Arc<Handle>> {
         panic!("Not implemented");

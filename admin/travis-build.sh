@@ -98,7 +98,6 @@ do_rust() {
     TestReadWrite_NestedMappingsInheritDirectoryProperties
     TestReadWrite_RenameFile
     TestReadWrite_MoveFile
-    TestReadWrite_Mknod
     TestReadWrite_FchmodOnDeletedNode
     TestReadWrite_FchownOnDeletedNode
     TestReadWrite_FutimesOnDeletedNode
