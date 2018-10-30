@@ -169,6 +169,13 @@ pub trait Handle {
 /// collection of methods that do not all make sense for all possible node types: some methods will
 /// only make sense for directories and others will only make sense for regular files, for example.
 /// These conflicting methods come with a default implementation that panics.
+//
+// TODO(jmmv): We should split the Node into three traits: one for methods that are not vnops,
+// one for read-only vnops, and one for read/write vnops.  While our global tracking data structures
+// will not be able to differentiate between the three, call sites will (e.g. when retrieving nodes
+// for write, which could make the code simpler and safer).  And if going this route, consider how
+// we could also handle vnop "classes" with traits (so that, e.g. a File wouldn't need to have
+// default implementations for the Dir vnops).
 pub trait Node {
     /// Returns the inode number of this node.
     ///
