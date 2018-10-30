@@ -23,7 +23,7 @@ use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{self as unix_fs, DirBuilderExt, OpenOptionsExt};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -500,5 +500,15 @@ impl Node for Dir {
             setattr(path, &state.attr, delta)?;
         }
         Dir::getattr_locked(self.inode, &mut state)
+    }
+
+    fn symlink(&self, name: &OsStr, link: &Path, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        unix_fs::symlink(link, &path)?;
+        Dir::post_create_lookup(self.writable, &mut state, &path, name,
+            fuse::FileType::Symlink, ids, cache)
     }
 }

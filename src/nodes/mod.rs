@@ -282,4 +282,16 @@ pub trait Node {
 
     /// Sets one or more properties of the node's metadata.
     fn setattr(&self, _delta: &AttrDelta) -> NodeResult<fuse::FileAttr>;
+
+    /// Creates a symlink with `_name` pointing at `_link`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    fn symlink(&self, _name: &OsStr, _link: &Path, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented")
+    }
 }
