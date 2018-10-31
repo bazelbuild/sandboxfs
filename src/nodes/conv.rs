@@ -14,6 +14,7 @@
 
 use fuse;
 use nix::sys;
+use nix::sys::time::TimeValLike;
 use std::fs;
 use std::io;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -48,6 +49,14 @@ fn system_time_to_timespec(path: &Path, name: &str, time: &io::Result<SystemTime
             BAD_TIME
         },
     }
+}
+
+/// Converts a `time::Timespec` object into a `sys::time::TimeVal`.
+// TODO(jmmv): Consider upstreaming this function or a constructor for TimeVal that takes the two
+// components separately.
+pub fn timespec_to_timeval(spec: Timespec) -> sys::time::TimeVal {
+    use sys::time::TimeVal;
+    TimeVal::seconds(spec.sec) + TimeVal::nanoseconds(spec.nsec.into())
 }
 
 /// Converts a file type as returned by the file system to a FUSE file type.
@@ -100,10 +109,11 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
         attr.len()
     };
 
-    // TODO(jmmv): Using the underlying ctimes is slightly wrong because the ctimes track changes
-    // to the inodes.  In most cases, operations that flow via sandboxfs will affect the underlying
-    // ctime and propagate through here, which is fine, but other operations are purely in-memory.
-    // To properly handle those cases, we should have our own ctime handling.
+    // TODO(https://github.com/bazelbuild/sandboxfs/issues/43): Using the underlying ctimes is
+    // slightly wrong because the ctimes track changes to the inodes.  In most cases, operations
+    // that flow via sandboxfs will affect the underlying ctime and propagate through here, which is
+    // fine, but other operations are purely in-memory.  To properly handle those cases, we should
+    // have our own ctime handling.
     let ctime = Timespec { sec: attr.ctime(), nsec: attr.ctime_nsec() as i32 };
 
     let perm = match attr.permissions().mode() {
@@ -155,6 +165,14 @@ mod tests {
     use std::time::Duration;
     use tempdir::TempDir;
     use testutils;
+
+    #[test]
+    fn test_timespec_to_timeval() {
+        let spec = Timespec { sec: 123, nsec: 45000 };
+        let val = timespec_to_timeval(spec);
+        assert_eq!(123, val.tv_sec());
+        assert_eq!(45, val.tv_usec());
+    }
 
     #[test]
     fn test_system_time_to_timespec_ok() {

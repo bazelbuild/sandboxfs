@@ -16,7 +16,7 @@ extern crate fuse;
 extern crate time;
 
 use nix::{errno, fcntl};
-use nodes::{conv, Handle, KernelError, Node, NodeResult};
+use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::fs;
 use std::os::unix::fs::{FileExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -76,6 +76,19 @@ impl File {
 
         Arc::new(File { inode, writable, state: Mutex::from(state) })
     }
+
+    /// Same as `getattr` but with the node already locked.
+    fn getattr_locked(inode: u64, state: &mut MutableFile) -> NodeResult<fuse::FileAttr> {
+        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
+        if !File::supports_type(fs_attr.file_type()) {
+            warn!("Path {:?} backing a file node is no longer a file; got {:?}",
+                &state.underlying_path, fs_attr.file_type());
+            return Err(KernelError::from_errno(errno::Errno::EIO));
+        }
+        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, inode, &fs_attr);
+
+        Ok(state.attr)
+    }
 }
 
 impl Node for File {
@@ -94,16 +107,7 @@ impl Node for File {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-
-        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
-        if !File::supports_type(fs_attr.file_type()) {
-            warn!("Path {:?} backing a file node is no longer a file; got {:?}",
-                &state.underlying_path, fs_attr.file_type());
-            return Err(KernelError::from_errno(errno::Errno::EIO));
-        }
-        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, self.inode, &fs_attr);
-
-        Ok(state.attr)
+        File::getattr_locked(self.inode, &mut state)
     }
 
     fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
@@ -125,5 +129,11 @@ impl Node for File {
 
         let file = options.open(&state.underlying_path)?;
         Ok(Arc::from(file))
+    }
+
+    fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
+        let mut state = self.state.lock().unwrap();
+        setattr(&state.underlying_path, &state.attr, delta)?;
+        File::getattr_locked(self.inode, &mut state)
     }
 }

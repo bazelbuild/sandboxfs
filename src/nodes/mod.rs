@@ -17,13 +17,14 @@ use failure::Error;
 use fuse;
 use nix;
 use nix::errno::Errno;
+use nix::{sys, unistd};
 use std::ffi::OsStr;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
 use std::sync::Arc;
 
-mod conv;
+pub mod conv;
 mod dir;
 pub use self::dir::Dir;
 mod file;
@@ -74,8 +75,71 @@ impl From<nix::Error> for KernelError {
     }
 }
 
+/// Container for new attribute values to set on any kind of node.
+pub struct AttrDelta {
+    pub mode: Option<sys::stat::Mode>,
+    pub uid: Option<unistd::Uid>,
+    pub gid: Option<unistd::Gid>,
+    pub atime: Option<sys::time::TimeVal>,
+    pub mtime: Option<sys::time::TimeVal>,
+    pub size: Option<u64>,
+}
+
 /// Generic result type for of all node operations.
 pub type NodeResult<T> = Result<T, KernelError>;
+
+/// Updates the metadata of a file given a delta of attributes.
+///
+/// This is a helper function to implement `Node::setattr` for the various node types.  The caller
+/// is responsible for obtaining the updated metadata of the underlying file to return it to the
+/// kernel, as computing the updated metadata here would be inaccurate.  The reason is that we don't
+/// track ctimes ourselves so any modifications to the file cause the backing ctime to be updated
+/// and we need to obtain it.
+/// TODO(https://github.com/bazelbuild/sandboxfs/issues/43): Compute the modified fuse::FileAttr and
+/// return it once we track ctimes.
+///
+/// This tries to apply as many properties as possible in case of errors.  When errors occur,
+/// returns the first that was encountered.
+pub fn setattr(path: &Path, attr: &fuse::FileAttr, delta: &AttrDelta) -> Result<(), nix::Error> {
+    let mut result = Ok(());
+
+    if let Some(mode) = delta.mode {
+        result = result.and(
+            sys::stat::fchmodat(None, path, mode, sys::stat::FchmodatFlags::NoFollowSymlink));
+    }
+
+    if delta.uid.is_some() || delta.gid.is_some() {
+        result = result.and(
+            unistd::fchownat(None, path, delta.uid, delta.gid,
+                unistd::FchownatFlags::NoFollowSymlink));
+    }
+
+    if delta.atime.is_some() || delta.mtime.is_some() {
+        let atime = delta.atime.unwrap_or_else(|| conv::timespec_to_timeval(attr.atime));
+        let mtime = delta.mtime.unwrap_or_else(|| conv::timespec_to_timeval(attr.mtime));
+        if attr.kind == fuse::FileType::Symlink {
+            // TODO(jmmv): Should use futimensat to avoid following symlinks but this function is
+            // not available on macOS El Capitan, which we currently require for CI builds.
+            warn!("Asked to update atime/mtime for symlink {} but following symlink instead",
+                path.display());
+        }
+        result = result.and(sys::stat::utimes(path, &atime, &mtime));
+    }
+
+    if let Some(size) = delta.size {
+        // Updating the size only makes sense on files, but handling it here is much simpler than
+        // doing so on a node type basis.  Plus, who knows, if the kernel asked us to change the
+        // size of anything other than a file, maybe we have to obey and try to do it.
+        if size > ::std::i64::MAX as u64 {
+            warn!("truncate request got size {}, which is too large (exceeds i64's MAX)", size);
+            result = result.and(Err(nix::Error::invalid_argument()));
+        } else {
+            result = result.and(unistd::truncate(path, size as i64));
+        }
+    }
+
+    result
+}
 
 /// Abstract representation of an open file handle.
 pub trait Handle {
@@ -105,6 +169,13 @@ pub trait Handle {
 /// collection of methods that do not all make sense for all possible node types: some methods will
 /// only make sense for directories and others will only make sense for regular files, for example.
 /// These conflicting methods come with a default implementation that panics.
+//
+// TODO(jmmv): We should split the Node into three traits: one for methods that are not vnops,
+// one for read-only vnops, and one for read/write vnops.  While our global tracking data structures
+// will not be able to differentiate between the three, call sites will (e.g. when retrieving nodes
+// for write, which could make the code simpler and safer).  And if going this route, consider how
+// we could also handle vnop "classes" with traits (so that, e.g. a File wouldn't need to have
+// default implementations for the Dir vnops).
 pub trait Node {
     /// Returns the inode number of this node.
     ///
@@ -166,4 +237,7 @@ pub trait Node {
     fn readlink(&self) -> NodeResult<PathBuf> {
         panic!("Not implemented");
     }
+
+    /// Sets one or more properties of the node's metadata.
+    fn setattr(&self, _delta: &AttrDelta) -> NodeResult<fuse::FileAttr>;
 }

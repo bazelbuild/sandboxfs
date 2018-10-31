@@ -19,7 +19,7 @@ use {Cache, IdGenerator};
 use failure::{Error, ResultExt};
 use nix::{errno, fcntl, sys, unistd};
 use nix::dir as rawdir;
-use nodes::{Handle, KernelError, Node, NodeResult, conv};
+use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
@@ -247,6 +247,21 @@ impl Dir {
         }
         Dir::new_empty(ids.next(), Some(self), now)
     }
+
+    /// Same as `getattr` but with the node already locked.
+    fn getattr_locked(inode: u64, state: &mut MutableDir) -> NodeResult<fuse::FileAttr> {
+        if let Some(path) = &state.underlying_path {
+            let fs_attr = fs::symlink_metadata(path)?;
+            if !fs_attr.is_dir() {
+                warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
+                    path, fs_attr.file_type());
+                return Err(KernelError::from_errno(errno::Errno::EIO));
+            }
+            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
+        };
+
+        Ok(state.attr)
+    }
 }
 
 impl Node for Dir {
@@ -296,24 +311,7 @@ impl Node for Dir {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-
-        let new_attr = match state.underlying_path.as_ref() {
-            Some(path) => {
-                let fs_attr = fs::symlink_metadata(path)?;
-                if !fs_attr.is_dir() {
-                    warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
-                        path, fs_attr.file_type());
-                    return Err(KernelError::from_errno(errno::Errno::EIO));
-                }
-                Some(conv::attr_fs_to_fuse(path, self.inode, &fs_attr))
-            },
-            None => None,
-        };
-        if let Some(new_attr) = new_attr {
-            state.attr = new_attr;
-        }
-
-        Ok(state.attr)
+        Dir::getattr_locked(self.inode, &mut state)
     }
 
     fn lookup(&self, name: &OsStr, ids: &IdGenerator, cache: &Cache)
@@ -362,5 +360,13 @@ impl Node for Dir {
             state: self.state.clone(),
             handle: Mutex::from(handle),
         }))
+    }
+
+    fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(path) = &state.underlying_path {
+            setattr(path, &state.attr, delta)?;
+        }
+        Dir::getattr_locked(self.inode, &mut state)
     }
 }
