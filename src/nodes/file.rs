@@ -135,7 +135,7 @@ impl Node for File {
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        setattr(&state.underlying_path, &state.attr, delta)?;
-        File::getattr_locked(self.inode, &mut state)
+        state.attr = setattr(Some(&state.underlying_path), &state.attr, delta)?;
+        Ok(state.attr)
     }
 }

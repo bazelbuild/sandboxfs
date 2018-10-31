@@ -496,10 +496,14 @@ impl Node for Dir {
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        if let Some(path) = &state.underlying_path {
-            setattr(path, &state.attr, delta)?;
-        }
-        Dir::getattr_locked(self.inode, &mut state)
+
+        // setattr only gets called on writable nodes, which must have an underlying path.  This
+        // assertion will go away when we have the ability to delete nodes as those may still
+        // exist in memory but have no corresponding underlying path.
+        debug_assert!(state.underlying_path.is_some());
+
+        state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
+        Ok(state.attr)
     }
 
     fn symlink(&self, name: &OsStr, link: &Path, ids: &IdGenerator, cache: &Cache)

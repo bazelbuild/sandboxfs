@@ -12,6 +12,13 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+// For portability reasons, we need to be able to cast integer values to system-level opaque
+// types such as "mode_t".  Because we don't know the size of those integers on the platform we
+// are building for, sometimes the casts do widen the values but other times they are no-ops.
+#![cfg_attr(feature = "cargo-clippy", allow(identity_conversion))]
+
+// We construct complex structures in multiple places, and allowing for redundant field names
+// increases readability.
 #![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
 
 #[macro_use] extern crate failure;
