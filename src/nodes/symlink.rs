@@ -60,7 +60,7 @@ impl Symlink {
     }
 
     /// Same as `getattr` but with the node already locked.
-    fn getattr_unlocked(inode: u64, state: &mut MutableSymlink) -> NodeResult<fuse::FileAttr> {
+    fn getattr_locked(inode: u64, state: &mut MutableSymlink) -> NodeResult<fuse::FileAttr> {
         let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
         if !fs_attr.file_type().is_symlink() {
             warn!("Path {:?} backing a symlink node is no longer a symlink; got {:?}",
@@ -88,7 +88,7 @@ impl Node for Symlink {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        Symlink::getattr_unlocked(self.inode, &mut state)
+        Symlink::getattr_locked(self.inode, &mut state)
     }
 
     fn readlink(&self) -> NodeResult<PathBuf> {
@@ -100,6 +100,6 @@ impl Node for Symlink {
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         setattr(&state.underlying_path, &state.attr, delta)?;
-        Symlink::getattr_unlocked(self.inode, &mut state)
+        Symlink::getattr_locked(self.inode, &mut state)
     }
 }

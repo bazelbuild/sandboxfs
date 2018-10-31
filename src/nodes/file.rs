@@ -78,7 +78,7 @@ impl File {
     }
 
     /// Same as `getattr` but with the node already locked.
-    fn getattr_unlocked(inode: u64, state: &mut MutableFile) -> NodeResult<fuse::FileAttr> {
+    fn getattr_locked(inode: u64, state: &mut MutableFile) -> NodeResult<fuse::FileAttr> {
         let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
         if !File::supports_type(fs_attr.file_type()) {
             warn!("Path {:?} backing a file node is no longer a file; got {:?}",
@@ -107,7 +107,7 @@ impl Node for File {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        File::getattr_unlocked(self.inode, &mut state)
+        File::getattr_locked(self.inode, &mut state)
     }
 
     fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
@@ -134,6 +134,6 @@ impl Node for File {
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         setattr(&state.underlying_path, &state.attr, delta)?;
-        File::getattr_unlocked(self.inode, &mut state)
+        File::getattr_locked(self.inode, &mut state)
     }
 }

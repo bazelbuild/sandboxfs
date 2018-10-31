@@ -249,7 +249,7 @@ impl Dir {
     }
 
     /// Same as `getattr` but with the node already locked.
-    fn getattr_unlocked(inode: u64, state: &mut MutableDir) -> NodeResult<fuse::FileAttr> {
+    fn getattr_locked(inode: u64, state: &mut MutableDir) -> NodeResult<fuse::FileAttr> {
         if let Some(path) = &state.underlying_path {
             let fs_attr = fs::symlink_metadata(path)?;
             if !fs_attr.is_dir() {
@@ -311,7 +311,7 @@ impl Node for Dir {
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        Dir::getattr_unlocked(self.inode, &mut state)
+        Dir::getattr_locked(self.inode, &mut state)
     }
 
     fn lookup(&self, name: &OsStr, ids: &IdGenerator, cache: &Cache)
@@ -367,6 +367,6 @@ impl Node for Dir {
         if let Some(path) = &state.underlying_path {
             setattr(path, &state.attr, delta)?;
         }
-        Dir::getattr_unlocked(self.inode, &mut state)
+        Dir::getattr_locked(self.inode, &mut state)
     }
 }
