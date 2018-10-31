@@ -30,7 +30,7 @@ pub struct Symlink {
 
 /// Holds the mutable data of a symlink node.
 struct MutableSymlink {
-    underlying_path: PathBuf,
+    underlying_path: Option<PathBuf>,
     attr: fuse::FileAttr,
 }
 
@@ -52,8 +52,8 @@ impl Symlink {
         let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
 
         let state = MutableSymlink {
-            underlying_path: PathBuf::from(underlying_path),
-            attr,
+            underlying_path: Some(PathBuf::from(underlying_path)),
+            attr: attr,
         };
 
         Arc::new(Symlink { inode, writable, state: Mutex::from(state) })
@@ -61,13 +61,15 @@ impl Symlink {
 
     /// Same as `getattr` but with the node already locked.
     fn getattr_locked(inode: u64, state: &mut MutableSymlink) -> NodeResult<fuse::FileAttr> {
-        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
-        if !fs_attr.file_type().is_symlink() {
-            warn!("Path {:?} backing a symlink node is no longer a symlink; got {:?}",
-                &state.underlying_path, fs_attr.file_type());
-            return Err(KernelError::from_errno(errno::Errno::EIO));
+        if let Some(path) = &state.underlying_path {
+            let fs_attr = fs::symlink_metadata(path)?;
+            if !fs_attr.file_type().is_symlink() {
+                warn!("Path {} backing a symlink node is no longer a symlink; got {:?}",
+                    path.display(), fs_attr.file_type());
+                return Err(KernelError::from_errno(errno::Errno::EIO));
+            }
+            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
         }
-        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, inode, &fs_attr);
 
         Ok(state.attr)
     }
@@ -86,6 +88,14 @@ impl Node for Symlink {
         fuse::FileType::Symlink
     }
 
+    fn delete(&self) {
+        let mut state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "Delete already called or trying to delete an explicit mapping");
+        state.underlying_path = None;
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         Symlink::getattr_locked(self.inode, &mut state)
@@ -94,12 +104,14 @@ impl Node for Symlink {
     fn readlink(&self) -> NodeResult<PathBuf> {
         let state = self.state.lock().unwrap();
 
-        Ok(fs::read_link(&state.underlying_path)?)
+        let path = state.underlying_path.as_ref().expect(
+            "There is no known API to get the target of a deleted symlink");
+        Ok(fs::read_link(path)?)
     }
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        state.attr = setattr(Some(&state.underlying_path), &state.attr, delta)?;
+        state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
         Ok(state.attr)
     }
 }

@@ -58,7 +58,7 @@ pub struct File {
 
 /// Holds the mutable data of a file node.
 struct MutableFile {
-    underlying_path: PathBuf,
+    underlying_path: Option<PathBuf>,
     attr: fuse::FileAttr,
 }
 
@@ -85,8 +85,8 @@ impl File {
         let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
 
         let state = MutableFile {
-            underlying_path: PathBuf::from(underlying_path),
-            attr,
+            underlying_path: Some(PathBuf::from(underlying_path)),
+            attr: attr,
         };
 
         Arc::new(File { inode, writable, state: Mutex::from(state) })
@@ -94,13 +94,15 @@ impl File {
 
     /// Same as `getattr` but with the node already locked.
     fn getattr_locked(inode: u64, state: &mut MutableFile) -> NodeResult<fuse::FileAttr> {
-        let fs_attr = fs::symlink_metadata(&state.underlying_path)?;
-        if !File::supports_type(fs_attr.file_type()) {
-            warn!("Path {:?} backing a file node is no longer a file; got {:?}",
-                &state.underlying_path, fs_attr.file_type());
-            return Err(KernelError::from_errno(errno::Errno::EIO));
+        if let Some(path) = &state.underlying_path {
+            let fs_attr = fs::symlink_metadata(path)?;
+            if !File::supports_type(fs_attr.file_type()) {
+                warn!("Path {} backing a file node is no longer a file; got {:?}",
+                    path.display(), fs_attr.file_type());
+                return Err(KernelError::from_errno(errno::Errno::EIO));
+            }
+            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
         }
-        state.attr = conv::attr_fs_to_fuse(&state.underlying_path, inode, &fs_attr);
 
         Ok(state.attr)
     }
@@ -120,6 +122,14 @@ impl Node for File {
         state.attr.kind
     }
 
+    fn delete(&self) {
+        let mut state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "Delete already called or trying to delete an explicit mapping");
+        state.underlying_path = None;
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         File::getattr_locked(self.inode, &mut state)
@@ -129,13 +139,15 @@ impl Node for File {
         let state = self.state.lock().unwrap();
 
         let options = conv::flags_to_openoptions(flags, self.writable)?;
-        let file = options.open(&state.underlying_path)?;
+        let path = state.underlying_path.as_ref().expect(
+            "Don't know how to handle a request to reopen a deleted file");
+        let file = options.open(path)?;
         Ok(Arc::from(file))
     }
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        state.attr = setattr(Some(&state.underlying_path), &state.attr, delta)?;
+        state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
         Ok(state.attr)
     }
 }

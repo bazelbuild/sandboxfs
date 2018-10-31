@@ -489,9 +489,17 @@ impl fuse::Filesystem for SandboxFS {
         panic!("Required RW operation not yet implemented");
     }
 
-    fn rmdir(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
-        _reply: fuse::ReplyEmpty) {
-        panic!("Required RW operation not yet implemented");
+    fn rmdir(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEmpty) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.rmdir(name) {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn setattr(&mut self, _req: &fuse::Request, inode: u64, mode: Option<u32>, uid: Option<u32>,
@@ -545,9 +553,17 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn unlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
-        _reply: fuse::ReplyEmpty) {
-        panic!("Required RW operation not yet implemented");
+    fn unlink(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEmpty) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.unlink(name) {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn write(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, offset: i64, data: &[u8],

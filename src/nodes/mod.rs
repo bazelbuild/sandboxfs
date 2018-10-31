@@ -289,6 +289,12 @@ pub trait Node {
     /// `Symlink`s (on which we don't allow type changes at all), it's OK.
     fn file_type_cached(&self) -> fuse::FileType;
 
+    /// Marks the node as deleted (though the in-memory representation remains).
+    ///
+    /// The implication of this is that a node loses its backing underlying path once this method
+    /// is called.
+    fn delete(&self);
+
     /// Maps a path onto a node and creates intermediate components as immutable directories.
     ///
     /// `_components` is the path to map, broken down into components, and relative to the current
@@ -365,6 +371,11 @@ pub trait Node {
         panic!("Not implemented");
     }
 
+    /// Deletes the empty directory `_name`.
+    fn rmdir(&self, _name: &OsStr) -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
     /// Sets one or more properties of the node's metadata.
     fn setattr(&self, _delta: &AttrDelta) -> NodeResult<fuse::FileAttr>;
 
@@ -378,5 +389,10 @@ pub trait Node {
     fn symlink(&self, _name: &OsStr, _link: &Path, _ids: &IdGenerator, _cache: &Cache)
         -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
         panic!("Not implemented")
+    }
+
+    /// Deletes the file `_name`.
+    fn unlink(&self, _name: &OsStr) -> NodeResult<()> {
+        panic!("Not implemented");
     }
 }
