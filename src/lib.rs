@@ -437,7 +437,7 @@ impl fuse::Filesystem for SandboxFS {
         _bkuptime: Option<Timespec>, _flags: Option<u32>, reply: fuse::ReplyAttr) {
         let node = self.find_node(inode);
         if !node.writable() {
-            reply.error(Errno::EACCES as i32);
+            reply.error(Errno::EPERM as i32);
             return;
         }
 

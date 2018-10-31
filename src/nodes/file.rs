@@ -118,7 +118,7 @@ impl Node for File {
         options.read(true);
         if flags & (fcntl::OFlag::O_WRONLY | fcntl::OFlag::O_RDWR).bits() != 0 {
             if !self.writable {
-                return Err(KernelError::from_errno(errno::Errno::EACCES));
+                return Err(KernelError::from_errno(errno::Errno::EPERM));
             }
             if flags & fcntl::OFlag::O_WRONLY.bits() != 0 {
                 options.read(false);
