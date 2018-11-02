@@ -23,6 +23,7 @@ use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{self as unix_fs, DirBuilderExt, OpenOptionsExt};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -262,6 +263,91 @@ impl Dir {
 
         Ok(state.attr)
     }
+
+    /// Gets the underlying path of the entry `name` in this directory.
+    ///
+    /// This also ensures that the entry is writable, which is determined by the directory itself
+    /// being mapped to an underlying path and the entry not being an explicit mapping.
+    fn get_writable_path(state: &mut MutableDir, name: &OsStr) -> NodeResult<PathBuf> {
+        if state.underlying_path.is_none() {
+            return Err(KernelError::from_errno(errno::Errno::EPERM));
+        }
+        let path = state.underlying_path.as_ref().unwrap().join(name);
+
+        if let Some(node) = state.children.get(name) {
+            if node.explicit_mapping {
+                return Err(KernelError::from_errno(errno::Errno::EPERM));
+            }
+        };
+
+        Ok(path)
+    }
+
+    // Same as `lookup` but with the node already locked.
+    fn lookup_locked(writable: bool, state: &mut MutableDir, name: &OsStr, ids: &IdGenerator,
+        cache: &Cache) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        if let Some(dirent) = state.children.get(name) {
+            let refreshed_attr = dirent.node.getattr()?;
+            return Ok((dirent.node.clone(), refreshed_attr))
+        }
+
+        let (child, attr) = {
+            let path = match &state.underlying_path {
+                Some(underlying_path) => underlying_path.join(name),
+                None => return Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            };
+            let fs_attr = fs::symlink_metadata(&path)?;
+            let node = cache.get_or_create(ids, &path, &fs_attr, writable);
+            let attr = conv::attr_fs_to_fuse(path.as_path(), node.inode(), &fs_attr);
+            (node, attr)
+        };
+        let dirent = Dirent {
+            node: child.clone(),
+            explicit_mapping: false,
+        };
+        state.children.insert(name.to_os_string(), dirent);
+        Ok((child, attr))
+    }
+
+    /// Obtains the node and attributes of an underlying file immediately after its creation.
+    ///
+    /// `writable` and `state` are the properties of the node, passed in as arguments because we
+    /// have to hold the node locked already.
+    ///
+    /// `path` and `name` are the path to the underlying file and the basename to lookup in the
+    /// directory, respectively.  It is expected that the basename of `path` matches `name`.
+    ///
+    /// `exp_type` is the type of the node we expect to find for the just-created file.  If the
+    /// node doesn't match this type, it means we encountered a race on the underlying file system
+    /// and we fail the lookup.  (This is an artifact of how we currently implement this function
+    /// as this condition should just be impossible.)
+    fn post_create_lookup(writable: bool, state: &mut MutableDir, path: &Path, name: &OsStr,
+        exp_type: fuse::FileType, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        debug_assert_eq!(path.file_name().unwrap(), name);
+
+        // TODO(https://github.com/bazelbuild/sandboxfs/issues/43): We abuse lookup here to handle
+        // the node creation and the child insertion into the directory, but we shouldn't do this
+        // because lookup performs an extra stat that we should not be issuing.  But to resolve this
+        // we need to be able to synthesize the returned attr, which means we need to track ctimes
+        // internally.
+        match Dir::lookup_locked(writable, state, name, ids, cache) {
+            Ok((node, attr)) => {
+                if node.file_type_cached() != exp_type {
+                    warn!("Newly-created file {} was replaced or deleted before create finished",
+                        path.display());
+                    return Err(KernelError::from_errno(errno::Errno::EIO));
+                }
+                Ok((node, attr))
+            },
+            Err(e) => {
+                if let Err(e) = fs::remove_file(&path) {
+                    warn!("Failed to clean up newly-created {}: {}", path.display(), e);
+                }
+                Err(e)
+            }
+        }
+    }
 }
 
 impl Node for Dir {
@@ -309,6 +395,22 @@ impl Node for Dir {
         }
     }
 
+    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+    fn create(&self, name: &OsStr, mode: u32, flags: u32, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, Arc<Handle>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        let mut options = conv::flags_to_openoptions(flags, self.writable)?;
+        options.create(true);
+        options.mode(mode);
+
+        let file = options.open(&path)?;
+        let (node, attr) = Dir::post_create_lookup(self.writable, &mut state, &path, name,
+            fuse::FileType::RegularFile, ids, cache)?;
+        Ok((node, Arc::from(file), attr))
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         Dir::getattr_locked(self.inode, &mut state)
@@ -317,28 +419,58 @@ impl Node for Dir {
     fn lookup(&self, name: &OsStr, ids: &IdGenerator, cache: &Cache)
         -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
+        Dir::lookup_locked(self.writable, &mut state, name, ids, cache)
+    }
 
-        if let Some(dirent) = state.children.get(name) {
-            let refreshed_attr = dirent.node.getattr()?;
-            return Ok((dirent.node.clone(), refreshed_attr))
+    fn mkdir(&self, name: &OsStr, mode: u32, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        fs::DirBuilder::new().mode(mode).create(&path)?;
+        Dir::post_create_lookup(self.writable, &mut state, &path, name,
+            fuse::FileType::Directory, ids, cache)
+    }
+
+    fn mknod(&self, name: &OsStr, mode: u32, rdev: u32, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        if mode > u32::from(std::u16::MAX) {
+            warn!("mknod got too-big mode {} (exceeds {})", mode, std::u16::MAX);
         }
+        let mode = mode as sys::stat::mode_t;
 
-        let (child, attr) = {
-            let path = match state.underlying_path.as_ref() {
-                Some(underlying_path) => underlying_path.join(name),
-                None => return Err(KernelError::from_errno(errno::Errno::ENOENT)),
-            };
-            let fs_attr = fs::symlink_metadata(&path)?;
-            let node = cache.get_or_create(ids, &path, &fs_attr, self.writable);
-            let attr = conv::attr_fs_to_fuse(path.as_path(), node.inode(), &fs_attr);
-            (node, attr)
+        // We have to break apart the incoming mode into a separate file type flag and a permissions
+        // set... only to have mknod() combine them later once again.  Doesn't make a lot of sense
+        // but that the API we get from nix, hence ensure we are doing the right thing.
+        let (sflag, perm) = {
+            let sflag = sys::stat::SFlag::from_bits_truncate(mode);
+            let perm = sys::stat::Mode::from_bits_truncate(mode);
+
+            let truncated_mode = sflag.bits() | perm.bits();
+            if truncated_mode != mode {
+                warn!("mknod cannot only handle {} from mode {}", truncated_mode, mode);
+            }
+
+            (sflag, perm)
         };
-        let dirent = Dirent {
-            node: child.clone(),
-            explicit_mapping: false,
+
+        let exp_filetype = match sflag {
+            sys::stat::SFlag::S_IFCHR => fuse::FileType::CharDevice,
+            sys::stat::SFlag::S_IFBLK => fuse::FileType::BlockDevice,
+            sys::stat::SFlag::S_IFIFO => fuse::FileType::NamedPipe,
+            _ => {
+                warn!("mknod received request to create {} with type {:?}, which is not supported",
+                    path.display(), sflag);
+                return Err(KernelError::from_errno(errno::Errno::EIO));
+            },
         };
-        state.children.insert(name.to_os_string(), dirent);
-        Ok((child, attr))
+
+        #[cfg_attr(feature = "cargo-clippy", allow(cast_lossless))]
+        sys::stat::mknod(&path, sflag, perm, rdev as sys::stat::dev_t)?;
+        Dir::post_create_lookup(self.writable, &mut state, &path, name, exp_filetype, ids, cache)
     }
 
     fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
@@ -368,5 +500,15 @@ impl Node for Dir {
             setattr(path, &state.attr, delta)?;
         }
         Dir::getattr_locked(self.inode, &mut state)
+    }
+
+    fn symlink(&self, name: &OsStr, link: &Path, ids: &IdGenerator, cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        unix_fs::symlink(link, &path)?;
+        Dir::post_create_lookup(self.writable, &mut state, &path, name,
+            fuse::FileType::Symlink, ids, cache)
     }
 }

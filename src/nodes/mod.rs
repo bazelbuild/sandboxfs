@@ -143,7 +143,7 @@ pub fn setattr(path: &Path, attr: &fuse::FileAttr, delta: &AttrDelta) -> Result<
 
 /// Abstract representation of an open file handle.
 pub trait Handle {
-    /// Reads `size` bytes from the open file starting at `offset`.
+    /// Reads `_size` bytes from the open file starting at `_offset`.
     fn read(&self, _offset: i64, _size: u32) -> NodeResult<Vec<u8>> {
         panic!("Not implemented")
     }
@@ -159,6 +159,11 @@ pub trait Handle {
     /// nodes, used when readdir discovers an underlying node that was not yet known.
     fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _reply: &mut fuse::ReplyDirectory)
         -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
+    /// Writes the bytes held in `_data` to the open file starting at `_offset`.
+    fn write(&self, _offset: i64, _data: &[u8]) -> NodeResult<u32> {
         panic!("Not implemented");
     }
 }
@@ -212,6 +217,19 @@ pub trait Node {
         panic!("Not implemented")
     }
 
+    /// Creates a new file with `_name` and `_mode` and opens it with `_flags`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+    fn create(&self, _name: &OsStr, _mode: u32, _flags: u32, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, Arc<Handle>, fuse::FileAttr)> {
+        panic!("Not implemented")
+    }
+
     /// Retrieves the node's metadata.
     fn getattr(&self) -> NodeResult<fuse::FileAttr>;
 
@@ -228,6 +246,30 @@ pub trait Node {
         panic!("Not implemented");
     }
 
+    /// Creates a new directory with `_name` and `_mode`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    fn mkdir(&self, _name: &OsStr, _mode: u32, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented")
+    }
+
+    /// Creates a new special file with `_name`, `_mode`, and `_rdev`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    fn mknod(&self, _name: &OsStr, _mode: u32, _rdev: u32, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented")
+    }
+
     /// Opens the file and returns an open file handle for it.
     fn open(&self, _flags: u32) -> NodeResult<Arc<Handle>> {
         panic!("Not implemented");
@@ -240,4 +282,16 @@ pub trait Node {
 
     /// Sets one or more properties of the node's metadata.
     fn setattr(&self, _delta: &AttrDelta) -> NodeResult<fuse::FileAttr>;
+
+    /// Creates a symlink with `_name` pointing at `_link`.
+    ///
+    /// The attributes are returned to avoid having to relock the node on the caller side in order
+    /// to supply those attributes to the kernel.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when create has to instantiate a new node.
+    fn symlink(&self, _name: &OsStr, _link: &Path, _ids: &IdGenerator, _cache: &Cache)
+        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        panic!("Not implemented")
+    }
 }

@@ -110,6 +110,13 @@ pub struct IdGenerator {
 }
 
 impl IdGenerator {
+    /// Generation number to return to the kernel for any inode number.
+    ///
+    /// We don't reuse inode numbers throughout the lifetime of a sandboxfs instance and we do not
+    /// support FUSE daemon restarts without going through an unmount/mount sequence, so it is OK
+    /// to have a constant number here.
+    const GENERATION: u64 = 0;
+
     /// Constructs a new generator that starts at the given value.
     fn new(start_value: u64) -> Self {
         IdGenerator { last_id: AtomicUsize::new(start_value as usize) }
@@ -291,6 +298,21 @@ impl SandboxFS {
         handles.get(&fh).expect("Kernel requested unknown handle").clone()
     }
 
+    /// Tracks a new file handle and assigns an identifier to it.
+    fn insert_handle(&mut self, handle: Arc<nodes::Handle>) -> u64 {
+        let fh = self.ids.next();
+        let mut handles = self.handles.lock().unwrap();
+        debug_assert!(!handles.contains_key(&fh));
+        handles.insert(fh, handle);
+        fh
+    }
+
+    /// Tracks a node, which may already be known.
+    fn insert_node(&mut self, node: Arc<nodes::Node>) {
+        let mut nodes = self.nodes.lock().unwrap();
+        nodes.entry(node.inode()).or_insert(node);
+    }
+
     /// Opens a new handle for the given `inode`.
     ///
     /// This is a helper function to implement the symmetric `open` and `opendir` hooks.
@@ -299,11 +321,7 @@ impl SandboxFS {
 
         match node.open(flags) {
             Ok(handle) => {
-                let fh = self.ids.next();
-                {
-                    let mut handles = self.handles.lock().unwrap();
-                    handles.insert(fh, handle);
-                }
+                let fh = self.insert_handle(handle);
                 reply.opened(fh, flags);
             },
             Err(e) => reply.error(e.errno_as_i32()),
@@ -323,9 +341,22 @@ impl SandboxFS {
 }
 
 impl fuse::Filesystem for SandboxFS {
-    fn create(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32, _flags: u32,
-        _reply: fuse::ReplyCreate) {
-        panic!("Required RW operation not yet implemented");
+    fn create(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
+        reply: fuse::ReplyCreate) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.create(name, mode, flags, &self.ids, &self.cache) {
+            Ok((node, handle, attr)) => {
+                self.insert_node(node);
+                let fh = self.insert_handle(handle);
+                reply.created(&TTL, &attr, IdGenerator::GENERATION, fh, flags);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn getattr(&mut self, _req: &fuse::Request, inode: u64, reply: fuse::ReplyAttr) {
@@ -337,8 +368,9 @@ impl fuse::Filesystem for SandboxFS {
     }
 
     fn link(&mut self, _req: &fuse::Request, _inode: u64, _newparent: u64, _newname: &OsStr,
-        _reply: fuse::ReplyEntry) {
-        panic!("Required RW operation not yet implemented");
+        reply: fuse::ReplyEntry) {
+        // We don't support hardlinks at this point.
+        reply.error(Errno::EPERM as i32);
     }
 
     fn lookup(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEntry) {
@@ -351,20 +383,44 @@ impl fuse::Filesystem for SandboxFS {
                         nodes.insert(node.inode(), node);
                     }
                 }
-                reply.entry(&TTL, &attr, 0);
+                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
     }
 
-    fn mkdir(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32,
-        _reply: fuse::ReplyEntry) {
-        panic!("Required RW operation not yet implemented");
+    fn mkdir(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32,
+        reply: fuse::ReplyEntry) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.mkdir(name, mode, &self.ids, &self.cache) {
+            Ok((node, attr)) => {
+                self.insert_node(node);
+                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
-    fn mknod(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _mode: u32, _rdev: u32,
-        _reply: fuse::ReplyEntry) {
-        panic!("Required RW operation not yet implemented");
+    fn mknod(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, rdev: u32,
+        reply: fuse::ReplyEntry) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.mknod(name, mode, rdev, &self.ids, &self.cache) {
+            Ok((node, attr)) => {
+                self.insert_node(node);
+                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn open(&mut self, _req: &fuse::Request, inode: u64, flags: u32, reply: fuse::ReplyOpen) {
@@ -437,7 +493,7 @@ impl fuse::Filesystem for SandboxFS {
         _bkuptime: Option<Timespec>, _flags: Option<u32>, reply: fuse::ReplyAttr) {
         let node = self.find_node(inode);
         if !node.writable() {
-            reply.error(Errno::EACCES as i32);
+            reply.error(Errno::EPERM as i32);
             return;
         }
 
@@ -465,14 +521,36 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn symlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _link: &Path,
-        _reply: fuse::ReplyEntry) {
-        panic!("Required RW operation not yet implemented");
+    fn symlink(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, link: &Path,
+        reply: fuse::ReplyEntry) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.symlink(name, link, &self.ids, &self.cache) {
+            Ok((node, attr)) => {
+                self.insert_node(node);
+                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn unlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
         _reply: fuse::ReplyEmpty) {
         panic!("Required RW operation not yet implemented");
+    }
+
+    fn write(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, offset: i64, data: &[u8],
+        _flags: u32, reply: fuse::ReplyWrite) {
+        let handle = self.find_handle(fh);
+
+        match handle.write(offset, data) {
+            Ok(size) => reply.written(size),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 }
 

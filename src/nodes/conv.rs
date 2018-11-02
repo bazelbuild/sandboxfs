@@ -13,11 +13,12 @@
 // under the License.
 
 use fuse;
-use nix::sys;
+use nix::{errno, fcntl, sys};
 use nix::sys::time::TimeValLike;
+use nodes::{KernelError, NodeResult};
 use std::fs;
 use std::io;
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::Timespec;
@@ -154,6 +155,29 @@ pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::Fi
     }
 }
 
+/// Converts a set of `flags` bitmask to an `fs::OpenOptions`.
+///
+/// `allow_writes` indicates whether the file to be opened supports writes or not.  If the flags
+/// don't match this condition, then this returns an error.
+pub fn flags_to_openoptions(flags: u32, allow_writes: bool) -> NodeResult<fs::OpenOptions> {
+    let flags = flags as i32;
+    let oflag = fcntl::OFlag::from_bits_truncate(flags);
+
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    if oflag.contains(fcntl::OFlag::O_WRONLY) | oflag.contains(fcntl::OFlag::O_RDWR) {
+        if !allow_writes {
+            return Err(KernelError::from_errno(errno::Errno::EPERM));
+        }
+        if oflag.contains(fcntl::OFlag::O_WRONLY) {
+            options.read(false);
+        }
+        options.write(true);
+    }
+    options.custom_flags(flags);
+    Ok(options)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,10 +185,18 @@ mod tests {
     use nix::{errno, unistd};
     use nix::sys::time::TimeValLike;
     use std::fs::File;
-    use std::io::Write;
+    use std::io::{Read, Write};
+    use std::os::unix;
     use std::time::Duration;
     use tempdir::TempDir;
     use testutils;
+
+    /// Creates a file at `path` with the given `content` and closes it.
+    fn create_file(path: &Path, content: &str) {
+        let mut file = File::create(path).expect("Test file creation failed");
+        let written = file.write(content.as_bytes()).expect("Test file data write failed");
+        assert_eq!(content.len(), written, "Test file wasn't fully written");
+    }
 
     #[test]
     fn test_timespec_to_timeval() {
@@ -249,10 +281,8 @@ mod tests {
         let dir = TempDir::new("test").unwrap();
         let path = dir.path().join("file");
 
-        let mut file = File::create(&path).unwrap();
         let content = "Some text\n";
-        file.write_all(content.as_bytes()).unwrap();
-        drop(file);
+        create_file(&path, content);
 
         fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
         sys::stat::utimes(&path, &sys::time::TimeVal::seconds(54321),
@@ -281,5 +311,74 @@ mod tests {
         attr.ctime = BAD_TIME;
         attr.crtime = BAD_TIME;
         assert_eq!(&exp_attr, &attr);
+    }
+
+    #[test]
+    fn test_flags_to_openoptions_rdonly() {
+        let dir = TempDir::new("test").unwrap();
+        let path = dir.path().join("file");
+        create_file(&path, "original content");
+
+        let flags = fcntl::OFlag::O_RDONLY.bits() as u32;
+        let openoptions = flags_to_openoptions(flags, false).unwrap();
+        let mut file = openoptions.open(&path).unwrap();
+
+        write!(file, "foo").expect_err("Write to read-only file succeeded");
+
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).expect("Read from read-only file failed");
+        assert_eq!("original content", buf);
+    }
+
+    #[test]
+    fn test_flags_to_openoptions_wronly() {
+        let dir = TempDir::new("test").unwrap();
+        let path = dir.path().join("file");
+        create_file(&path, "");
+
+        let flags = fcntl::OFlag::O_WRONLY.bits() as u32;
+        flags_to_openoptions(flags, false).expect_err("Writability permission not respected");
+        let openoptions = flags_to_openoptions(flags, true).unwrap();
+        let mut file = openoptions.open(&path).unwrap();
+
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).expect_err("Read from write-only file succeeded");
+
+        write!(file, "foo").expect("Write to write-only file failed");
+    }
+
+    #[test]
+    fn test_flags_to_openoptions_rdwr() {
+        let dir = TempDir::new("test").unwrap();
+        let path = dir.path().join("file");
+        create_file(&path, "some content");
+
+        let flags = fcntl::OFlag::O_RDWR.bits() as u32;
+        flags_to_openoptions(flags, false).expect_err("Writability permission not respected");
+        let openoptions = flags_to_openoptions(flags, true).unwrap();
+        let mut file = openoptions.open(&path).unwrap();
+
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).expect("Read from read/write file failed");
+
+        write!(file, "foo").expect("Write to read/write file failed");
+    }
+
+    #[test]
+    fn test_flags_to_openoptions_custom() {
+        let dir = TempDir::new("test").unwrap();
+        create_file(&dir.path().join("file"), "");
+        let path = dir.path().join("link");
+        unix::fs::symlink("file", &path).unwrap();
+
+        {
+            let flags = fcntl::OFlag::O_RDONLY.bits() as u32;
+            let openoptions = flags_to_openoptions(flags, true).unwrap();
+            openoptions.open(&path).expect("Failed to open symlink target; test setup bogus");
+        }
+
+        let flags = (fcntl::OFlag::O_RDONLY | fcntl::OFlag::O_NOFOLLOW).bits() as u32;
+        let openoptions = flags_to_openoptions(flags, true).unwrap();
+        openoptions.open(&path).expect_err("Open of symlink succeeded");
     }
 }

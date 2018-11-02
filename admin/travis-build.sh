@@ -85,30 +85,22 @@ do_rust() {
     TestCli_Syntax
     TestDebug_FuseOpsInLog
     TestLayout_MountPointDoesNotExist
-    TestNesting_ReadWriteWithinReadOnly
-    TestNesting_SameTarget
     TestOptions_Allow
     TestOptions_Syntax
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
     TestReadOnly_Attributes
-    TestReadWrite_CreateFile
     TestReadWrite_Remove
-    TestReadWrite_RewriteFile
-    TestReadWrite_RewriteFileWithShorterContent
     TestReadWrite_InodeReassignedAfterRecreation
     TestReadWrite_FstatOnDeletedNode
     TestReadWrite_FtruncateOnDeletedFile
     TestReadWrite_NestedMappingsInheritDirectoryProperties
-    TestReadWrite_NestedMappingsClobberFiles
     TestReadWrite_RenameFile
     TestReadWrite_MoveFile
-    TestReadWrite_Mknod
     TestReadWrite_FchmodOnDeletedNode
     TestReadWrite_FchownOnDeletedNode
     TestReadWrite_FutimesOnDeletedNode
-    TestReadWrite_HardLinksNotSupported
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap

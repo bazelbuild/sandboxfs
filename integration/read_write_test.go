@@ -942,3 +942,23 @@ func TestReadWrite_HardLinksNotSupported(t *testing.T) {
 		})
 	}
 }
+
+func TestReadWrite_SymlinkAndReadlink(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	path := state.MountPath("symlink")
+	target := "some/random/dangling/target"
+
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatalf("Failed to create symlink %s: %v", path, err)
+	}
+
+	gotTarget, err := os.Readlink(path)
+	if err != nil {
+		t.Fatalf("Failed to read symlink %s: %v", path, err)
+	}
+	if target != gotTarget {
+		t.Errorf("Want symlink target to be %s, got %s", target, gotTarget)
+	}
+}
