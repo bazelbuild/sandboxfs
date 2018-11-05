@@ -143,13 +143,14 @@ fn setattr_times(attr: &mut fuse::FileAttr, path: Option<&PathBuf>,
         return Ok(());
     }
 
+    if attr.kind == fuse::FileType::Symlink {
+        // TODO(https://github.com/bazelbuild/sandboxfs/issues/46): Should use futimensat to support
+        // changing the times of a symlink if requested to do so.
+        return Err(nix::Error::from_errno(Errno::EOPNOTSUPP));
+    }
+
     let atime = atime.unwrap_or_else(|| conv::timespec_to_timeval(attr.atime));
     let mtime = mtime.unwrap_or_else(|| conv::timespec_to_timeval(attr.mtime));
-    if attr.kind == fuse::FileType::Symlink {
-        // TODO(jmmv): Should use futimensat to avoid following symlinks but this function is
-        // not available on macOS El Capitan, which we currently require for CI builds.
-        warn!("Asked to update atime/mtime for symlink {:?} but following symlink instead", path);
-    }
     let result = try_path(path, |p| sys::stat::utimes(p, &atime, &mtime));
     if result.is_ok() {
         attr.atime = conv::timeval_to_timespec(atime);
