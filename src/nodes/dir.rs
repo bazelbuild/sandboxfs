@@ -254,12 +254,12 @@ impl Dir {
         if let Some(path) = &state.underlying_path {
             let fs_attr = fs::symlink_metadata(path)?;
             if !fs_attr.is_dir() {
-                warn!("Path {:?} backing a directory node is no longer a directory; got {:?}",
-                    path, fs_attr.file_type());
+                warn!("Path {} backing a directory node is no longer a directory; got {:?}",
+                    path.display(), fs_attr.file_type());
                 return Err(KernelError::from_errno(errno::Errno::EIO));
             }
             state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
-        };
+        }
 
         Ok(state.attr)
     }
@@ -348,6 +348,22 @@ impl Dir {
             }
         }
     }
+
+    /// Common implementation for the `rmdir` and `unlink` operations.
+    ///
+    /// The behavior of these operations differs only in the syscall we invoke to delete the
+    /// underlying entry, which is passed in as the `remove` parameter.
+    fn remove_any<R>(&self, name: &OsStr, remove: R) -> NodeResult<()>
+        where R: Fn(&PathBuf) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let path = Dir::get_writable_path(&mut state, name)?;
+
+        remove(&path)?;
+
+        state.children[name].node.delete();
+        state.children.remove(name);
+        Ok(())
+    }
 }
 
 impl Node for Dir {
@@ -361,6 +377,14 @@ impl Node for Dir {
 
     fn file_type_cached(&self) -> fuse::FileType {
         fuse::FileType::Directory
+    }
+
+    fn delete(&self) {
+        let mut state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "Delete already called or trying to delete an explicit mapping");
+        state.underlying_path = None;
     }
 
     fn map(&self, components: &[Component], underlying_path: &Path, writable: bool,
@@ -494,12 +518,16 @@ impl Node for Dir {
         }))
     }
 
+    fn rmdir(&self, name: &OsStr) -> NodeResult<()> {
+        // TODO(jmmv): Figure out how to remove the redundant closure.
+        #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
+        self.remove_any(name, |p| fs::remove_dir(p))
+    }
+
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
-        if let Some(path) = &state.underlying_path {
-            setattr(path, &state.attr, delta)?;
-        }
-        Dir::getattr_locked(self.inode, &mut state)
+        state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
+        Ok(state.attr)
     }
 
     fn symlink(&self, name: &OsStr, link: &Path, ids: &IdGenerator, cache: &Cache)
@@ -510,5 +538,11 @@ impl Node for Dir {
         unix_fs::symlink(link, &path)?;
         Dir::post_create_lookup(self.writable, &mut state, &path, name,
             fuse::FileType::Symlink, ids, cache)
+    }
+
+    fn unlink(&self, name: &OsStr) -> NodeResult<()> {
+        // TODO(jmmv): Figure out how to remove the redundant closure.
+        #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
+        self.remove_any(name, |p| fs::remove_file(p))
     }
 }

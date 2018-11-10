@@ -91,16 +91,10 @@ do_rust() {
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
     TestReadOnly_Attributes
-    TestReadWrite_Remove
     TestReadWrite_InodeReassignedAfterRecreation
-    TestReadWrite_FstatOnDeletedNode
-    TestReadWrite_FtruncateOnDeletedFile
     TestReadWrite_NestedMappingsInheritDirectoryProperties
     TestReadWrite_RenameFile
     TestReadWrite_MoveFile
-    TestReadWrite_FchmodOnDeletedNode
-    TestReadWrite_FchownOnDeletedNode
-    TestReadWrite_FutimesOnDeletedNode
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap

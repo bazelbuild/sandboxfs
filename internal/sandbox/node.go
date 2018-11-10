@@ -342,6 +342,13 @@ func (n *BaseNode) setattrTimes(req *fuse.SetattrRequest) error {
 	}
 
 	if underlyingPath, isMapped := n.UnderlyingPath(); isMapped && !n.deleted {
+		if n.attr.Mode&os.ModeType == os.ModeSymlink {
+			// TODO(https://github.com/bazelbuild/sandboxfs/issues/46): Should use
+			// futimensat to support changing the times of a symlink if requested to
+			// do so.
+			return fuse.Errno(syscall.EOPNOTSUPP)
+		}
+
 		if err := os.Chtimes(underlyingPath, atime, mtime); err != nil {
 			return err
 		}

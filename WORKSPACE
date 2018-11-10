@@ -57,7 +57,7 @@ go_repository(
 go_repository(
     name = "org_golang_x_sys",
     importpath = "golang.org/x/sys",
-    commit = "4b45465282a4624cf39876842a017334f13b8aff",
+    commit = "9b800f95dbbc54abff0acf7ee32d88ba4e328c89",
 )
 
 gazelle_dependencies()

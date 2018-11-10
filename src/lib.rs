@@ -12,6 +12,13 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+// For portability reasons, we need to be able to cast integer values to system-level opaque
+// types such as "mode_t".  Because we don't know the size of those integers on the platform we
+// are building for, sometimes the casts do widen the values but other times they are no-ops.
+#![cfg_attr(feature = "cargo-clippy", allow(identity_conversion))]
+
+// We construct complex structures in multiple places, and allowing for redundant field names
+// increases readability.
 #![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
 
 #[macro_use] extern crate failure;
@@ -482,9 +489,17 @@ impl fuse::Filesystem for SandboxFS {
         panic!("Required RW operation not yet implemented");
     }
 
-    fn rmdir(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
-        _reply: fuse::ReplyEmpty) {
-        panic!("Required RW operation not yet implemented");
+    fn rmdir(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEmpty) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.rmdir(name) {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn setattr(&mut self, _req: &fuse::Request, inode: u64, mode: Option<u32>, uid: Option<u32>,
@@ -538,9 +553,17 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn unlink(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr,
-        _reply: fuse::ReplyEmpty) {
-        panic!("Required RW operation not yet implemented");
+    fn unlink(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEmpty) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match dir_node.unlink(name) {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn write(&mut self, _req: &fuse::Request, _inode: u64, fh: u64, offset: i64, data: &[u8],

@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
@@ -565,20 +567,11 @@ func TestReadWrite_Chmod(t *testing.T) {
 		}
 	})
 
-	t.Run("DanglingSymlink", func(t *testing.T) {
-		utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
-
-		path := state.MountPath("dangling-symlink")
-		if err := os.Chmod(path, 0555); err == nil {
-			t.Errorf("Want chmod to fail on dangling link, got success")
-		}
-	})
-
-	t.Run("GoodSymlink", func(t *testing.T) {
+	t.Run("Symlink", func(t *testing.T) {
 		utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
-		utils.MustSymlink(t, "target", state.RootPath("good-symlink"))
+		utils.MustSymlink(t, "target", state.RootPath("symlink"))
 
-		path := state.MountPath("good-symlink")
+		path := state.MountPath("symlink")
 		linkFileInfo, err := os.Lstat(path)
 		if err != nil {
 			t.Fatalf("Failed to stat %s: %v", path, err)
@@ -588,11 +581,11 @@ func TestReadWrite_Chmod(t *testing.T) {
 			t.Fatalf("Failed to chmod %s: %v", path, err)
 		}
 
-		if err := checkPerm("good-symlink", linkFileInfo.Mode()&os.ModePerm); err != nil {
+		if err := checkPerm("symlink", linkFileInfo.Mode()&os.ModePerm); err != nil {
 			t.Error(err)
 		}
 		if err := checkPerm("target", 0200); err != nil {
-			t.Error(err)
+			t.Errorf("Mode of symlink target was modified but shouldn't have been: %v", err)
 		}
 	})
 }
@@ -664,9 +657,8 @@ func TestReadWrite_Chown(t *testing.T) {
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
-	utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
 	utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
-	utils.MustSymlink(t, "target", state.RootPath("good-symlink"))
+	utils.MustSymlink(t, "target", state.RootPath("symlink"))
 
 	targetFileInfo, err := os.Lstat(state.RootPath("target"))
 	if err != nil {
@@ -683,8 +675,7 @@ func TestReadWrite_Chown(t *testing.T) {
 	}{
 		{"Dir", "dir", 1, 2},
 		{"File", "file", 3, 4},
-		{"DanglingSymlink", "dangling-symlink", 5, 6},
-		{"GoodSymlink", "good-symlink", 7, 8},
+		{"Symlink", "symlink", 7, 8},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
@@ -821,35 +812,22 @@ func TestReadWrite_Chtimes(t *testing.T) {
 		}
 	})
 
-	t.Run("DanglingSymlink", func(t *testing.T) {
-		utils.MustSymlink(t, "missing", state.RootPath("dangling-symlink"))
-
-		if _, err := chtimes("dangling-symlink", time.Unix(0, 0), time.Unix(0, 0)); err == nil {
-			t.Errorf("Want chtimes to fail on dangling link, got success")
-		}
-	})
-
-	t.Run("GoodSymlink", func(t *testing.T) {
+	t.Run("Symlink", func(t *testing.T) {
 		utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
-		utils.MustSymlink(t, "target", state.RootPath("good-symlink"))
-		path := state.MountPath("good-symlink")
+		utils.MustSymlink(t, "target", state.RootPath("symlink"))
+		path := state.MountPath("symlink")
 
-		linkFileInfo, err := os.Lstat(path)
+		atimeTimespec, err := unix.TimeToTimespec(someAtime)
 		if err != nil {
-			t.Fatalf("Failed to stat %s: %v", path, err)
+			t.Fatalf("Failed to convert %v to a timespec: %v", someAtime, err)
 		}
-		linkStat := linkFileInfo.Sys().(*syscall.Stat_t)
-
-		wantMinCtime, err := chtimes(path, someAtime, someMtime)
+		mtimeTimespec, err := unix.TimeToTimespec(someMtime)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("Failed to convert %v to a timespec: %v", someMtime, err)
 		}
 
-		if err := checkTimes("good-symlink", time.Unix(0, 0), linkFileInfo.ModTime(), sandbox.Ctime(linkStat)); err != nil {
-			t.Error(err)
-		}
-		if err := checkTimes("target", someAtime, someMtime, wantMinCtime); err != nil {
-			t.Error(err)
+		if err = unix.UtimesNanoAt(unix.AT_FDCWD, path, []unix.Timespec{atimeTimespec, mtimeTimespec}, unix.AT_SYMLINK_NOFOLLOW); err == nil || err != syscall.EOPNOTSUPP {
+			t.Fatalf("Expected EOPNOTSUPP changing the times of a symlink; got %v", err)
 		}
 	})
 }

@@ -88,57 +88,143 @@ pub struct AttrDelta {
 /// Generic result type for of all node operations.
 pub type NodeResult<T> = Result<T, KernelError>;
 
+/// Applies an operation to a path if present, or otherwise returns Ok.
+fn try_path<O: Fn(&PathBuf) -> nix::Result<()>>(path: Option<&PathBuf>, op: O) -> nix::Result<()> {
+    match path {
+        Some(path) => op(path),
+        None => Ok(()),
+    }
+}
+
+/// Helper function for `setattr` to apply only the mode changes.
+fn setattr_mode(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, mode: Option<sys::stat::Mode>)
+    -> Result<(), nix::Error> {
+    if mode.is_none() {
+        return Ok(())
+    }
+    let mode = mode.unwrap();
+
+    if mode.bits() > sys::stat::mode_t::from(std::u16::MAX) {
+        warn!("Got setattr with mode {:?} for {:?} (inode {}), which is too large; ignoring",
+            mode, path, attr.ino);
+        return Err(nix::Error::from_errno(Errno::EIO));
+    }
+    let perm = mode.bits() as u16;
+
+    let result = try_path(path, |p|
+        sys::stat::fchmodat(None, p, mode, sys::stat::FchmodatFlags::NoFollowSymlink));
+    if result.is_ok() {
+        attr.perm = perm;
+    }
+    result
+}
+
+/// Helper function for `setattr` to apply only the UID and GID changes.
+fn setattr_owners(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, uid: Option<unistd::Uid>,
+    gid: Option<unistd::Gid>) -> Result<(), nix::Error> {
+    if uid.is_none() && gid.is_none() {
+        return Ok(())
+    }
+
+    let result = try_path(path, |p|
+        unistd::fchownat(None, p, uid, gid, unistd::FchownatFlags::NoFollowSymlink));
+    if result.is_ok() {
+        attr.uid = uid.map_or(attr.uid, u32::from);
+        attr.gid = uid.map_or(attr.gid, u32::from);
+    }
+    result
+}
+
+/// Helper function for `setattr` to apply only the atime and mtime changes.
+fn setattr_times(attr: &mut fuse::FileAttr, path: Option<&PathBuf>,
+    atime: Option<sys::time::TimeVal>, mtime: Option<sys::time::TimeVal>)
+    -> Result<(), nix::Error> {
+    if atime.is_none() && mtime.is_none() {
+        return Ok(());
+    }
+
+    if attr.kind == fuse::FileType::Symlink {
+        // TODO(https://github.com/bazelbuild/sandboxfs/issues/46): Should use futimensat to support
+        // changing the times of a symlink if requested to do so.
+        return Err(nix::Error::from_errno(Errno::EOPNOTSUPP));
+    }
+
+    let atime = atime.unwrap_or_else(|| conv::timespec_to_timeval(attr.atime));
+    let mtime = mtime.unwrap_or_else(|| conv::timespec_to_timeval(attr.mtime));
+    let result = try_path(path, |p| sys::stat::utimes(p, &atime, &mtime));
+    if result.is_ok() {
+        attr.atime = conv::timeval_to_timespec(atime);
+        attr.mtime = conv::timeval_to_timespec(mtime);
+    }
+    result
+}
+
+/// Helper function for `setattr` to apply only the size changes.
+fn setattr_size(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, size: Option<u64>)
+    -> Result<(), nix::Error> {
+    if size.is_none() {
+        return Ok(());
+    }
+    let size = size.unwrap();
+
+    let result = if size > ::std::i64::MAX as u64 {
+        warn!("truncate request got size {}, which is too large (exceeds i64's MAX)", size);
+        Err(nix::Error::invalid_argument())
+    } else {
+        try_path(path, |p| unistd::truncate(p, size as i64))
+    };
+    if result.is_ok() {
+        attr.size = size;
+    }
+    result
+}
+
 /// Updates the metadata of a file given a delta of attributes.
 ///
-/// This is a helper function to implement `Node::setattr` for the various node types.  The caller
-/// is responsible for obtaining the updated metadata of the underlying file to return it to the
-/// kernel, as computing the updated metadata here would be inaccurate.  The reason is that we don't
-/// track ctimes ourselves so any modifications to the file cause the backing ctime to be updated
-/// and we need to obtain it.
-/// TODO(https://github.com/bazelbuild/sandboxfs/issues/43): Compute the modified fuse::FileAttr and
-/// return it once we track ctimes.
+/// This is a helper function to implement `Node::setattr` for the various node types.
 ///
 /// This tries to apply as many properties as possible in case of errors.  When errors occur,
 /// returns the first that was encountered.
-pub fn setattr(path: &Path, attr: &fuse::FileAttr, delta: &AttrDelta) -> Result<(), nix::Error> {
-    let mut result = Ok(());
-
-    if let Some(mode) = delta.mode {
-        result = result.and(
-            sys::stat::fchmodat(None, path, mode, sys::stat::FchmodatFlags::NoFollowSymlink));
-    }
-
-    if delta.uid.is_some() || delta.gid.is_some() {
-        result = result.and(
-            unistd::fchownat(None, path, delta.uid, delta.gid,
-                unistd::FchownatFlags::NoFollowSymlink));
-    }
-
-    if delta.atime.is_some() || delta.mtime.is_some() {
-        let atime = delta.atime.unwrap_or_else(|| conv::timespec_to_timeval(attr.atime));
-        let mtime = delta.mtime.unwrap_or_else(|| conv::timespec_to_timeval(attr.mtime));
-        if attr.kind == fuse::FileType::Symlink {
-            // TODO(jmmv): Should use futimensat to avoid following symlinks but this function is
-            // not available on macOS El Capitan, which we currently require for CI builds.
-            warn!("Asked to update atime/mtime for symlink {} but following symlink instead",
-                path.display());
+pub fn setattr(path: Option<&PathBuf>, attr: &fuse::FileAttr, delta: &AttrDelta)
+    -> Result<fuse::FileAttr, nix::Error> {
+    // Compute the potential new ctime for these updates.  We want to avoid picking a ctime that is
+    // larger than what the operations below can result in (so as to prevent a future getattr from
+    // moving the ctime back) which is tricky because we don't know the time resolution of the
+    // underlying file system.  Some, like HFS+, only have 1-second resolution... so pick that in
+    // the worst case.
+    //
+    // This is not perfectly accurate because we don't actually know what ctime the underlying file
+    // has gotten and thus a future getattr on it will cause the ctime to change.  But as long as we
+    // avoid going back on time, we can afford to do this -- which is a requirement for supporting
+    // setting attributes on deleted files.
+    //
+    // TODO(https://github.com/bazelbuild/sandboxfs/issues/43): Revisit this when we track
+    // ctimes purely on our own.
+    let updated_ctime = {
+        let mut now = time::now().to_timespec();
+        now.nsec = 0;
+        if attr.ctime > now {
+            attr.ctime
+        } else {
+            now
         }
-        result = result.and(sys::stat::utimes(path, &atime, &mtime));
-    }
+    };
 
-    if let Some(size) = delta.size {
+    let mut new_attr = *attr;
+    // Intentionally using and() instead of and_then() to try to apply all changes but to only
+    // keep the first error result.
+    let result = Ok(())
+        .and(setattr_mode(&mut new_attr, path, delta.mode))
+        .and(setattr_owners(&mut new_attr, path, delta.uid, delta.gid))
+        .and(setattr_times(&mut new_attr, path, delta.atime, delta.mtime))
         // Updating the size only makes sense on files, but handling it here is much simpler than
         // doing so on a node type basis.  Plus, who knows, if the kernel asked us to change the
         // size of anything other than a file, maybe we have to obey and try to do it.
-        if size > ::std::i64::MAX as u64 {
-            warn!("truncate request got size {}, which is too large (exceeds i64's MAX)", size);
-            result = result.and(Err(nix::Error::invalid_argument()));
-        } else {
-            result = result.and(unistd::truncate(path, size as i64));
-        }
+        .and(setattr_size(&mut new_attr, path, delta.size));
+    if *attr != new_attr {
+        new_attr.ctime = updated_ctime;
     }
-
-    result
+    result.and(Ok(new_attr))
 }
 
 /// Abstract representation of an open file handle.
@@ -203,6 +289,12 @@ pub trait Node {
     /// `getattr` data becomes stale; given that this will always be a problem for `Dir`s and
     /// `Symlink`s (on which we don't allow type changes at all), it's OK.
     fn file_type_cached(&self) -> fuse::FileType;
+
+    /// Marks the node as deleted (though the in-memory representation remains).
+    ///
+    /// The implication of this is that a node loses its backing underlying path once this method
+    /// is called.
+    fn delete(&self);
 
     /// Maps a path onto a node and creates intermediate components as immutable directories.
     ///
@@ -280,6 +372,11 @@ pub trait Node {
         panic!("Not implemented");
     }
 
+    /// Deletes the empty directory `_name`.
+    fn rmdir(&self, _name: &OsStr) -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
     /// Sets one or more properties of the node's metadata.
     fn setattr(&self, _delta: &AttrDelta) -> NodeResult<fuse::FileAttr>;
 
@@ -293,5 +390,10 @@ pub trait Node {
     fn symlink(&self, _name: &OsStr, _link: &Path, _ids: &IdGenerator, _cache: &Cache)
         -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
         panic!("Not implemented")
+    }
+
+    /// Deletes the file `_name`.
+    fn unlink(&self, _name: &OsStr) -> NodeResult<()> {
+        panic!("Not implemented");
     }
 }
