@@ -16,7 +16,7 @@ extern crate fuse;
 extern crate time;
 
 use nix::errno;
-use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
+use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::fs;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
@@ -78,7 +78,7 @@ impl File {
     /// node (e.g. as we discover directory entries during readdir or lookup), we have already
     /// issued a stat on the underlying file system and we cannot re-do it for efficiency reasons.
     pub fn new_mapped(inode: u64, underlying_path: &Path, fs_attr: &fs::Metadata, writable: bool)
-        -> Arc<Node> {
+        -> ArcNode {
         if !File::supports_type(fs_attr.file_type()) {
             panic!("Can only construct based on non-directories / non-symlinks");
         }
@@ -135,7 +135,7 @@ impl Node for File {
         File::getattr_locked(self.inode, &mut state)
     }
 
-    fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
+    fn open(&self, flags: u32) -> NodeResult<ArcHandle> {
         let state = self.state.lock().unwrap();
 
         let options = conv::flags_to_openoptions(flags, self.writable)?;

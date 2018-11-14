@@ -16,7 +16,7 @@ extern crate fuse;
 extern crate time;
 
 use nix::errno;
-use nodes::{AttrDelta, KernelError, Node, NodeResult, conv, setattr};
+use nodes::{ArcNode, AttrDelta, KernelError, Node, NodeResult, conv, setattr};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -45,7 +45,7 @@ impl Symlink {
     /// node (e.g. as we discover directory entries during readdir or lookup), we have already
     /// issued a stat on the underlying file system and we cannot re-do it for efficiency reasons.
     pub fn new_mapped(inode: u64, underlying_path: &Path, fs_attr: &fs::Metadata, writable: bool)
-        -> Arc<Node> {
+        -> ArcNode {
         if !fs_attr.file_type().is_symlink() {
             panic!("Can only construct based on symlinks");
         }

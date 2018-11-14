@@ -19,7 +19,7 @@ use {Cache, IdGenerator};
 use failure::{Error, ResultExt};
 use nix::{errno, fcntl, sys, unistd};
 use nix::dir as rawdir;
-use nodes::{AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
+use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
@@ -47,7 +47,7 @@ struct OpenDir {
     // These are copies of the fields that also exist in the Dir corresponding to this OpenDir.
     // Ideally we could just hold an immutable reference to the Dir instance... but this is hard
     // to do because, when opendir() gets called on an abstract Node, we do not get access to the
-    // Arc<Node> that corresponds to it (to clone it).  Given that these values are immutable on
+    // ArcNode that corresponds to it (to clone it).  Given that these values are immutable on
     // the node, holding a copy here is fine.
     inode: u64,
     writable: bool,
@@ -137,7 +137,7 @@ impl Handle for OpenDir {
 
 /// Representation of a directory entry.
 struct Dirent {
-    node: Arc<Node>,
+    node: ArcNode,
     explicit_mapping: bool,
 }
 
@@ -160,7 +160,7 @@ impl Dir {
     /// Creates a new scaffold directory to represent an in-memory directory.
     ///
     /// The directory's timestamps are set to `now` and the ownership is set to the current user.
-    pub fn new_empty(inode: u64, parent: Option<&Node>, now: time::Timespec) -> Arc<Node> {
+    pub fn new_empty(inode: u64, parent: Option<&Node>, now: time::Timespec) -> ArcNode {
         let attr = fuse::FileAttr {
             ino: inode,
             kind: fuse::FileType::Directory,
@@ -202,7 +202,7 @@ impl Dir {
     /// node (e.g. as we discover directory entries during readdir or lookup), we have already
     /// issued a stat on the underlying file system and we cannot re-do it for efficiency reasons.
     pub fn new_mapped(inode: u64, underlying_path: &Path, fs_attr: &fs::Metadata, writable: bool)
-        -> Arc<Node> {
+        -> ArcNode {
         if !fs_attr.is_dir() {
             panic!("Can only construct based on dirs");
         }
@@ -227,7 +227,7 @@ impl Dir {
     /// This is purely a helper function for `map`.  As a result, the caller is responsible for
     /// inserting the new directory into the children of the current directory.
     fn new_scaffold_child(&self, underlying_path: Option<&PathBuf>, name: &OsStr, ids: &IdGenerator,
-        now: time::Timespec) -> Arc<Node> {
+        now: time::Timespec) -> ArcNode {
         if let Some(path) = underlying_path {
             let child_path = path.join(name);
             match fs::symlink_metadata(&child_path) {
@@ -285,7 +285,7 @@ impl Dir {
 
     // Same as `lookup` but with the node already locked.
     fn lookup_locked(writable: bool, state: &mut MutableDir, name: &OsStr, ids: &IdGenerator,
-        cache: &Cache) -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         if let Some(dirent) = state.children.get(name) {
             let refreshed_attr = dirent.node.getattr()?;
             return Ok((dirent.node.clone(), refreshed_attr))
@@ -323,7 +323,7 @@ impl Dir {
     /// as this condition should just be impossible.)
     fn post_create_lookup(writable: bool, state: &mut MutableDir, path: &Path, name: &OsStr,
         exp_type: fuse::FileType, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         debug_assert_eq!(path.file_name().unwrap(), name);
 
         // TODO(https://github.com/bazelbuild/sandboxfs/issues/43): We abuse lookup here to handle
@@ -421,7 +421,7 @@ impl Node for Dir {
 
     #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
     fn create(&self, name: &OsStr, mode: u32, flags: u32, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(Arc<Node>, Arc<Handle>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
@@ -441,13 +441,13 @@ impl Node for Dir {
     }
 
     fn lookup(&self, name: &OsStr, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         Dir::lookup_locked(self.writable, &mut state, name, ids, cache)
     }
 
     fn mkdir(&self, name: &OsStr, mode: u32, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
@@ -457,7 +457,7 @@ impl Node for Dir {
     }
 
     fn mknod(&self, name: &OsStr, mode: u32, rdev: u32, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
@@ -497,7 +497,7 @@ impl Node for Dir {
         Dir::post_create_lookup(self.writable, &mut state, &path, name, exp_filetype, ids, cache)
     }
 
-    fn open(&self, flags: u32) -> NodeResult<Arc<Handle>> {
+    fn open(&self, flags: u32) -> NodeResult<ArcHandle> {
         let flags = flags as i32;
         let oflag = fcntl::OFlag::from_bits_truncate(flags);
 
@@ -531,7 +531,7 @@ impl Node for Dir {
     }
 
     fn symlink(&self, name: &OsStr, link: &Path, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 

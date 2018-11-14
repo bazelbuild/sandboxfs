@@ -161,7 +161,7 @@ impl IdGenerator {
 /// what exactly triggered the forget notifications though.
 #[derive(Default)]
 pub struct Cache {
-    entries: Mutex<HashMap<PathBuf, Arc<nodes::Node>>>,
+    entries: Mutex<HashMap<PathBuf, nodes::ArcNode>>,
 }
 
 impl Cache {
@@ -170,7 +170,7 @@ impl Cache {
     /// The returned node represents the given underlying path uniquely.  If creation is needed, the
     /// created node uses the given type and writable settings.
     pub fn get_or_create(&self, ids: &IdGenerator, underlying_path: &Path, attr: &fs::Metadata,
-        writable: bool) -> Arc<nodes::Node> {
+        writable: bool) -> nodes::ArcNode {
         if attr.is_dir() {
             // Directories cannot be cached because they contain entries that are created only
             // in memory based on the mappings configuration.
@@ -204,7 +204,7 @@ impl Cache {
                 underlying_path)
         }
 
-        let node: Arc<nodes::Node> = if attr.is_dir() {
+        let node: nodes::ArcNode = if attr.is_dir() {
             panic!("Directory entries cannot be cached and are handled above");
         } else if attr.file_type().is_symlink() {
             nodes::Symlink::new_mapped(ids.next(), underlying_path, attr, writable)
@@ -222,10 +222,10 @@ struct SandboxFS {
     ids: IdGenerator,
 
     /// Mapping of inode numbers to in-memory nodes that tracks all files known by sandboxfs.
-    nodes: Arc<Mutex<HashMap<u64, Arc<nodes::Node>>>>,
+    nodes: Arc<Mutex<HashMap<u64, nodes::ArcNode>>>,
 
     /// Mapping of handle numbers to file open handles.
-    handles: Arc<Mutex<HashMap<u64, Arc<nodes::Handle>>>>,
+    handles: Arc<Mutex<HashMap<u64, nodes::ArcHandle>>>,
 
     /// Cache of sandboxfs nodes indexed by their underlying path.
     cache: Arc<Cache>,
@@ -233,7 +233,7 @@ struct SandboxFS {
 
 /// Creates the initial node hierarchy based on a collection of `mappings`.
 fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
-    -> Result<Arc<nodes::Node>, Error> {
+    -> Result<nodes::ArcNode, Error> {
     let now = time::get_time();
 
     let (root, rest) = if mappings.is_empty() {
@@ -289,7 +289,7 @@ impl SandboxFS {
     /// we crash.  The rationale for this is that this function is always called on inode numbers
     /// requested by the kernel, and we can trust that the kernel will only ever ask us for inode
     /// numbers we have previously told it about.
-    fn find_node(&mut self, inode: u64) -> Arc<nodes::Node> {
+    fn find_node(&mut self, inode: u64) -> nodes::ArcNode {
         let nodes = self.nodes.lock().unwrap();
         nodes.get(&inode).expect("Kernel requested unknown inode").clone()
     }
@@ -300,13 +300,13 @@ impl SandboxFS {
     /// we crash.  The rationale for this is that this function is always called on handles
     /// requested by the kernel, and we can trust that the kernel will only ever ask us for handles
     /// numbers we have previously told it about.
-    fn find_handle(&mut self, fh: u64) -> Arc<nodes::Handle> {
+    fn find_handle(&mut self, fh: u64) -> nodes::ArcHandle {
         let handles = self.handles.lock().unwrap();
         handles.get(&fh).expect("Kernel requested unknown handle").clone()
     }
 
     /// Tracks a new file handle and assigns an identifier to it.
-    fn insert_handle(&mut self, handle: Arc<nodes::Handle>) -> u64 {
+    fn insert_handle(&mut self, handle: nodes::ArcHandle) -> u64 {
         let fh = self.ids.next();
         let mut handles = self.handles.lock().unwrap();
         debug_assert!(!handles.contains_key(&fh));
@@ -315,7 +315,7 @@ impl SandboxFS {
     }
 
     /// Tracks a node, which may already be known.
-    fn insert_node(&mut self, node: Arc<nodes::Node>) {
+    fn insert_node(&mut self, node: nodes::ArcNode) {
         let mut nodes = self.nodes.lock().unwrap();
         nodes.entry(node.inode()).or_insert(node);
     }
@@ -593,6 +593,7 @@ pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
     use super::*;
     use tempfile::tempdir;
 
@@ -710,5 +711,14 @@ mod tests {
             // what we are testing.
             cache.get_or_create(&ids, &path, &fs_attr, false);
         }
+    }
+
+    #[test]
+    fn test_sandboxfs_is_movable_across_threads() {
+        let mappings = vec![Mapping::new(PathBuf::from("/"), PathBuf::from("/"), false).unwrap()];
+        let mut fs = SandboxFS::new(&mappings).unwrap();
+        thread::spawn(move || {
+            fs.find_node(fuse::FUSE_ROOT_ID);
+        }).join().unwrap();
     }
 }

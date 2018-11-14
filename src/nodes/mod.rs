@@ -254,6 +254,9 @@ pub trait Handle {
     }
 }
 
+/// A reference-counted `Handle` that's safe to send across threads.
+pub type ArcHandle = Arc<Handle + Send + Sync>;
+
 /// Abstract representation of a file system node.
 ///
 /// Due to the way nodes and node operations are represented in the kernel, this trait exposes a
@@ -318,7 +321,7 @@ pub trait Node {
     /// nodes, used when create has to instantiate a new node.
     #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
     fn create(&self, _name: &OsStr, _mode: u32, _flags: u32, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(Arc<Node>, Arc<Handle>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
@@ -334,7 +337,7 @@ pub trait Node {
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when lookup discovers an underlying node that was not yet known.
     fn lookup(&self, _name: &OsStr, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented");
     }
 
@@ -346,7 +349,7 @@ pub trait Node {
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
     fn mkdir(&self, _name: &OsStr, _mode: u32, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
@@ -358,12 +361,12 @@ pub trait Node {
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
     fn mknod(&self, _name: &OsStr, _mode: u32, _rdev: u32, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
     /// Opens the file and returns an open file handle for it.
-    fn open(&self, _flags: u32) -> NodeResult<Arc<Handle>> {
+    fn open(&self, _flags: u32) -> NodeResult<ArcHandle> {
         panic!("Not implemented");
     }
 
@@ -388,7 +391,7 @@ pub trait Node {
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
     fn symlink(&self, _name: &OsStr, _link: &Path, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(Arc<Node>, fuse::FileAttr)> {
+        -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
@@ -397,3 +400,6 @@ pub trait Node {
         panic!("Not implemented");
     }
 }
+
+/// A reference-counted `Node` that's safe to send across threads.
+pub type ArcNode = Arc<Node + Send + Sync>;
