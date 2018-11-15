@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix;
 use std::path::PathBuf;
-use tempdir::TempDir;
+use tempfile::{TempDir, tempdir};
 
 /// Holds a temporary directory and files of all possible kinds within it.
 ///
@@ -39,7 +39,7 @@ pub struct AllFileTypes {
 impl AllFileTypes {
     /// Creates a new temporary directory with files of all possible kinds within it.
     pub fn new() -> Self {
-        let root = TempDir::new("test").unwrap();
+        let root = tempdir().unwrap();
 
         let mut entries: HashMap<fuse::FileType, PathBuf> = HashMap::new();
 
