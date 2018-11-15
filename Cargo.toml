@@ -31,4 +31,4 @@ git = "https://github.com/nix-rust/nix.git"
 rev = "8c3e43ccd4fc83583c16848a35410022f5a8efc9"
 
 [dev-dependencies]
-tempdir = "0.3"
+tempfile = "3"

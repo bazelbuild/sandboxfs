@@ -25,7 +25,7 @@
 extern crate fuse;
 #[macro_use] extern crate log;
 extern crate nix;
-#[cfg(test)] extern crate tempdir;
+#[cfg(test)] extern crate tempfile;
 extern crate time;
 
 use failure::{Error, ResultExt};
@@ -594,7 +594,7 @@ pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempdir::TempDir;
+    use tempfile::tempdir;
 
     #[test]
     fn test_mapping_new_ok() {
@@ -660,17 +660,17 @@ mod tests {
 
     #[test]
     fn cache_behavior() {
-        let tempdir = TempDir::new("test").unwrap();
+        let root = tempdir().unwrap();
 
-        let dir1 = tempdir.path().join("dir1");
+        let dir1 = root.path().join("dir1");
         fs::create_dir(&dir1).unwrap();
         let dir1attr = fs::symlink_metadata(&dir1).unwrap();
 
-        let file1 = tempdir.path().join("file1");
+        let file1 = root.path().join("file1");
         drop(fs::File::create(&file1).unwrap());
         let file1attr = fs::symlink_metadata(&file1).unwrap();
 
-        let file2 = tempdir.path().join("file2");
+        let file2 = root.path().join("file2");
         drop(fs::File::create(&file2).unwrap());
         let file2attr = fs::symlink_metadata(&file2).unwrap();
 

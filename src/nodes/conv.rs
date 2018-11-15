@@ -200,7 +200,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::os::unix;
     use std::time::Duration;
-    use tempdir::TempDir;
+    use tempfile::tempdir;
     use testutils;
 
     /// Creates a file at `path` with the given `content` and closes it.
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_attr_fs_to_fuse_directory() {
-        let dir = TempDir::new("test").unwrap();
+        let dir = tempdir().unwrap();
         let path = dir.path().join("root");
         fs::create_dir(&path).unwrap();
         fs::create_dir(path.join("subdir1")).unwrap();
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_attr_fs_to_fuse_regular() {
-        let dir = TempDir::new("test").unwrap();
+        let dir = tempdir().unwrap();
         let path = dir.path().join("file");
 
         let content = "Some text\n";
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_flags_to_openoptions_rdonly() {
-        let dir = TempDir::new("test").unwrap();
+        let dir = tempdir().unwrap();
         let path = dir.path().join("file");
         create_file(&path, "original content");
 
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn test_flags_to_openoptions_wronly() {
-        let dir = TempDir::new("test").unwrap();
+        let dir = tempdir().unwrap();
         let path = dir.path().join("file");
         create_file(&path, "");
 
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_flags_to_openoptions_rdwr() {
-        let dir = TempDir::new("test").unwrap();
+        let dir = tempdir().unwrap();
         let path = dir.path().join("file");
         create_file(&path, "some content");
 
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_flags_to_openoptions_custom() {
-        let dir = TempDir::new("test").unwrap();
+        let dir = tempdir().unwrap();
         create_file(&dir.path().join("file"), "");
         let path = dir.path().join("link");
         unix::fs::symlink("file", &path).unwrap();
