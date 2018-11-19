@@ -48,6 +48,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use time::Timespec;
 
+#[allow(unused)] mod concurrent;  // TODO(jmmv): Remove annotation once we use this code.
 mod nodes;
 #[cfg(test)] mod testutils;
 
