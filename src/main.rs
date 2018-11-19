@@ -12,6 +12,13 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+//! Command-line interface for the sandboxfs file system.
+
+// Keep these in sync with the list of checks in lib.rs.
+#![warn(bad_style, missing_docs)]
+#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
+#![warn(unsafe_code)]
+
 extern crate env_logger;
 #[macro_use] extern crate failure;
 extern crate getopts;
