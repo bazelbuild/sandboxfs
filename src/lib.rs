@@ -12,6 +12,13 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+//! Implementation of the sandboxfs FUSE file system.
+
+// Keep these in sync with the list of checks in main.rs.
+#![warn(bad_style, missing_docs)]
+#![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
+#![warn(unsafe_code)]
+
 // For portability reasons, we need to be able to cast integer values to system-level opaque
 // types such as "mode_t".  Because we don't know the size of those integers on the platform we
 // are building for, sometimes the casts do widen the values but other times they are no-ops.
@@ -51,12 +58,14 @@ pub enum MappingError {
     /// A path was required to be absolute but wasn't.
     #[fail(display = "path {:?} is not absolute", path)]
     PathNotAbsolute {
+        /// The invalid path.
         path: PathBuf,
     },
 
     /// A path contains non-normalized components (like "..").
     #[fail(display = "path {:?} is not normalized", path)]
     PathNotNormalized {
+        /// The invalid path.
         path: PathBuf,
     },
 }

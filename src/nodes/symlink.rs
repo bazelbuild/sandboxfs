@@ -13,7 +13,6 @@
 // under the License.
 
 extern crate fuse;
-extern crate time;
 
 use nix::errno;
 use nodes::{ArcNode, AttrDelta, KernelError, Node, NodeResult, conv, setattr};
