@@ -42,25 +42,24 @@ struct UsageError {
     message: String,
 }
 
-/// Parses the value of a flag that takes a duration.
-///
-/// At the moment, the only supported unit for the duration are seconds and the textual value
-/// must include the "ms" suffix to support adding extra units in the future if desired.
-fn parse_duration(value: &str) -> Result<Timespec, UsageError> {
-    if !value.ends_with(SECONDS_SUFFIX) {
-        let message = format!("invalid time specification {}: must end in 's'", value);
+/// Parses the value of a flag that takes a duration, which must specify its unit.
+fn parse_duration(s: &str) -> Result<Timespec, UsageError> {
+    let (value, unit) = match s.find(|c| !char::is_ascii_digit(&c) && c != '-') {
+        Some(pos) => s.split_at(pos),
+        None => {
+            let message = format!("invalid time specification {}: missing unit", s);
+            return Err(UsageError { message });
+        },
+    };
+
+    if unit != SECONDS_SUFFIX {
+        let message = format!("invalid time specification {}: unsupported unit '{}'", s, unit);
         return Err(UsageError { message });
     }
-    let value = &value[0..value.len() - SECONDS_SUFFIX.len()];
-    match value.parse::<u32>() {
-        Ok(sec) => {
-            Ok(Timespec { sec: i64::from(sec), nsec: 0 })
-        },
-        Err(e) => {
-            let message = format!("invalid time specification {}: {}", value, e);
-            Err(UsageError { message })
-        }
-    }
+
+    value.parse::<u32>()
+        .map(|sec| Timespec { sec: i64::from(sec), nsec: 0 })
+        .map_err(|e| UsageError { message: format!("invalid time specification {}: {}", s, e) })
 }
 
 /// Takes the list of strings that represent mappings (supplied via multiple instances of the
@@ -207,7 +206,7 @@ mod tests {
     use super::*;
 
     /// Checks that an error, once formatted for printing, contains the given substring.
-    fn err_contains<F: failure::Fail>(substr: &str, err: F) {
+    fn err_contains(substr: &str, err: impl failure::Fail) {
         let formatted = format!("{}", err);
         assert!(formatted.contains(substr),
             "bad error message '{}'; does not contain '{}'", formatted, substr);
@@ -220,16 +219,16 @@ mod tests {
 
     #[test]
     fn test_parse_duration_bad_unit() {
-        err_contains("must end in 's'", parse_duration("1234").unwrap_err());
-        err_contains("invalid digit", parse_duration("1234ms").unwrap_err());
-        err_contains("invalid digit", parse_duration("1234ss").unwrap_err());
+        err_contains("missing unit", parse_duration("1234").unwrap_err());
+        err_contains("unsupported unit 'ms'", parse_duration("1234ms").unwrap_err());
+        err_contains("unsupported unit 'ss'", parse_duration("1234ss").unwrap_err());
     }
 
     #[test]
     fn test_parse_duration_bad_value() {
         err_contains("invalid digit", parse_duration("-5s").unwrap_err());
-        err_contains("invalid digit", parse_duration("5 s").unwrap_err());
-        err_contains("invalid digit", parse_duration(" 5s").unwrap_err());
+        err_contains("unsupported unit ' s'", parse_duration("5 s").unwrap_err());
+        err_contains("unsupported unit ' 5s'", parse_duration(" 5s").unwrap_err());
     }
 
     #[test]
