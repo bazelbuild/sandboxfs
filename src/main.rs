@@ -16,6 +16,7 @@ extern crate env_logger;
 #[macro_use] extern crate failure;
 extern crate getopts;
 extern crate sandboxfs;
+extern crate time;
 
 use failure::Error;
 use getopts::Options;
@@ -23,12 +24,43 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::result::Result;
+use time::Timespec;
+
+/// Default value of the `--ttl` flag.
+///
+/// This is expressed as a string rather than a parsed value to ensure the default value can be
+/// parsed with the same semantics as user-provided values.
+static DEFAULT_TTL: &str = "60s";
+
+/// Suffix for durations expressed in seconds.
+static SECONDS_SUFFIX: &str = "s";
 
 /// Execution failure due to a user-triggered error.
 #[derive(Debug, Fail)]
 #[fail(display = "{}", message)]
 struct UsageError {
     message: String,
+}
+
+/// Parses the value of a flag that takes a duration.
+///
+/// At the moment, the only supported unit for the duration are seconds and the textual value
+/// must include the "ms" suffix to support adding extra units in the future if desired.
+fn parse_duration(value: &str) -> Result<Timespec, UsageError> {
+    if !value.ends_with(SECONDS_SUFFIX) {
+        let message = format!("invalid time specification {}: must end in 's'", value);
+        return Err(UsageError { message });
+    }
+    let value = &value[0..value.len() - SECONDS_SUFFIX.len()];
+    match value.parse::<u32>() {
+        Ok(sec) => {
+            Ok(Timespec { sec: i64::from(sec), nsec: 0 })
+        },
+        Err(e) => {
+            let message = format!("invalid time specification {}: {}", value, e);
+            Err(UsageError { message })
+        }
+    }
 }
 
 /// Takes the list of strings that represent mappings (supplied via multiple instances of the
@@ -107,6 +139,9 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     let mut opts = Options::new();
     opts.optflag("", "help", "prints usage information and exits");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
+    opts.optopt("", "ttl",
+        &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
+        &format!("TIME{}", SECONDS_SUFFIX));
     let matches = opts.parse(args)?;
 
     if matches.opt_present("help") {
@@ -116,13 +151,19 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
 
     let mappings = parse_mappings(matches.opt_strs("mapping"))?;
 
+    let ttl = match matches.opt_str("ttl") {
+        Some(value) => parse_duration(&value)?,
+        None => parse_duration(DEFAULT_TTL).expect(
+            "default value for flag is not accepted by the parser; this is a bug in the value"),
+    };
+
     let mount_point = if matches.free.len() == 1 {
         &matches.free[0]
     } else {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
-    sandboxfs::mount(Path::new(mount_point), &mappings)?;
+    sandboxfs::mount(Path::new(mount_point), &mappings, ttl)?;
     Ok(())
 }
 
@@ -165,6 +206,32 @@ mod tests {
     use sandboxfs::Mapping;
     use super::*;
 
+    /// Checks that an error, once formatted for printing, contains the given substring.
+    fn err_contains<F: failure::Fail>(substr: &str, err: F) {
+        let formatted = format!("{}", err);
+        assert!(formatted.contains(substr),
+            "bad error message '{}'; does not contain '{}'", formatted, substr);
+    }
+
+    #[test]
+    fn test_parse_duration_ok() {
+        assert_eq!(Timespec { sec: 1234, nsec: 0 }, parse_duration("1234s").unwrap());
+    }
+
+    #[test]
+    fn test_parse_duration_bad_unit() {
+        err_contains("must end in 's'", parse_duration("1234").unwrap_err());
+        err_contains("invalid digit", parse_duration("1234ms").unwrap_err());
+        err_contains("invalid digit", parse_duration("1234ss").unwrap_err());
+    }
+
+    #[test]
+    fn test_parse_duration_bad_value() {
+        err_contains("invalid digit", parse_duration("-5s").unwrap_err());
+        err_contains("invalid digit", parse_duration("5 s").unwrap_err());
+        err_contains("invalid digit", parse_duration(" 5s").unwrap_err());
+    }
+
     #[test]
     fn test_parse_mappings_ok() {
         let args = ["ro:/:/fake/root", "rw:/foo:/bar"];
@@ -182,9 +249,8 @@ mod tests {
     fn test_parse_mappings_bad_format() {
         for arg in ["", "foo:bar", "foo:bar:baz:extra"].iter() {
             let err = parse_mappings(&[arg]).unwrap_err();
-            assert_eq!(
-                format!("bad mapping {}: expected three colon-separated fields", arg),
-                format!("{}", err));
+            err_contains(
+                &format!("bad mapping {}: expected three colon-separated fields", arg), err);
         }
     }
 
@@ -192,22 +258,21 @@ mod tests {
     fn test_parse_mappings_bad_type() {
         let args = ["rr:/foo:/bar"];
         let err = parse_mappings(&args).unwrap_err();
-        assert_eq!("bad mapping rr:/foo:/bar: type was rr but should be ro or rw",
-            format!("{}", err));
+        err_contains("bad mapping rr:/foo:/bar: type was rr but should be ro or rw", err);
     }
 
     #[test]
     fn test_parse_mappings_bad_path() {
         let args = ["ro:foo:/bar"];
         let err = parse_mappings(&args).unwrap_err();
-        assert_eq!("bad mapping ro:foo:/bar: path \"foo\" is not absolute", format!("{}", err));
+        err_contains("bad mapping ro:foo:/bar: path \"foo\" is not absolute", err);
     }
 
     #[test]
     fn test_parse_mappings_bad_underlying_path() {
         let args = ["ro:/foo:bar"];
         let err = parse_mappings(&args).unwrap_err();
-        assert_eq!("bad mapping ro:/foo:bar: path \"bar\" is not absolute", format!("{}", err));
+        err_contains("bad mapping ro:/foo:bar: path \"bar\" is not absolute", err);
     }
 
     #[test]
