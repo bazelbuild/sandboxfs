@@ -44,9 +44,6 @@ use time::Timespec;
 mod nodes;
 #[cfg(test)] mod testutils;
 
-// TODO(jmmv): Make configurable via a flag and store inside SandboxFS.
-pub const TTL: Timespec = Timespec { sec: 60, nsec: 0 };
-
 /// An error indicating that a mapping specification (coming from the command line or from a
 /// reconfiguration operation) is invalid.
 #[derive(Debug, Eq, Fail, PartialEq)]
@@ -229,6 +226,9 @@ struct SandboxFS {
 
     /// Cache of sandboxfs nodes indexed by their underlying path.
     cache: Arc<Cache>,
+
+    /// How long to tell the kernel to cache file metadata for.
+    ttl: Timespec,
 }
 
 /// Creates the initial node hierarchy based on a collection of `mappings`.
@@ -266,7 +266,7 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn new(mappings: &[Mapping]) -> Result<SandboxFS, Error> {
+    fn new(mappings: &[Mapping], ttl: Timespec) -> Result<SandboxFS, Error> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
         let cache = Cache::default();
 
@@ -280,6 +280,7 @@ impl SandboxFS {
             nodes: Arc::from(Mutex::from(nodes)),
             handles: Arc::from(Mutex::from(HashMap::new())),
             cache: Arc::from(cache),
+            ttl: ttl,
         })
     }
 
@@ -360,7 +361,7 @@ impl fuse::Filesystem for SandboxFS {
             Ok((node, handle, attr)) => {
                 self.insert_node(node);
                 let fh = self.insert_handle(handle);
-                reply.created(&TTL, &attr, IdGenerator::GENERATION, fh, flags);
+                reply.created(&self.ttl, &attr, IdGenerator::GENERATION, fh, flags);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -369,7 +370,7 @@ impl fuse::Filesystem for SandboxFS {
     fn getattr(&mut self, _req: &fuse::Request, inode: u64, reply: fuse::ReplyAttr) {
         let node = self.find_node(inode);
         match node.getattr() {
-            Ok(attr) => reply.attr(&TTL, &attr),
+            Ok(attr) => reply.attr(&self.ttl, &attr),
             Err(e) => reply.error(e.errno_as_i32()),
         }
     }
@@ -390,7 +391,7 @@ impl fuse::Filesystem for SandboxFS {
                         nodes.insert(node.inode(), node);
                     }
                 }
-                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+                reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -407,7 +408,7 @@ impl fuse::Filesystem for SandboxFS {
         match dir_node.mkdir(name, mode, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
-                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+                reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -424,7 +425,7 @@ impl fuse::Filesystem for SandboxFS {
         match dir_node.mknod(name, mode, rdev, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
-                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+                reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -531,7 +532,7 @@ impl fuse::Filesystem for SandboxFS {
             size: size,
         };
         match node.setattr(&values) {
-            Ok(attr) => reply.attr(&TTL, &attr),
+            Ok(attr) => reply.attr(&self.ttl, &attr),
             Err(e) => reply.error(e.errno_as_i32()),
         }
     }
@@ -547,7 +548,7 @@ impl fuse::Filesystem for SandboxFS {
         match dir_node.symlink(name, link, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
-                reply.entry(&TTL, &attr, IdGenerator::GENERATION);
+                reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -578,14 +579,14 @@ impl fuse::Filesystem for SandboxFS {
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
-pub fn mount(mount_point: &Path, mappings: &[Mapping]) -> Result<(), Error> {
+pub fn mount(mount_point: &Path, mappings: &[Mapping], ttl: Timespec) -> Result<(), Error> {
     // TODO(jmmv): Support passing in arbitrary FUSE options from the command line, like "-o ro",
     // or expose a good subset of them.
     let options = ["-o", "fsname=sandboxfs"]
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    let fs = SandboxFS::new(mappings)?;
+    let fs = SandboxFS::new(mappings, ttl)?;
     info!("Mounting file system onto {:?}", mount_point);
     fuse::mount(fs, &mount_point, &options).context(format!("mount on {:?} failed", mount_point))?;
     Ok(())
@@ -716,7 +717,7 @@ mod tests {
     #[test]
     fn test_sandboxfs_is_movable_across_threads() {
         let mappings = vec![Mapping::new(PathBuf::from("/"), PathBuf::from("/"), false).unwrap()];
-        let mut fs = SandboxFS::new(&mappings).unwrap();
+        let mut fs = SandboxFS::new(&mappings, Timespec { sec: 0, nsec: 0 }).unwrap();
         thread::spawn(move || {
             fs.find_node(fuse::FUSE_ROOT_ID);
         }).join().unwrap();
