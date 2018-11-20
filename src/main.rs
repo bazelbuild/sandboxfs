@@ -53,7 +53,9 @@ fn parse_duration(s: &str) -> Result<Timespec, UsageError> {
     };
 
     if unit != SECONDS_SUFFIX {
-        let message = format!("invalid time specification {}: unsupported unit '{}'", s, unit);
+        let message = format!(
+            "invalid time specification {}: unsupported unit '{}' (only '{}' is allowed)",
+            s, unit, SECONDS_SUFFIX);
         return Err(UsageError { message });
     }
 
