@@ -18,12 +18,14 @@ env_logger = "0.5"
 failure = "~0.1.2"
 getopts = "0.2"
 log = "0.4"
+signal-hook = "0.1"
 time = "0.1"
 
 [dependencies.fuse]
-# TODO(jmmv): Replace this with 0.4 once released.
-git = "https://github.com/zargony/rust-fuse.git"
-rev = "4b23d3962c1baff6483caabf1ca15068216a7506"
+# TODO(jmmv): Replace this with 0.4 or an upstream commit once
+# https://github.com/zargony/rust-fuse/pull/119 is merged.
+git = "https://github.com/jmmv/rust-fuse.git"
+rev = "07c47e9cc311a0d2890785d7a4098b76cb33a2ad"
 
 [dependencies.nix]
 # TODO(jmmv): Replace this with 0.12 once released.
