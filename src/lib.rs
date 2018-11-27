@@ -32,6 +32,7 @@
 extern crate fuse;
 #[macro_use] extern crate log;
 extern crate nix;
+extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 extern crate time;
 
@@ -48,7 +49,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use time::Timespec;
 
-#[allow(unused)] mod concurrent;  // TODO(jmmv): Remove annotation once we use this code.
+mod concurrent;
 mod nodes;
 #[cfg(test)] mod testutils;
 
@@ -598,8 +599,20 @@ pub fn mount(mount_point: &Path, mappings: &[Mapping], ttl: Timespec) -> Result<
         .collect::<Vec<&OsStr>>();
     let fs = SandboxFS::new(mappings, ttl)?;
     info!("Mounting file system onto {:?}", mount_point);
-    fuse::mount(fs, &mount_point, &options).context(format!("mount on {:?} failed", mount_point))?;
-    Ok(())
+
+    let (signals, mut session) = {
+        let installer = concurrent::SignalsInstaller::prepare();
+        let mut session = fuse::Session::new(fs, &mount_point, &options)?;
+        let signals = installer.install(PathBuf::from(mount_point))?;
+        (signals, session)
+    };
+
+    session.run()?;
+
+    match signals.caught() {
+        Some(signo) => Err(format_err!("Caught signal {}", signo)),
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

@@ -106,9 +106,6 @@ do_rust() {
     TestReconfiguration_WritableNodesAreDifferent
     TestReconfiguration_FileSystemStillWorksAfterInputEOF
     TestReconfiguration_StreamFileDoesNotExist
-    TestSignal_RaceBetweenSignalSetupAndMount
-    TestSignal_UnmountWhenCaught
-    TestSignal_QueuedWhileInUse
   )
 
   # TODO(https://github.com/bazelbuild/rules_rust/issues/2): Replace by a
