@@ -65,7 +65,7 @@ var (
 // handling at some point so maybe we'll be able to revisit this in the future? Who knows.
 func handleSignals(mountPoint <-chan string, caughtSignal chan<- os.Signal) {
 	handler := make(chan os.Signal, 1)
-	signal.Notify(handler, syscall.SIGHUP, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(handler, syscall.SIGHUP, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM)
 
 	go func() {
 		caughtSignal <- <-handler // Wait for the signal.
