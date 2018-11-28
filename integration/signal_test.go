@@ -70,7 +70,7 @@ func TestSignal_RaceBetweenSignalSetupAndMount(t *testing.T) {
 }
 
 func TestSignal_UnmountWhenCaught(t *testing.T) {
-	for _, signal := range []os.Signal{syscall.SIGHUP, os.Interrupt, syscall.SIGTERM} {
+	for _, signal := range []os.Signal{syscall.SIGHUP, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM} {
 		t.Run(signal.String(), func(t *testing.T) {
 			stderr := new(bytes.Buffer)
 
