@@ -14,7 +14,7 @@
 
 use failure::Error;
 use nix::unistd;
-use nix::sys::signal;
+use nix::sys::{self, signal};
 use signal_hook;
 use std::cmp;
 use std::fs;
@@ -27,12 +27,20 @@ use std::sync::mpsc;
 use std::time;
 use std::thread;
 
-/// A file with a single scoped owner but with multiple non-owner views.
+/// Converts a `nix::Error` that we expect to carry an errno to an `io::Error`.
+fn nix_to_io_error(err: nix::Error) -> io::Error {
+    match err {
+        nix::Error::Sys(errno) => io::Error::from_raw_os_error(errno as i32),
+        e => panic!("Did not expect to get an error without an errno from a nix call: {:?}", e),
+    }
+}
+
+/// A scope-owned file with support for multiple non-owner readers in different threads.
 ///
 /// A `ShareableFile` object owns the file passed to it at construction time and will close the
 /// underlying file handle when the object is dropped.
 ///
-/// Concurrent views into this same file, obtained via the `clone_unowned` method, do not own the
+/// Concurrent views into this same file, obtained via the `reader` method, do not own the
 /// file handle.  Such views must accept the fact that the handle can be closed at any time, a
 /// condition that is simply exposed as if the handle reached EOF.  Concurrent views can safely be
 /// moved across threads.
@@ -41,16 +49,15 @@ pub struct ShareableFile {
     /// Underlying file descriptor shared across all views of this file.
     fd: unix_io::RawFd,
 
-    /// Whether this instance of the file is responsible for closing the file descriptor.
-    owned: bool,
+    /// Write ends of the pipes used by `ShareableFileReader` to know if the file has been closed.
+    watchers: Vec<unix_io::RawFd>,
 
     /// Whether the file descriptor has already been closed or not.
     ///
     /// In principle, we don't need this field: concurrent readers of this file will get their
-    /// reads abruptly terminated with an error, and we should be able to rely on EBADFD to tell
-    /// that this happened because of us closing the file descriptor.  Unfortunately... macOS
-    /// Mojave doesn't cooperate and yields very strange error codes (like EISDIR) pretty frequently
-    /// (but not deterministically).  May it be an APFS bug?
+    /// selects abruptly terminated with an error and we should be able to rely on `EBADF` to tell
+    /// that this happened because of us closing the file descriptor.  But it seems better to track
+    /// our own closed condition so that we can distinguish actual errors from expected errors.
     closed: Arc<AtomicBool>,
 }
 
@@ -61,7 +68,7 @@ impl ShareableFile {
         use std::os::unix::io::IntoRawFd;
         ShareableFile {
             fd: file.into_raw_fd(),
-            owned: true,
+            watchers: vec!(),
             closed: Arc::from(AtomicBool::new(false)),
         }
     }
@@ -70,46 +77,97 @@ impl ShareableFile {
     ///
     /// Users of this file must accept that the file can be closed at any time by the owner.
     #[allow(unused)]  // TODO(jmmv): Remove once we use this code for reconfigurations.
-    pub fn clone_unowned(&mut self) -> ShareableFile {
-        ShareableFile {
+    pub fn reader(&mut self) -> io::Result<ShareableFileReader> {
+        let (notifier, watcher) = unistd::pipe().map_err(nix_to_io_error)?;
+        self.watchers.push(watcher);
+        Ok(ShareableFileReader {
             fd: self.fd,
-            owned: false,
+            notifier: notifier,
             closed: self.closed.clone(),
-        }
+        })
     }
 }
 
 impl Drop for ShareableFile {
     fn drop(&mut self) -> () {
-        if self.owned {
-            debug!("Closing ShareableFile with fd {}", self.fd);
+        debug!("Closing ShareableFile with fd {}", self.fd);
 
-            // We must mark the file as closed before attempting to close it because, when we do
-            // the actual close, any threads blocked on a read will get unlocked immediately and
-            // we won't have a chance to update the status.  It doesn't matter if the close succeeds
-            // or not though, because we cannot do anything useful in the latter case anyway.
-            self.closed.store(true, Ordering::SeqCst);
+        // We are about to touch file handles used by other threads.  If those threads are blocked
+        // on a select call, the call may return an error on some systems due to the closed file
+        // descriptors.  If those threads are about to issue a read after a select, the read will
+        // fail with a bad file descriptor.  Prepare them about these potential failure conditions
+        // before we actually touch anything.
+        self.closed.store(true, Ordering::SeqCst);
 
-            if let Err(e) = unistd::close(self.fd) {
-                warn!("Failed to close fd {}: {}", self.fd, e);
+        for watcher in &self.watchers {
+            if let Err(e) = unistd::write(*watcher, &[0]) {
+                // This write to a pipe we control really should not have failed.  If it did there
+                // is not much we can do other than log an error.  We may get stuck threads on exit
+                // though...
+                warn!("Failed to tell ShareableFileReader with handle {} of close: {}", *watcher, e)
             }
+            if let Err(e) = unistd::close(*watcher) {
+                // Closing should really not have failed, but if it did, it does not hurt and there
+                // is nothing we can do anyway.
+                warn!("Failed to close pipe write end with handle {}: {}", *watcher, e)
+            }
+        }
+
+        if let Err(e) = unistd::close(self.fd) {
+            warn!("Failed to close fd {}: {}", self.fd, e);
         }
     }
 }
 
-impl Read for ShareableFile {
+/// A non-owned view of a `ShareableFile`.
+pub struct ShareableFileReader {
+    /// Underlying file descriptor shared across all views of this file.
+    fd: unix_io::RawFd,
+
+    /// Read end of the pipe used by `ShareableFile` to tell us that the file has been closed.
+    notifier: unix_io::RawFd,
+
+    /// Whether the file descriptor has already been closed or not.  See description in
+    /// `ShareableFile` for more details.
+    closed: Arc<AtomicBool>,
+}
+
+impl Drop for ShareableFileReader {
+    fn drop(&mut self) -> () {
+        if let Err(e) = unistd::close(self.notifier) {
+            warn!("Failed to close fd {}: {}", self.notifier, e);
+        }
+    }
+}
+
+impl Read for ShareableFileReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match unistd::read(self.fd, buf) {
-            Ok(n) => Ok(n),
-            Err(nix::Error::Sys(errno)) => {
+        let mut read_set = sys::select::FdSet::new();
+        read_set.insert(self.fd);
+        read_set.insert(self.notifier);
+        let result = sys::select::select(None, Some(&mut read_set), None, None, None)
+            .and_then(|ready_count| {
+                debug_assert!(ready_count <= 2);
+                if read_set.contains(self.notifier) {
+                    // The file has been closed by the owner.  There is no point in attempting to
+                    // read from the fd even if there were data in it.
+                    Ok(0)
+                } else {
+                    debug_assert!(read_set.contains(self.fd));
+                    unistd::read(self.fd, buf)
+                }
+            })
+            .map_err(nix_to_io_error);
+
+        match result {
+            Ok(read_count) => Ok(read_count),
+            err => {
                 if self.closed.load(Ordering::SeqCst) {
                     Ok(0)  // Simulate EOF due to close in another thread.
                 } else {
-                    Err(io::Error::from_raw_os_error(errno as i32))
+                    err
                 }
             },
-            Err(e) => panic!(
-                "Did not expect to get an error without an errno from a nix call: {:?}", e),
         }
     }
 }
@@ -260,7 +318,6 @@ impl SignalsHandler {
 mod tests {
     use nix::sys;
     use std::io::{Read, Write};
-    use std::path::Path;
     use std::thread;
     use super::*;
     use tempfile;
@@ -278,44 +335,65 @@ mod tests {
         }
 
         let mut file = ShareableFile::from(fs::File::open(&path).unwrap());
-        let mut reader1 = file.clone_unowned();
-        let mut reader2 = file.clone_unowned();
+        let mut reader1 = file.reader().unwrap();
+        let mut reader2 = file.reader().unwrap();
         assert_eq!(b'A', read_one_byte(&mut reader1));
         drop(reader1);  // Make sure dropping a non-owner copy doesn't close the file handle.
-        assert_eq!(b'B', read_one_byte(&mut file));
-        assert_eq!(b'C', read_one_byte(&mut reader2));
+        assert_eq!(b'B', read_one_byte(&mut reader2));
         drop(file);  // Closes the file descriptor so the readers should now not be able to read.
         let mut buffer = [0];
         assert_eq!(0, reader2.read(&mut buffer).expect("Expected 0 byte count as EOF after close"));
     }
 
-    #[test]
-    fn test_shareable_file_close_unblocks_reads_without_error() {
+    fn try_shareable_file_close_unblocks_reads_without_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("pipe");
         unistd::mkfifo(&path, sys::stat::Mode::S_IRUSR | sys::stat::Mode::S_IWUSR).unwrap();
 
-        // We need to write to the FIFO for the read-only open below to not block.
+        // We need to open the FIFO for writes so that the open for reads doesn't block.  But we
+        // have to do this open in a separate thread because it will block too.
         let writer_handle = {
             let path = path.clone();
-            thread::spawn(move || {
-                let mut writer = fs::File::create(&path).unwrap();
-                write!(writer, "some text longer than we'll ever read")
-            })
+            thread::spawn(move || fs::File::create(path))
         };
 
+        // This will block until the thread we spawned above opens the file for writing.
         let mut file = ShareableFile::from(fs::File::open(&path).unwrap());
 
+        let (reader_ready_tx, reader_ready_rx) = mpsc::channel();
         let reader_handle = {
-            let mut file = file.clone_unowned();
+            let mut file = file.reader().unwrap();
             thread::spawn(move || {
                 let mut buffer = [0];
+                reader_ready_tx.send(()).unwrap();
                 file.read(&mut buffer)
             })
         };
 
-        writer_handle.join().unwrap().expect("Write didn't finish successfully");
+        // This is racy: there is no guarantee that the reader thread is now blocked on the read
+        // syscall although there is a high likelihood that it is (and our explicit yield makes this
+        // even more likely, especially on single-core systems).  If we experience the race, the
+        // test will silently pass even if there is a problem in the ShareableFile.
+        reader_ready_rx.recv().unwrap();
+        thread::sleep(time::Duration::from_millis(1));
+
         drop(file);  // This should unblock the reader thread and let the join complete.
         reader_handle.join().unwrap().expect("Read didn't return success on EOF-like condition");
+
+        // We have already verified that the reader can be asynchronously terminated without the
+        // write handle causing interference.  Retrieve the write end of the FIFO and close it.
+        let writer = writer_handle.join().unwrap().expect("Write didn't finish successfully");
+        drop(writer);
+    }
+
+    #[test]
+    fn test_shareable_file_close_unblocks_reads_without_error() {
+        // This test exercises a threading condition that cannot be reproduced in a non-racy manner.
+        // If we are subject to the race condition, the test will falsely pass; otherwise it will
+        // correctly fail.  Running this same test a few times ensures that we have higher chances
+        // of catching a problem.
+        for _ in 0..10 {
+            try_shareable_file_close_unblocks_reads_without_error()
+        }
     }
 }
