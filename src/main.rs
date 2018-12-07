@@ -101,7 +101,7 @@ fn parse_mappings<T: AsRef<str>, U: IntoIterator<Item=T>>(args: U)
         let path = PathBuf::from(fields[1]);
         let underlying_path = PathBuf::from(fields[2]);
 
-        match sandboxfs::Mapping::new(path, underlying_path, writable) {
+        match sandboxfs::Mapping::from_parts(path, underlying_path, writable) {
             Ok(mapping) => mappings.push(mapping),
             Err(e) => {
                 // TODO(jmmv): Figure how to best leverage failure's cause propagation.  May need
@@ -244,8 +244,8 @@ mod tests {
     fn test_parse_mappings_ok() {
         let args = ["ro:/:/fake/root", "rw:/foo:/bar"];
         let exp_mappings = vec!(
-            Mapping::new(PathBuf::from("/"), PathBuf::from("/fake/root"), false).unwrap(),
-            Mapping::new(PathBuf::from("/foo"), PathBuf::from("/bar"), true).unwrap(),
+            Mapping::from_parts(PathBuf::from("/"), PathBuf::from("/fake/root"), false).unwrap(),
+            Mapping::from_parts(PathBuf::from("/foo"), PathBuf::from("/bar"), true).unwrap(),
         );
         match parse_mappings(&args) {
             Ok(mappings) => assert_eq!(exp_mappings, mappings),
