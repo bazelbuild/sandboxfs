@@ -214,18 +214,6 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     Ok(())
 }
 
-/// Flattens all causes of an error into a single string.
-fn flatten_causes(err: &Error) -> String {
-    err.iter_chain().fold(String::new(), |flattened, cause| {
-        let flattened = if flattened.is_empty() {
-            flattened
-        } else {
-            flattened + ": "
-        };
-        flattened + &format!("{}", cause)
-    })
-}
-
 /// Program's entry point.  This delegates to `safe_main` for all program logic and is just in
 /// charge of consistently formatting and reporting all possible errors to the caller.
 fn main() {
@@ -242,7 +230,7 @@ fn main() {
             eprintln!("Type {} --help for more information", program);
             process::exit(2);
         } else {
-            eprintln!("{}: {}", program, flatten_causes(&err));
+            eprintln!("{}: {}", program, sandboxfs::flatten_causes(&err));
             process::exit(1);
         }
     }
@@ -331,19 +319,5 @@ mod tests {
     fn test_program_name_uses_file_name_only() {
         assert_eq!("b", program_name(&["a/b".to_string()], "unused"));
         assert_eq!("foo", program_name(&["./x/y/foo".to_string()], "unused"));
-    }
-
-    #[test]
-    fn flatten_causes_one() {
-        let err = Error::from(UsageError { message: "root cause".to_string() });
-        assert_eq!("root cause", flatten_causes(&err));
-    }
-
-    #[test]
-    fn flatten_causes_multiple() {
-        let err = Error::from(UsageError { message: "root cause".to_string() });
-        let err = Error::from(err.context("intermediate"));
-        let err = Error::from(err.context("top"));
-        assert_eq!("top: intermediate: root cause", flatten_causes(&err));
     }
 }

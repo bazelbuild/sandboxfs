@@ -72,6 +72,18 @@ pub enum MappingError {
     },
 }
 
+/// Flattens all causes of an error into a single string.
+pub fn flatten_causes(err: &Error) -> String {
+    err.iter_chain().fold(String::new(), |flattened, cause| {
+        let flattened = if flattened.is_empty() {
+            flattened
+        } else {
+            flattened + ": "
+        };
+        flattened + &format!("{}", cause)
+    })
+}
+
 /// Mapping describes how an individual path within the sandbox is connected to an external path
 /// in the underlying file system.
 #[derive(Debug, Eq, PartialEq)]
@@ -654,6 +666,20 @@ mod tests {
     use std::thread;
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn flatten_causes_one() {
+        let err = Error::from(format_err!("root cause"));
+        assert_eq!("root cause", flatten_causes(&err));
+    }
+
+    #[test]
+    fn flatten_causes_multiple() {
+        let err = Error::from(format_err!("root cause"));
+        let err = Error::from(err.context("intermediate"));
+        let err = Error::from(err.context("top"));
+        assert_eq!("top: intermediate: root cause", flatten_causes(&err));
+    }
 
     #[test]
     fn test_mapping_new_ok() {
