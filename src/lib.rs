@@ -32,6 +32,7 @@
 extern crate fuse;
 #[macro_use] extern crate log;
 extern crate nix;
+extern crate serde_derive;
 extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 extern crate time;
@@ -51,6 +52,7 @@ use time::Timespec;
 
 mod concurrent;
 mod nodes;
+#[allow(unused)] mod reconfig;  // TODO(jmmv): Remove unused annotation once reconfigs are in place.
 #[cfg(test)] mod testutils;
 
 /// An error indicating that a mapping specification (coming from the command line or from a
