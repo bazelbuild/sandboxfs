@@ -25,9 +25,10 @@ extern crate getopts;
 extern crate sandboxfs;
 extern crate time;
 
-use failure::{Error, Fallible, ResultExt};
+use failure::{Fallible, ResultExt};
 use getopts::Options;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::result::Result;
@@ -148,6 +149,27 @@ fn program_name(args: &[String], default: &'static str) -> String {
     }
 }
 
+/// Parses the value of a flag specifying a file for I/O.
+///
+/// `value` contains the textual value of the flag, which is returned as a path if present.
+/// Otherwise, if `value` is missing or if it matches `-`, then returns `default`.
+///
+/// Note that, for simplicity, this will reopen any of the standard streams if provided as a path
+/// to `/dev/std*`.  We cannot prevent the user from supplying those paths, and handling them as
+/// any other makes things much easier than trying to special-case those via the objects exposed
+/// by `std::io`.
+fn file_flag(value: Option<String>, default: &'static str) -> PathBuf {
+    let default = PathBuf::from(default);
+    match value {
+        Some(path) => if path == "-" {
+            default
+        } else {
+            PathBuf::from(path)
+        },
+        None => default,
+    }
+}
+
 /// Prints program usage information to stdout.
 fn usage(program: &str, opts: &Options) {
     let brief = format!("Usage: {} [options] MOUNT_POINT", program);
@@ -169,7 +191,10 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     opts.optopt("", "allow", concat!("specifies who should have access to the file system",
         " (default: self)"), "other|root|self");
     opts.optflag("", "help", "prints usage information and exits");
+    opts.optflagopt("", "input", "where to read reconfiguration data from (- for stdin)", "PATH");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
+    opts.optflagopt("", "output", "where to write the reconfiguration status to (- for stdout)",
+        "PATH");
     opts.optopt("", "ttl",
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
         &format!("TIME{}", SECONDS_SUFFIX));
@@ -203,13 +228,29 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
             "default value for flag is not accepted by the parser; this is a bug in the value"),
     };
 
+    let input = {
+        // TODO(jmmv): Reopening /dev/stdin is not possible because its permissions don't allow it
+        // when using "su" to change the current user.  We should use io::stdin() instead.
+        let path = file_flag(matches.opt_str("input"), "/dev/stdin");
+        fs::File::open(&path).context(
+            format!("Failed to open reconfiguration input '{}'", path.display()))?
+    };
+
+    let output = {
+        // TODO(jmmv): Reopening /dev/stdout is not possible because its permissions don't allow it
+        // when using "su" to change the current user.  We should use io::stdout() instead.
+        let path = file_flag(matches.opt_str("output"), "/dev/stdout");
+        fs::OpenOptions::new().write(true).open(&path).context(
+            format!("Failed to open reconfiguration output '{}'", path.display()))?
+    };
+
     let mount_point = if matches.free.len() == 1 {
         Path::new(&matches.free[0])
     } else {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
-    sandboxfs::mount(mount_point, &options, &mappings, ttl)
+    sandboxfs::mount(mount_point, &options, &mappings, ttl, input, output)
         .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }

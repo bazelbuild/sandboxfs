@@ -409,6 +409,7 @@ impl Node for Dir {
 
     fn map(&self, components: &[Component], underlying_path: &Path, writable: bool,
         ids: &IdGenerator, cache: &Cache) -> Fallible<()> {
+        ensure!(!components.is_empty(), "Already mapped");
         let (name, remainder) = split_components(components);
 
         let mut state = self.state.lock().unwrap();
@@ -437,6 +438,33 @@ impl Node for Dir {
         } else {
             ensure!(child.file_type_cached() == fuse::FileType::Directory, "Already mapped");
             child.map(remainder, underlying_path, writable, ids, cache)
+        }
+    }
+
+    fn unmap(&self, components: &[Component]) -> Fallible<()> {
+        let (name, remainder) = split_components(components);
+
+        let mut state = self.state.lock().unwrap();
+
+        if remainder.is_empty() {
+            match state.children.remove_entry(name) {
+                Some((name, dirent)) => {
+                    if dirent.explicit_mapping {
+                        // TODO(jmmv): Invalidate kernel dirent once the FUSE crate supports it.
+                        Ok(())
+                    } else {
+                        let err = format_err!("{:?} is not a mapping", &name);
+                        state.children.insert(name, dirent);
+                        Err(err)
+                    }
+                },
+                None => Err(format_err!("Unknown entry")),
+            }
+        } else {
+            match state.children.get(name) {
+                Some(dirent) => dirent.node.unmap(remainder),
+                None => Err(format_err!("Unknown component in entry")),
+            }
         }
     }
 

@@ -37,22 +37,25 @@ extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 extern crate time;
 
-use failure::{Fallible, ResultExt};
+use failure::{Fallible, Error, ResultExt};
 use nix::errno::Errno;
 use nix::{sys, unistd};
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt;
 use std::fs;
+use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 use time::Timespec;
 
 mod concurrent;
 mod nodes;
-#[allow(unused)] mod reconfig;  // TODO(jmmv): Remove unused annotation once reconfigs are in place.
+mod reconfig;
 #[cfg(test)] mod testutils;
 
 /// An error indicating that a mapping specification (coming from the command line or from a
@@ -130,6 +133,13 @@ impl Mapping {
     /// Returns true if this is a mapping for the root directory.
     fn is_root(&self) -> bool {
         self.path.parent().is_none()
+    }
+}
+
+impl fmt::Display for Mapping {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let writability = if self.writable { "read/write" } else { "read-only" };
+        write!(f, "{} -> {} ({})", self.path.display(), self.underlying_path.display(), writability)
     }
 }
 
@@ -255,7 +265,7 @@ impl Cache {
 /// FUSE file system implementation of sandboxfs.
 struct SandboxFS {
     /// Monotonically-increasing generator of identifiers for this file system instance.
-    ids: IdGenerator,
+    ids: Arc<IdGenerator>,
 
     /// Mapping of inode numbers to in-memory nodes that tracks all files known by sandboxfs.
     nodes: Arc<Mutex<HashMap<u64, nodes::ArcNode>>>,
@@ -268,6 +278,39 @@ struct SandboxFS {
 
     /// How long to tell the kernel to cache file metadata for.
     ttl: Timespec,
+}
+
+/// A view of a `SandboxFS` instance to allow for concurrent reconfigurations.
+///
+/// This structure exists because `fuse::mount` takes ownership of the file system so there is no
+/// way for us to share that instance across threads.  Instead, we construct a reduced view of the
+/// fields we need for reconfiguration and pass those across threads.
+struct ReconfigurableSandboxFS {
+    /// The root node of the file system, on which to apply all reconfiguration operations.
+    root: nodes::ArcNode,
+
+    /// Monotonically-increasing generator of identifiers for this file system instance.
+    ids: Arc<IdGenerator>,
+
+    /// Cache of sandboxfs nodes indexed by their underlying path.
+    cache: Arc<Cache>,
+}
+
+/// Applies a mapping to the given root node.
+///
+/// This code is shared by the application of `--mapping` flags and by the application of new
+/// mappings as part of a reconfiguration operation.  We want both processes to behave identically.
+fn apply_mapping(mapping: &Mapping, root: &nodes::Node, ids: &IdGenerator, cache: &Cache)
+    -> Fallible<()> {
+    let all = mapping.path.components().collect::<Vec<_>>();
+    debug_assert_eq!(Component::RootDir, all[0], "Paths in mappings are always absolute");
+    let components = &all[1..];
+
+    // The input `root` node is an existing node that corresponds to the root.  If we don't find
+    // any path components in the given mapping, it means we are trying to remap that same node.
+    ensure!(!components.is_empty(), "Root can be mapped at most once");
+
+    root.map(components, &mapping.underlying_path, mapping.writable, &ids, &cache)
 }
 
 /// Creates the initial node hierarchy based on a collection of `mappings`.
@@ -292,11 +335,8 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache) -> Fallib
     };
 
     for mapping in rest {
-        let components = mapping.path.components().collect::<Vec<_>>();
-        debug_assert_eq!(Component::RootDir, components[0],
-            "Paths in mappings are always absolute");
-        root.map(&components[1..], &mapping.underlying_path, mapping.writable, &ids, &cache)
-            .context(format!("Failed to map {:?}", &mapping.path))?;
+        apply_mapping(mapping, root.as_ref(), ids, cache)
+            .context(format!("Cannot map '{}'", mapping))?;
     }
 
     Ok(root)
@@ -314,12 +354,21 @@ impl SandboxFS {
         nodes.insert(root.inode(), root);
 
         Ok(SandboxFS {
-            ids: ids,
+            ids: Arc::from(ids),
             nodes: Arc::from(Mutex::from(nodes)),
             handles: Arc::from(Mutex::from(HashMap::new())),
             cache: Arc::from(cache),
             ttl: ttl,
         })
+    }
+
+    /// Creates a reconfigurable view of this file system, to safely pass across threads.
+    fn reconfigurable(&mut self) -> ReconfigurableSandboxFS {
+        ReconfigurableSandboxFS {
+            root: self.find_node(fuse::FUSE_ROOT_ID),
+            ids: self.ids.clone(),
+            cache: self.cache.clone(),
+        }
     }
 
     /// Gets a node given its `inode`.
@@ -635,9 +684,27 @@ impl fuse::Filesystem for SandboxFS {
     }
 }
 
+impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
+    fn map(&self, mapping: &Mapping) -> Fallible<()> {
+        apply_mapping(mapping, self.root.as_ref(), self.ids.as_ref(), self.cache.as_ref())
+            .context(format!("Cannot map '{}'", mapping))?;
+        Ok(())
+    }
+
+    fn unmap<P: AsRef<Path>>(&self, path: P) -> Fallible<()> {
+        let all = path.as_ref().components().collect::<Vec<_>>();
+        debug_assert_eq!(Component::RootDir, all[0], "Paths to unmap are always absolute");
+        let components = &all[1..];
+
+        ensure!(!components.is_empty(), "Root cannot be unmapped");
+
+        self.root.unmap(components)
+    }
+}
+
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
-pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec)
-    -> Fallible<()> {
+pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
+    input: fs::File, output: fs::File) -> Fallible<()> {
     let mut os_options = options.iter().map(|o| o.as_ref()).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
@@ -645,7 +712,8 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
     os_options.push(OsStr::new("-o"));
     os_options.push(OsStr::new("default_permissions"));
 
-    let fs = SandboxFS::create(mappings, ttl)?;
+    let mut fs = SandboxFS::create(mappings, ttl)?;
+    let reconfigurable_fs = fs.reconfigurable();
     info!("Mounting file system onto {:?}", mount_point);
 
     let (signals, mut session) = {
@@ -655,17 +723,32 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
         (signals, session)
     };
 
-    session.run()?;
+    let config_handler = {
+        let mut input = concurrent::ShareableFile::from(input);
+        let reader = io::BufReader::new(input.reader()?);
+        let writer = io::BufWriter::new(output);
+        let handler = thread::spawn(move || {
+            reconfig::run_loop(reader, writer, &reconfigurable_fs);
+        });
 
-    match signals.caught() {
-        Some(signo) => Err(format_err!("Caught signal {}", signo)),
-        None => Ok(()),
+        session.run()?;
+        handler
+    };
+    // The input must be closed to let the reconfiguration thread to exit, which then lets the join
+    // operation below complete, hence the scope above.
+
+    if let Some(signo) = signals.caught() {
+        return Err(format_err!("Caught signal {}", signo));
+    }
+
+    match config_handler.join() {
+        Ok(_) => Ok(()),
+        Err(_) => Err(format_err!("Reconfiguration thread panicked")),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::thread;
     use super::*;
     use tempfile::tempdir;
 
@@ -804,15 +887,5 @@ mod tests {
             // what we are testing.
             cache.get_or_create(&ids, &path, &fs_attr, false);
         }
-    }
-
-    #[test]
-    fn test_sandboxfs_is_movable_across_threads() {
-        let mappings = vec![Mapping::from_parts(
-            PathBuf::from("/"), PathBuf::from("/"), false).unwrap()];
-        let mut fs = SandboxFS::create(&mappings, Timespec { sec: 0, nsec: 0 }).unwrap();
-        thread::spawn(move || {
-            fs.find_node(fuse::FUSE_ROOT_ID);
-        }).join().unwrap();
     }
 }

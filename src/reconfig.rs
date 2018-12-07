@@ -13,19 +13,18 @@
 // under the License.
 
 use {flatten_causes, Mapping};
-use failure::Error;
+use failure::Fallible;
 use serde_derive::Deserialize;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::result::Result;
 
 /// A shareable view into a reconfigurable file system.
 pub trait ReconfigurableFS {
     /// Maps a path into the file system.
-    fn map(&self, mapping: &Mapping) -> Result<(), Error>;
+    fn map(&self, mapping: &Mapping) -> Fallible<()>;
 
     /// Unmaps a path from the file system.
-    fn unmap<P: AsRef<Path>>(&self, path: P) -> Result<(), Error>;
+    fn unmap<P: AsRef<Path>>(&self, path: P) -> Fallible<()>;
 }
 
 /// External representation of a mapping in the JSON reconfiguration data.
@@ -64,7 +63,7 @@ enum Step {
 ///
 /// Reconfiguration chunks are delimited by an empty blank line between them or EOF.  Returns `None`
 /// after the last chunk has been read and upon encountering EOF.
-fn read_chunk<R: io::BufRead>(input: &mut R) -> Result<Option<String>, Error> {
+fn read_chunk<R: io::BufRead>(input: &mut R) -> Fallible<Option<String>> {
     let mut chunk = String::new();
     loop {
         let n = input.read_line(&mut chunk)?;
@@ -82,7 +81,7 @@ fn read_chunk<R: io::BufRead>(input: &mut R) -> Result<Option<String>, Error> {
 }
 
 /// Parses the contents of a JSON reconfiguration chunk and returns it as a list of valid steps.
-fn parse_chunk(chunk: &str) -> Result<Vec<Step>, Error> {
+fn parse_chunk(chunk: &str) -> Fallible<Vec<Step>> {
     let json: Vec<JsonStep> = serde_json::from_str(chunk)?;
 
     let mut steps: Vec<Step> = Vec::with_capacity(json.len());
@@ -101,8 +100,7 @@ fn parse_chunk(chunk: &str) -> Result<Vec<Step>, Error> {
 /// Returns true upon reaching the end of the input and false if there may be more requests to
 /// process.  The caller is responsible for communicating the result of the request into the output
 /// writer.
-fn handle_request<I: io::BufRead, F: ReconfigurableFS>(reader: &mut I, fs: &F)
-    -> Result<bool, Error> {
+fn handle_request<I: io::BufRead, F: ReconfigurableFS>(reader: &mut I, fs: &F) -> Fallible<bool> {
     match read_chunk(reader)? {
         None => Ok(true),
         Some(chunk) => {
@@ -283,12 +281,12 @@ mod tests {
     }
 
     impl ReconfigurableFS for MockFS {
-        fn map(&self, mapping: &Mapping) -> Result<(), Error> {
+        fn map(&self, mapping: &Mapping) -> Fallible<()> {
             self.log.lock().unwrap().push(format!("map {}", mapping.path.display()));
             Ok(())
         }
 
-        fn unmap<P: AsRef<Path>>(&self, path: P) -> Result<(), Error> {
+        fn unmap<P: AsRef<Path>>(&self, path: P) -> Fallible<()> {
             self.log.lock().unwrap().push(format!("unmap {}", path.as_ref().display()));
             Ok(())
         }

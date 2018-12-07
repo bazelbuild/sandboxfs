@@ -321,6 +321,14 @@ pub trait Node {
         panic!("Not implemented")
     }
 
+    /// Unmaps a path.
+    ///
+    /// `_components` is the path to map, broken down into components, and relative to the current
+    /// node.
+    fn unmap(&self, _components: &[Component]) -> Fallible<()> {
+        panic!("Not implemented")
+    }
+
     /// Creates a new file with `_name` and `_mode` and opens it with `_flags`.
     ///
     /// The attributes are returned to avoid having to relock the node on the caller side in order

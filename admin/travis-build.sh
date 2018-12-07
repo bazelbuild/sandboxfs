@@ -78,17 +78,6 @@ do_rust() {
   # Ideally, by the time this alternative implementation is ready, this list
   # will be empty and we can then refactor this file to just test one version.
   local blacklist=(
-    TestReconfiguration_Streams
-    TestReconfiguration_Steps
-    TestReconfiguration_Unmap
-    TestReconfiguration_RemapInvalidatesCache
-    TestReconfiguration_Errors
-    TestReconfiguration_RaceSystemComponents
-    TestReconfiguration_DirectoryListings
-    TestReconfiguration_InodesAreStableForSameUnderlyingFiles
-    TestReconfiguration_WritableNodesAreDifferent
-    TestReconfiguration_FileSystemStillWorksAfterInputEOF
-    TestReconfiguration_StreamFileDoesNotExist
   )
 
   # TODO(https://github.com/bazelbuild/rules_rust/issues/2): Replace by a
