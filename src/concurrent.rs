@@ -89,7 +89,7 @@ impl ShareableFile {
 }
 
 impl Drop for ShareableFile {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         debug!("Closing ShareableFile with fd {}", self.fd);
 
         // We are about to touch file handles used by other threads.  If those threads are blocked
@@ -133,7 +133,7 @@ pub struct ShareableFileReader {
 }
 
 impl Drop for ShareableFileReader {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         if let Err(e) = unistd::close(self.notifier) {
             warn!("Failed to close fd {}: {}", self.notifier, e);
         }
@@ -235,7 +235,7 @@ impl SignalsInstaller {
 }
 
 impl Drop for SignalsInstaller {
-    fn drop(&mut self) -> () {
+    fn drop(&mut self) {
         signal::pthread_sigmask(signal::SigmaskHow::SIG_SETMASK, Some(&self.old_sigset), None)
             .expect("pthread_sigmask is not expected to fail and we cannot correctly clean up");
     }
@@ -297,7 +297,7 @@ impl SignalsHandler {
     /// number of the received signal and then attempts to unmount `mount_point` indefinitely to
     /// unblock the main FUSE loop.
     fn handler(signals: &signal_hook::iterator::Signals, mount_point: PathBuf,
-        signal_sender: &mpsc::Sender<i32>) -> () {
+        signal_sender: &mpsc::Sender<i32>) {
         let signo = signals.forever().next().unwrap();
         if let Err(e) = signal_sender.send(signo) {
             warn!("Failed to propagate signal to main thread; will get stuck exiting: {}", e);

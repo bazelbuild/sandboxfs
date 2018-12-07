@@ -22,11 +22,11 @@
 // For portability reasons, we need to be able to cast integer values to system-level opaque
 // types such as "mode_t".  Because we don't know the size of those integers on the platform we
 // are building for, sometimes the casts do widen the values but other times they are no-ops.
-#![cfg_attr(feature = "cargo-clippy", allow(identity_conversion))]
+#![allow(clippy::identity_conversion)]
 
 // We construct complex structures in multiple places, and allowing for redundant field names
 // increases readability.
-#![cfg_attr(feature = "cargo-clippy", allow(redundant_field_names))]
+#![allow(clippy::redundant_field_names)]
 
 #[macro_use] extern crate failure;
 extern crate fuse;
@@ -86,8 +86,8 @@ impl Mapping {
     /// `path` is the inside the sandbox's mount point where the `underlying_path` is exposed.
     /// Both must be absolute paths.  `path` must also not contain dot-dot components, though it
     /// may contain dot components and repeated path separators.
-    pub fn new(path: PathBuf, underlying_path: PathBuf, writable: bool)
-        -> Result<Mapping, MappingError> {
+    pub fn from_parts(path: PathBuf, underlying_path: PathBuf, writable: bool)
+        -> Result<Self, MappingError> {
         if !path.is_absolute() {
             return Err(MappingError::PathNotAbsolute { path });
         }
@@ -277,7 +277,7 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn new(mappings: &[Mapping], ttl: Timespec) -> Result<SandboxFS, Error> {
+    fn create(mappings: &[Mapping], ttl: Timespec) -> Result<SandboxFS, Error> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
         let cache = Cache::default();
 
@@ -597,7 +597,7 @@ pub fn mount(mount_point: &Path, mappings: &[Mapping], ttl: Timespec) -> Result<
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    let fs = SandboxFS::new(mappings, ttl)?;
+    let fs = SandboxFS::create(mappings, ttl)?;
     info!("Mounting file system onto {:?}", mount_point);
 
     let (signals, mut session) = {
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_mapping_new_ok() {
-        let mapping = Mapping::new(
+        let mapping = Mapping::from_parts(
             PathBuf::from("/foo/.///bar"),  // Must be absolute and normalized.
             PathBuf::from("/bar/./baz/../abc"),  // Must be absolute but needn't be normalized.
             false).unwrap();
@@ -634,7 +634,8 @@ mod tests {
 
     #[test]
     fn test_mapping_new_path_is_not_absolute() {
-        let err = Mapping::new(PathBuf::from("foo"), PathBuf::from("/bar"), false).unwrap_err();
+        let err = Mapping::from_parts(
+            PathBuf::from("foo"), PathBuf::from("/bar"), false).unwrap_err();
         assert_eq!(MappingError::PathNotAbsolute { path: PathBuf::from("foo") }, err);
     }
 
@@ -643,28 +644,34 @@ mod tests {
         let trailing_dotdot = PathBuf::from("/foo/..");
         assert_eq!(
             MappingError::PathNotNormalized { path: trailing_dotdot.clone() },
-            Mapping::new(trailing_dotdot, PathBuf::from("/bar"), false).unwrap_err());
+            Mapping::from_parts(trailing_dotdot, PathBuf::from("/bar"), false).unwrap_err());
 
         let intermediate_dotdot = PathBuf::from("/foo/../bar/baz");
         assert_eq!(
             MappingError::PathNotNormalized { path: intermediate_dotdot.clone() },
-            Mapping::new(intermediate_dotdot, PathBuf::from("/bar"), true).unwrap_err());
+            Mapping::from_parts(intermediate_dotdot, PathBuf::from("/bar"), true).unwrap_err());
     }
 
     #[test]
     fn test_mapping_new_underlying_path_is_not_absolute() {
-        let err = Mapping::new(PathBuf::from("/foo"), PathBuf::from("bar"), false).unwrap_err();
+        let err = Mapping::from_parts(
+            PathBuf::from("/foo"), PathBuf::from("bar"), false).unwrap_err();
         assert_eq!(MappingError::PathNotAbsolute { path: PathBuf::from("bar") }, err);
     }
 
     #[test]
     fn test_mapping_is_root() {
         let irrelevant = PathBuf::from("/some/place");
-        assert!(Mapping::new(PathBuf::from("/"), irrelevant.clone(), false).unwrap().is_root());
-        assert!(Mapping::new(PathBuf::from("///"), irrelevant.clone(), false).unwrap().is_root());
-        assert!(Mapping::new(PathBuf::from("/./"), irrelevant.clone(), false).unwrap().is_root());
-        assert!(!Mapping::new(PathBuf::from("/a"), irrelevant.clone(), false).unwrap().is_root());
-        assert!(!Mapping::new(PathBuf::from("/a/b"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(Mapping::from_parts(
+            PathBuf::from("/"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(Mapping::from_parts(
+            PathBuf::from("///"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(Mapping::from_parts(
+            PathBuf::from("/./"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(!Mapping::from_parts(
+            PathBuf::from("/a"), irrelevant.clone(), false).unwrap().is_root());
+        assert!(!Mapping::from_parts(
+            PathBuf::from("/a/b"), irrelevant.clone(), false).unwrap().is_root());
     }
 
     #[test]
@@ -739,8 +746,9 @@ mod tests {
 
     #[test]
     fn test_sandboxfs_is_movable_across_threads() {
-        let mappings = vec![Mapping::new(PathBuf::from("/"), PathBuf::from("/"), false).unwrap()];
-        let mut fs = SandboxFS::new(&mappings, Timespec { sec: 0, nsec: 0 }).unwrap();
+        let mappings = vec![Mapping::from_parts(
+            PathBuf::from("/"), PathBuf::from("/"), false).unwrap()];
+        let mut fs = SandboxFS::create(&mappings, Timespec { sec: 0, nsec: 0 }).unwrap();
         thread::spawn(move || {
             fs.find_node(fuse::FUSE_ROOT_ID);
         }).join().unwrap();

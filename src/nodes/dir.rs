@@ -419,7 +419,7 @@ impl Node for Dir {
         }
     }
 
-    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+    #[allow(clippy::type_complexity)]
     fn create(&self, name: &OsStr, mode: u32, flags: u32, ids: &IdGenerator, cache: &Cache)
         -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
@@ -492,7 +492,7 @@ impl Node for Dir {
             },
         };
 
-        #[cfg_attr(feature = "cargo-clippy", allow(cast_lossless))]
+        #[allow(clippy::cast_lossless)]
         sys::stat::mknod(&path, sflag, perm, rdev as sys::stat::dev_t)?;
         Dir::post_create_lookup(self.writable, &mut state, &path, name, exp_filetype, ids, cache)
     }
@@ -520,7 +520,7 @@ impl Node for Dir {
 
     fn rmdir(&self, name: &OsStr) -> NodeResult<()> {
         // TODO(jmmv): Figure out how to remove the redundant closure.
-        #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
+        #[allow(clippy::redundant_closure)]
         self.remove_any(name, |p| fs::remove_dir(p))
     }
 
@@ -542,7 +542,7 @@ impl Node for Dir {
 
     fn unlink(&self, name: &OsStr) -> NodeResult<()> {
         // TODO(jmmv): Figure out how to remove the redundant closure.
-        #[cfg_attr(feature = "cargo-clippy", allow(redundant_closure))]
+        #[allow(clippy::redundant_closure)]
         self.remove_any(name, |p| fs::remove_file(p))
     }
 }

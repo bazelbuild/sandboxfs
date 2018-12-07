@@ -319,7 +319,7 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
-    #[cfg_attr(feature = "cargo-clippy", allow(type_complexity))]
+    #[allow(clippy::type_complexity)]
     fn create(&self, _name: &OsStr, _mode: u32, _flags: u32, _ids: &IdGenerator, _cache: &Cache)
         -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
         panic!("Not implemented")
