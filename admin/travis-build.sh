@@ -91,9 +91,6 @@ do_rust() {
     TestReadOnly_Attributes
     TestReadWrite_InodeReassignedAfterRecreation
     TestReadWrite_NestedMappingsInheritDirectoryProperties
-    TestReadWrite_RenameFile
-    TestReadWrite_MoveFile
-    TestReadWrite_MoveRace
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap

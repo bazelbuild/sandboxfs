@@ -129,6 +129,13 @@ impl Node for File {
         state.underlying_path = None;
     }
 
+    fn set_underlying_path(&self, path: &Path) {
+        let mut state = self.state.lock().unwrap();
+        debug_assert!(state.underlying_path.is_some(),
+            "Renames should not have been allowed in scaffold or deleted nodes");
+        state.underlying_path = Some(PathBuf::from(path));
+    }
+
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         File::getattr_locked(self.inode, &mut state)

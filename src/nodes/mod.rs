@@ -299,6 +299,9 @@ pub trait Node {
     /// is called.
     fn delete(&self);
 
+    /// Updates the node's underlying path to the given one.  Needed for renames.
+    fn set_underlying_path(&self, _path: &Path);
+
     /// Maps a path onto a node and creates intermediate components as immutable directories.
     ///
     /// `_components` is the path to map, broken down into components, and relative to the current
@@ -373,6 +376,44 @@ pub trait Node {
     /// Reads the target of a symlink.
     fn readlink(&self) -> NodeResult<PathBuf> {
         panic!("Not implemented");
+    }
+
+    /// Renames the entry `_name` to `_new_name`.
+    ///
+    /// This operation is separate from "rename and move" because it acts on a single directory and
+    /// therefore we only need to lock one node.
+    fn rename(&self, _name: &OsStr, _new_name: &OsStr) -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
+    /// Moves the given `_old_name` to the directory `_new_dir` and renames it to `_new_name`.
+    ///
+    /// Because of the necessity to lock two nodes during a move, this operation cannot be used when
+    /// the source and target are in the same directory.  Doing so would trigger an attempt to
+    /// double-lock the node's state.  Use `rename` instead.
+    ///
+    /// This is the "first half" of the move operation.  This hook locks the source node, extracts
+    /// any necessary information from it, and then delegates to the target node to complete the
+    /// move.  The source node must remain locked for the duration of the move.
+    fn rename_and_move_source(&self, _old_name: &OsStr, _new_dir: ArcNode, _new_name: &OsStr)
+        -> NodeResult<()> {
+        panic!("Not implemented");
+    }
+
+    /// Attaches the given `_dirent` to this directory and renames it to `_new_name`.
+    ///
+    /// `_old_path` contains the underlying path of the node being moved in its source directory.
+    ///
+    /// This is the "second half" of the move operation.  This hook locks the target node and
+    /// assumes that the source node is still locked, then attempts to move the underlying file,
+    /// attaches the directory entry to the current node, and finally updates its name to the new
+    /// name.
+    ///
+    /// If the target node is not a directory, this operation shall fail with `ENOTDIR` (the
+    /// default implementation).
+    fn rename_and_move_target(&self, _dirent: &dir::Dirent, _old_path: &Path, _new_name: &OsStr)
+        -> NodeResult<()> {
+        Err(KernelError::from_errno(Errno::ENOTDIR))
     }
 
     /// Deletes the empty directory `_name`.
