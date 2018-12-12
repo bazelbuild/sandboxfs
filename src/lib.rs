@@ -590,19 +590,15 @@ impl fuse::Filesystem for SandboxFS {
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
-pub fn mount(mount_point: &Path, mappings: &[Mapping], ttl: Timespec) -> Result<(), Error> {
-    // TODO(jmmv): Support passing in arbitrary FUSE options from the command line, like "-o ro",
-    // or expose a good subset of them.
-    let options = ["-o", "fsname=sandboxfs"]
-        .iter()
-        .map(|o| o.as_ref())
-        .collect::<Vec<&OsStr>>();
+pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec)
+    -> Result<(), Error> {
+    let os_options = options.iter().map(|o| o.as_ref()).collect::<Vec<&OsStr>>();
     let fs = SandboxFS::create(mappings, ttl)?;
     info!("Mounting file system onto {:?}", mount_point);
 
     let (signals, mut session) = {
         let installer = concurrent::SignalsInstaller::prepare();
-        let mut session = fuse::Session::new(fs, &mount_point, &options)?;
+        let mut session = fuse::Session::new(fs, &mount_point, &os_options)?;
         let signals = installer.install(PathBuf::from(mount_point))?;
         (signals, session)
     };

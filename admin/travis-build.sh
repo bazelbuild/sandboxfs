@@ -85,8 +85,6 @@ do_rust() {
     TestCli_Syntax
     TestDebug_FuseOpsInLog
     TestLayout_MountPointDoesNotExist
-    TestOptions_Allow
-    TestOptions_Syntax
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
