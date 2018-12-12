@@ -49,6 +49,22 @@ struct UsageError {
     message: String,
 }
 
+/// Parses the value of a flag that controls who has access to the mount point.
+///
+/// Returns the collection of options, if any, to be passed to the FUSE mount operation in order to
+/// grant the requested permissions.
+fn parse_allow(s: &str) -> Result<&'static [&'static str], UsageError> {
+    match s {
+        "other" => Ok(&["-o", "allow_other"]),
+        "root" => Ok(&["-o", "allow_root"]),
+        "self" => Ok(&[]),
+        _ => {
+            let message = format!("{} must be one of other, root, or self", s);
+            Err(UsageError { message })
+        },
+    }
+}
+
 /// Parses the value of a flag that takes a duration, which must specify its unit.
 fn parse_duration(s: &str) -> Result<Timespec, UsageError> {
     let (value, unit) = match s.find(|c| !char::is_ascii_digit(&c) && c != '-') {
@@ -145,6 +161,8 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     env_logger::init();
 
     let mut opts = Options::new();
+    opts.optopt("", "allow", concat!("specifies who should have access to the file system",
+        " (default: self)"), "other|root|self");
     opts.optflag("", "help", "prints usage information and exits");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
     opts.optopt("", "ttl",
@@ -155,6 +173,15 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     if matches.opt_present("help") {
         usage(&program, &opts);
         return Ok(());
+    }
+
+    let mut options = vec!("-o", "fsname=sandboxfs");
+    // TODO(jmmv): Support passing in arbitrary FUSE options from the command line, like "-o ro".
+
+    if let Some(value) = matches.opt_str("allow") {
+        for arg in parse_allow(&value)? {
+            options.push(arg);
+        }
     }
 
     let mappings = parse_mappings(matches.opt_strs("mapping"))?;
@@ -171,7 +198,7 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
-    sandboxfs::mount(Path::new(mount_point), &mappings, ttl)?;
+    sandboxfs::mount(Path::new(mount_point), &options, &mappings, ttl)?;
     Ok(())
 }
 
