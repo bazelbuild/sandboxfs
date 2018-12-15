@@ -12,7 +12,7 @@ go_library(
     visibility = ["//visibility:private"],
     deps = [
         "//internal/shell:go_default_library",
-        "@com_github_bazelbuild_rules_go//go/tools/bazel:go_default_library",
+        "@io_bazel_rules_go//go/tools/bazel:go_default_library",
     ],
 )
 
@@ -23,7 +23,7 @@ go_binary(
         "@bazel_gazelle//cmd/gazelle",
         "@com_github_bazelbuild_buildtools//buildifier",
         "@go_sdk//:bin/gofmt",
-        "@golint//golint",
+        "@org_golang_x_lint//golint",
     ],
     embed = [":go_default_library"],
     importpath = "github.com/bazelbuild/sandboxfs/admin/lint",
