@@ -157,7 +157,7 @@ func main() {
 
 	failed := false
 	for _, file := range files {
-		if !checkAll(file) {
+		if !checkAll(workspaceDir, file) {
 			failed = true
 		}
 	}
