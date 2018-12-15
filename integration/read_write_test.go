@@ -298,6 +298,8 @@ func equivalentStats(stat1 os.FileInfo, stat2 os.FileInfo) error {
 // Tests calling this function should only start a sandboxfs instance with the desired configuration
 // and then immediately call this function.
 func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInnerPath string) {
+	t.Helper()
+
 	utils.MustMkdirAll(t, filepath.Dir(oldOuterPath), 0755)
 	utils.MustMkdirAll(t, filepath.Dir(newOuterPath), 0755)
 	utils.MustMkdirAll(t, filepath.Dir(oldInnerPath), 0755)
