@@ -496,9 +496,28 @@ impl fuse::Filesystem for SandboxFS {
         self.release_common(fh, reply)
     }
 
-    fn rename(&mut self, _req: &fuse::Request, _parent: u64, _name: &OsStr, _newparent: u64,
-        _newname: &OsStr, _reply: fuse::ReplyEmpty) {
-        panic!("Required RW operation not yet implemented");
+    fn rename(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, new_parent: u64,
+        new_name: &OsStr, reply: fuse::ReplyEmpty) {
+        let dir_node = self.find_node(parent);
+        if !dir_node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        let result = if parent == new_parent {
+            dir_node.rename(name, new_name)
+        } else {
+            let new_dir_node = self.find_node(new_parent);
+            if !new_dir_node.writable() {
+                reply.error(Errno::EPERM as i32);
+                return;
+            }
+            dir_node.rename_and_move_source(name, new_dir_node, new_name)
+        };
+        match result {
+            Ok(()) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
     }
 
     fn rmdir(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEmpty) {

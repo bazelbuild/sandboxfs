@@ -136,7 +136,8 @@ impl Handle for OpenDir {
 }
 
 /// Representation of a directory entry.
-struct Dirent {
+#[derive(Clone)]
+pub struct Dirent {
     node: ArcNode,
     explicit_mapping: bool,
 }
@@ -149,7 +150,7 @@ pub struct Dir {
 }
 
 /// Holds the mutable data of a directory node.
-struct MutableDir {
+pub struct MutableDir {
     parent: u64,
     underlying_path: Option<PathBuf>,
     attr: fuse::FileAttr,
@@ -387,6 +388,13 @@ impl Node for Dir {
         state.underlying_path = None;
     }
 
+    fn set_underlying_path(&self, path: &Path) {
+        let mut state = self.state.lock().unwrap();
+        debug_assert!(state.underlying_path.is_some(),
+            "Renames should not have been allowed in scaffold or deleted nodes");
+        state.underlying_path = Some(PathBuf::from(path));
+    }
+
     fn map(&self, components: &[Component], underlying_path: &Path, writable: bool,
         ids: &IdGenerator, cache: &Cache) -> Result<(), Error> {
         let (name, remainder) = split_components(components);
@@ -516,6 +524,66 @@ impl Node for Dir {
             state: self.state.clone(),
             handle: Mutex::from(handle),
         }))
+    }
+
+    fn rename(&self, old_name: &OsStr, new_name: &OsStr) -> NodeResult<()> {
+        let mut state = self.state.lock().unwrap();
+
+        let old_path = Dir::get_writable_path(&mut state, old_name)?;
+        let new_path = Dir::get_writable_path(&mut state, new_name)?;
+
+        fs::rename(&old_path, &new_path)?;
+
+        let dirent = state.children.remove(old_name)
+            .expect("get_writable_path call above ensured the child exists");
+        dirent.node.set_underlying_path(&new_path);
+        state.children.insert(new_name.to_owned(), dirent);
+        Ok(())
+    }
+
+    fn rename_and_move_source(&self, old_name: &OsStr, new_dir: ArcNode, new_name: &OsStr)
+        -> NodeResult<()> {
+        debug_assert!(self.inode != new_dir.as_ref().inode(),
+            "Same-directory renames have to be done via `rename`");
+
+        let mut state = self.state.lock().unwrap();
+
+        let old_path = Dir::get_writable_path(&mut state, old_name)?;
+
+        let (old_name, dirent) = state.children.remove_entry(old_name)
+            .expect("get_writable_path call above ensured the child exists");
+        let result = new_dir.rename_and_move_target(&dirent, &old_path, new_name);
+        if result.is_err() {
+            // "Roll back" any changes we did to the current directory because the rename could not
+            // be completed on the target.
+            state.children.insert(old_name, dirent);
+        }
+        result
+    }
+
+    fn rename_and_move_target(&self, dirent: &Dirent, old_path: &Path, new_name: &OsStr)
+        -> NodeResult<()> {
+        // We are locking the target node while the source node is already locked, so this can
+        // deadlock.  The previous Go implementation of this code ordered the locks based on inode
+        // numbers so we should do the same thing here, but then this two-phase move implementation
+        // does not work.
+        //
+        // The benefit of this implementation, however, is that the rename-and-move operation is
+        // oblivious to the type of the target node type.  We just delegate part of the move to the
+        // target, which can choose to operate as necessary.
+        //
+        // TODO(jmmv): Redo this once FUSE operations can be called concurrently, which at the
+        // moment are serialized because the FUSE library we use does not support concurrency.  We
+        // have an integration test to catch this race, which will ensure this doesn't go unnoticed.
+        let mut state = self.state.lock().unwrap();
+
+        let new_path = Dir::get_writable_path(&mut state, new_name)?;
+
+        fs::rename(&old_path, &new_path)?;
+
+        dirent.node.set_underlying_path(&new_path);
+        state.children.insert(new_name.to_owned(), dirent.clone());
+        Ok(())
     }
 
     fn rmdir(&self, name: &OsStr) -> NodeResult<()> {

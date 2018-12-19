@@ -419,6 +419,43 @@ func TestReadWrite_MoveFile(t *testing.T) {
 	doRenameTest(t, oldOuterPath, newOuterPath, oldInnerPath, newInnerPath)
 }
 
+func TestReadWrite_MoveRace(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
+	utils.MustWriteFile(t, state.RootPath("dir1/file1"), 0644, "")
+	utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
+	utils.MustWriteFile(t, state.RootPath("dir2/file2"), 0644, "")
+
+	doMove := func(errChan chan error, srcdir string, newdir string, file string) {
+		for i := 0; i < 1000; i++ {
+			if err := os.Rename(state.MountPath(srcdir, file), state.MountPath(newdir, file)); err != nil {
+				errChan <- err
+				return
+			}
+			if err := os.Rename(state.MountPath(newdir, file), state.MountPath(srcdir, file)); err != nil {
+				errChan <- err
+				return
+			}
+		}
+		errChan <- nil
+	}
+
+	errChan := make(chan error)
+	go doMove(errChan, "dir1", "dir2", "file1")
+	go doMove(errChan, "dir2", "dir1", "file2")
+
+	// If there is a deadlock in the implementation of rename, we expect at least one of the
+	// goroutines to get stuck and never return.
+	for i := 0; i < 2; i++ {
+		err := <-errChan
+		if err != nil {
+			t.Errorf("Renames failed: %v", err)
+		}
+	}
+}
+
 func TestReadWrite_Mknod(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to create arbitrary nodes")
 
