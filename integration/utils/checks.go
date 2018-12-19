@@ -31,6 +31,8 @@ import (
 // MustMkdirAll wraps os.MkdirAll and immediately fails the test case on failure.
 // This is purely syntactic sugar to keep test setup short and concise.
 func MustMkdirAll(t *testing.T, path string, perm os.FileMode) {
+	t.Helper()
+
 	if err := os.MkdirAll(path, perm); err != nil {
 		t.Fatalf("Failed to create directory %s: %v", path, err)
 	}
@@ -43,6 +45,8 @@ func MustMkdirAll(t *testing.T, path string, perm os.FileMode) {
 // into account because Linux does not have an lchmod(2) system call, nor Go offers a mechanism to
 // call it on the systems that support it.
 func MustSymlink(t *testing.T, target string, path string) {
+	t.Helper()
+
 	if err := os.Symlink(target, path); err != nil {
 		t.Fatalf("Failed to create symlink %s: %v", path, err)
 	}
@@ -51,6 +55,8 @@ func MustSymlink(t *testing.T, target string, path string) {
 // MustWriteFile wraps ioutil.WriteFile and immediately fails the test case on failure.
 // This is purely syntactic sugar to keep test setup short and concise.
 func MustWriteFile(t *testing.T, path string, perm os.FileMode, contents string) {
+	t.Helper()
+
 	if err := ioutil.WriteFile(path, []byte(contents), perm); err != nil {
 		t.Fatalf("Failed to create file %s: %v", path, err)
 	}
@@ -59,6 +65,8 @@ func MustWriteFile(t *testing.T, path string, perm os.FileMode, contents string)
 // RequireRoot checks if the test is running as root and skips the test with the given reason
 // otherwise.
 func RequireRoot(t *testing.T, skipReason string) *UnixUser {
+	t.Helper()
+
 	if os.Getuid() != 0 {
 		t.Skipf(skipReason)
 	}

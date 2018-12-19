@@ -8,17 +8,11 @@ go_library(
         "dir.go",
         "file.go",
         "node.go",
+        "node_darwin.go",
+        "node_linux.go",
         "sandbox.go",
         "symlink.go",
-    ] + select({
-        "@io_bazel_rules_go//go/platform:darwin": [
-            "node_darwin.go",
-        ],
-        "@io_bazel_rules_go//go/platform:linux": [
-            "node_linux.go",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
     importpath = "github.com/bazelbuild/sandboxfs/internal/sandbox",
     visibility = ["//:__subpackages__"],
     deps = [

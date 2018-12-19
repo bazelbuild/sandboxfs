@@ -58,8 +58,8 @@ func TestProfiling_Http(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read response from fake pprof endpoint: %v", err)
 	}
-	wantContents := "Unknown profile: fakename\n"
-	if string(contents) != wantContents {
+	wantContents := "Unknown profile.*"
+	if !utils.MatchesRegexp(wantContents, string(contents)) {
 		t.Errorf("Got unexpected pprof response %s; want %s", string(contents), wantContents)
 	}
 }

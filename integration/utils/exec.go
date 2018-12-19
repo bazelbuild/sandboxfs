@@ -263,6 +263,8 @@ func hasRootMapping(args ...string) bool {
 // and with rootSetup and the user set to nil.  See the documentation for this other function for
 // further details.
 func MountSetup(t *testing.T, args ...string) *MountState {
+	t.Helper()
+
 	return mountSetupFull(t, os.Stdout, os.Stderr, nil, nil, args...)
 }
 
@@ -273,6 +275,8 @@ func MountSetup(t *testing.T, args ...string) *MountState {
 // outputs and with the user set to nil.  See the documentation for this other function for
 // further details.
 func MountSetupWithRootSetup(t *testing.T, rootSetup func(string) error, args ...string) *MountState {
+	t.Helper()
+
 	return mountSetupFull(t, os.Stdout, os.Stderr, nil, rootSetup, args...)
 }
 
@@ -283,6 +287,8 @@ func MountSetupWithRootSetup(t *testing.T, rootSetup func(string) error, args ..
 // provided values and with rootSetup and the user set to nil.  See the documentation for this other
 // function for further details.
 func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, args ...string) *MountState {
+	t.Helper()
+
 	return mountSetupFull(t, stdout, stderr, nil, nil, args...)
 }
 
@@ -293,6 +299,8 @@ func MountSetupWithOutputs(t *testing.T, stdout io.Writer, stderr io.Writer, arg
 // outputs, with rootSetup set to nil, and with the user set to the given value.  See the
 // documentation for this other function for further details.
 func MountSetupWithUser(t *testing.T, user *UnixUser, args ...string) *MountState {
+	t.Helper()
+
 	return mountSetupFull(t, os.Stdout, os.Stderr, user, nil, args...)
 }
 
@@ -321,6 +329,8 @@ func MountSetupWithUser(t *testing.T, user *UnixUser, args ...string) *MountStat
 // Callers must defer execution of MountState.TearDown() immediately on return to ensure the
 // background process and the mount point are cleaned up on test completion.
 func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *UnixUser, rootSetup func(string) error, args ...string) *MountState {
+	t.Helper()
+
 	success := false
 
 	// Reset the test's umask to zero.  This allows tests to not care about how the umask
@@ -434,6 +444,8 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 // use of "defer".  Note, though, that such tests will only receive the first error encountered by
 // this function, and that the function will run to completion even if there were failures.
 func (s *MountState) TearDown(t *testing.T) error {
+	t.Helper()
+
 	var firstErr error
 	setFirstErr := func(err error) {
 		if firstErr == nil {

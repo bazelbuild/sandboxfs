@@ -31,7 +31,7 @@ import (
 
 // checkLicense checks if the given file contains the necessary license information and returns an
 // error if this is not true or if the check cannot be performed.
-func checkLicense(file string) error {
+func checkLicense(workspaceDir string, file string) error {
 	for _, pattern := range []string{
 		`Copyright.*Google`,
 		`Apache License.*2.0`,
@@ -50,7 +50,7 @@ func checkLicense(file string) error {
 
 // checkNoTabs checks if the given file contains any tabs as indentation and, if it does, returns
 // an error.
-func checkNoTabs(file string) error {
+func checkNoTabs(workspaceDir string, file string) error {
 	input, err := os.OpenFile(file, os.O_RDONLY, 0)
 	if err != nil {
 		return fmt.Errorf("failed to open %s for read: %v", file, err)
@@ -110,36 +110,36 @@ func runLinter(pkg string, toolName string, arg ...string) error {
 
 // checkBuildifier checks if the given file is formatted according to buildifier and, if not, prints
 // a diff detailing what's wrong with the file to stdout and returns an error.
-func checkBuildifier(file string) error {
+func checkBuildifier(workspaceDir string, file string) error {
 	return runLinter("../com_github_bazelbuild_buildtools/buildifier", "buildifier", "--mode=diff", file)
 }
 
 // checkGazelle checks if the given file is formatted according to gazelle and, if not, prints
 // a diff detailing what's wrong with the file to stdout and returns an error.
-func checkGazelle(file string) error {
-	return runLinter("../bazel_gazelle/cmd/gazelle", "gazelle", "--go_prefix=github.com/bazelbuild/sandboxfs", "--mode=diff", filepath.Dir(file))
+func checkGazelle(workspaceDir string, file string) error {
+	return runLinter("../bazel_gazelle/cmd/gazelle", "gazelle", "--go_prefix=github.com/bazelbuild/sandboxfs", "--mode=diff", "--repo_root="+workspaceDir, filepath.Dir(file))
 }
 
 // checkGoFmt checks if the given file is formatted according to gofmt and, if not, prints a diff
 // detailing what's wrong with the file to stdout and returns an error.
-func checkGofmt(file string) error {
+func checkGofmt(workspaceDir string, file string) error {
 	return runLinter("../go_sdk/bin", "gofmt", "-d", "-e", "-s", file)
 }
 
 // checkGoLint checks if the given file passes golint checks and, if not, prints diagnostic messages
 // to stdout and returns an error.
-func checkGolint(file string) error {
+func checkGolint(workspaceDir string, file string) error {
 	// Lower confidence levels raise a per-file warning to remind about having a package-level
 	// docstring... but the warning is issued blindly without checking for the existing of this
 	// docstring in other packages.
 	minConfidenceFlag := "-min_confidence=0.3"
 
-	return runLinter("../golint/golint", "golint", minConfidenceFlag, file)
+	return runLinter("../org_golang_x_lint/golint", "golint", minConfidenceFlag, file)
 }
 
 // checkAll runs all possible checks on a file.  Returns true if all checks pass, and false
 // otherwise.  Error details are dumped to stderr.
-func checkAll(file string) bool {
+func checkAll(workspaceDir string, file string) bool {
 	isBuildFile := filepath.Base(file) == "BUILD.bazel" || filepath.Ext(file) == ".bzl"
 
 	// If a file starts with an upper-case letter, assume it's supporting package documentation
@@ -149,8 +149,8 @@ func checkAll(file string) bool {
 	log.Printf("Linting file %s", file)
 	ok := true
 
-	runCheck := func(checker func(string) error, file string) {
-		if err := checker(file); err != nil {
+	runCheck := func(checker func(string, string) error, file string) {
+		if err := checker(workspaceDir, file); err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", file, err)
 			ok = false
 		}
