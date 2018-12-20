@@ -226,8 +226,16 @@ func TestReadOnly_Attributes(t *testing.T) {
 			t.Errorf("Got rdev %v for %s, want %v", innerStat.Rdev, innerPath, outerStat.Rdev)
 		}
 
-		if innerStat.Blksize != outerStat.Blksize {
-			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, outerStat.Blksize)
+		wantBlksize := outerStat.Blksize
+		if utils.GetConfig().RustVariant {
+			// The FUSE bindings for Rust only implement version 7.8 of the kernel
+			// protocol, which does not allow returning a block size from the getattr
+			// call.  Such a feature appeared with version 7.9.  The value we get is
+			// hardcoded so cope with it here.
+			wantBlksize = 65536
+		}
+		if innerStat.Blksize != wantBlksize {
+			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, wantBlksize)
 		}
 	}
 }

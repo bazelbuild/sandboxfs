@@ -88,7 +88,6 @@ do_rust() {
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
-    TestReadOnly_Attributes
     TestReadWrite_InodeReassignedAfterRecreation
     TestReadWrite_NestedMappingsInheritDirectoryProperties
     TestReconfiguration_Streams
