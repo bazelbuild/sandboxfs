@@ -89,7 +89,6 @@ do_rust() {
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
     TestReadWrite_InodeReassignedAfterRecreation
-    TestReadWrite_NestedMappingsInheritDirectoryProperties
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap
