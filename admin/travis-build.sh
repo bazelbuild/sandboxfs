@@ -79,8 +79,6 @@ do_rust() {
   # will be empty and we can then refactor this file to just test one version.
   local blacklist=(
     TestCli_Help
-    TestCli_Version
-    TestCli_VersionNotForRelease
     TestCli_ExclusiveFlagsPriority
     TestCli_Syntax
     TestDebug_FuseOpsInLog

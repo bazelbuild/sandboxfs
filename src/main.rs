@@ -154,6 +154,11 @@ fn usage(program: &str, opts: &Options) {
     print!("{}", opts.usage(&brief));
 }
 
+/// Prints version information to stdout.
+fn version() {
+    println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+}
+
 /// Program's entry point.  This is a "safe" version of `main` in the sense that this doesn't
 /// directly handle errors: all errors are returned to the caller for consistent reporter to the
 /// user depending on their type.
@@ -168,10 +173,16 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     opts.optopt("", "ttl",
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
         &format!("TIME{}", SECONDS_SUFFIX));
+    opts.optflag("", "version", "prints version information and exits");
     let matches = opts.parse(args)?;
 
     if matches.opt_present("help") {
         usage(&program, &opts);
+        return Ok(());
+    }
+
+    if matches.opt_present("version") {
+        version();
         return Ok(());
     }
 

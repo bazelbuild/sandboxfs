@@ -78,6 +78,9 @@ func TestCli_Version(t *testing.T) {
 }
 
 func TestCli_VersionNotForRelease(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Rust variant of sandboxfs also bundles a version number")
+	}
 	if !utils.GetConfig().ReleaseBinary {
 		t.Skipf("Binary intentionally built not for release")
 	}
