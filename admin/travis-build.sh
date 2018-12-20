@@ -88,7 +88,6 @@ do_rust() {
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
-    TestReadWrite_InodeReassignedAfterRecreation
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap

@@ -417,7 +417,10 @@ pub trait Node {
     }
 
     /// Deletes the empty directory `_name`.
-    fn rmdir(&self, _name: &OsStr) -> NodeResult<()> {
+    ///
+    /// `_cache` is the file system-wide bookkeeping object that caches underlying paths to nodes,
+    /// which needs to be update to account for the node removal.
+    fn rmdir(&self, _name: &OsStr, _cache: &Cache) -> NodeResult<()> {
         panic!("Not implemented");
     }
 
@@ -437,7 +440,10 @@ pub trait Node {
     }
 
     /// Deletes the file `_name`.
-    fn unlink(&self, _name: &OsStr) -> NodeResult<()> {
+    ///
+    /// `_cache` is the file system-wide bookkeeping object that caches underlying paths to nodes,
+    /// which needs to be update to account for the node removal.
+    fn unlink(&self, _name: &OsStr, _cache: &Cache) -> NodeResult<()> {
         panic!("Not implemented");
     }
 }
