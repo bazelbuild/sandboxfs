@@ -78,9 +78,6 @@ do_rust() {
   # Ideally, by the time this alternative implementation is ready, this list
   # will be empty and we can then refactor this file to just test one version.
   local blacklist=(
-    TestCli_Help
-    TestCli_ExclusiveFlagsPriority
-    TestCli_Syntax
     TestDebug_FuseOpsInLog
     TestProfiling_Http
     TestProfiling_FileProfiles
