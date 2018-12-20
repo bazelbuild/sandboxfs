@@ -25,7 +25,7 @@ extern crate getopts;
 extern crate sandboxfs;
 extern crate time;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use getopts::Options;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -193,12 +193,13 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     };
 
     let mount_point = if matches.free.len() == 1 {
-        &matches.free[0]
+        Path::new(&matches.free[0])
     } else {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
-    sandboxfs::mount(Path::new(mount_point), &options, &mappings, ttl)?;
+    sandboxfs::mount(mount_point, &options, &mappings, ttl)
+        .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }
 

@@ -84,7 +84,6 @@ do_rust() {
     TestCli_ExclusiveFlagsPriority
     TestCli_Syntax
     TestDebug_FuseOpsInLog
-    TestLayout_MountPointDoesNotExist
     TestProfiling_Http
     TestProfiling_FileProfiles
     TestProfiling_BadConfiguration
