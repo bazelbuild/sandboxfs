@@ -78,19 +78,6 @@ do_rust() {
   # Ideally, by the time this alternative implementation is ready, this list
   # will be empty and we can then refactor this file to just test one version.
   local blacklist=(
-    TestCli_Help
-    TestCli_Version
-    TestCli_VersionNotForRelease
-    TestCli_ExclusiveFlagsPriority
-    TestCli_Syntax
-    TestDebug_FuseOpsInLog
-    TestLayout_MountPointDoesNotExist
-    TestProfiling_Http
-    TestProfiling_FileProfiles
-    TestProfiling_BadConfiguration
-    TestReadOnly_Attributes
-    TestReadWrite_InodeReassignedAfterRecreation
-    TestReadWrite_NestedMappingsInheritDirectoryProperties
     TestReconfiguration_Streams
     TestReconfiguration_Steps
     TestReconfiguration_Unmap

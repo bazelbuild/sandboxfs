@@ -25,7 +25,7 @@ extern crate getopts;
 extern crate sandboxfs;
 extern crate time;
 
-use failure::Error;
+use failure::{Error, ResultExt};
 use getopts::Options;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -154,6 +154,11 @@ fn usage(program: &str, opts: &Options) {
     print!("{}", opts.usage(&brief));
 }
 
+/// Prints version information to stdout.
+fn version() {
+    println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+}
+
 /// Program's entry point.  This is a "safe" version of `main` in the sense that this doesn't
 /// directly handle errors: all errors are returned to the caller for consistent reporter to the
 /// user depending on their type.
@@ -168,10 +173,16 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     opts.optopt("", "ttl",
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
         &format!("TIME{}", SECONDS_SUFFIX));
+    opts.optflag("", "version", "prints version information and exits");
     let matches = opts.parse(args)?;
 
     if matches.opt_present("help") {
         usage(&program, &opts);
+        return Ok(());
+    }
+
+    if matches.opt_present("version") {
+        version();
         return Ok(());
     }
 
@@ -193,12 +204,13 @@ fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
     };
 
     let mount_point = if matches.free.len() == 1 {
-        &matches.free[0]
+        Path::new(&matches.free[0])
     } else {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
-    sandboxfs::mount(Path::new(mount_point), &options, &mappings, ttl)?;
+    sandboxfs::mount(mount_point, &options, &mappings, ttl)
+        .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }
 

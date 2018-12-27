@@ -33,6 +33,10 @@ import (
 var listenAddressRegex = regexp.MustCompile(`starting HTTP server on ([^:]+:\d+)`)
 
 func TestProfiling_Http(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Test is nonsensical in the Rust variant: it does not support profiling in the same way as the Go one does")
+	}
+
 	stderr := new(bytes.Buffer)
 	state := utils.MountSetupWithOutputs(t, nil, stderr, "--listen_address=localhost:0", "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
@@ -65,6 +69,10 @@ func TestProfiling_Http(t *testing.T) {
 }
 
 func TestProfiling_FileProfiles(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Test is nonsensical in the Rust variant: it does not support profiling in the same way as the Go one does")
+	}
+
 	tempDir, err := ioutil.TempDir("", "test")
 	if err != nil {
 		t.Fatalf("Failed to create temporary directory: %v", err)
@@ -107,6 +115,10 @@ func TestProfiling_FileProfiles(t *testing.T) {
 }
 
 func TestProfiling_BadConfiguration(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Test is nonsensical in the Rust variant: it does not support profiling in the same way as the Go one does")
+	}
+
 	incompatibleSettings := "invalid profiling settings: file-based CPU or memory profiling are incompatible with a listening address\n"
 
 	testData := []struct {

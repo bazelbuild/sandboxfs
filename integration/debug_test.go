@@ -22,6 +22,10 @@ import (
 )
 
 func TestDebug_FuseOpsInLog(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Test is nonsensical in the Rust variant: logging is enabled via environment variables and they affect all libraries equally")
+	}
+
 	stderr := new(bytes.Buffer)
 
 	state := utils.MountSetupWithOutputs(t, nil, stderr, "--debug", "--mapping=ro:/:%ROOT%")

@@ -26,7 +26,23 @@ var (
 )
 
 func TestCli_Help(t *testing.T) {
-	wantStdout := `Usage: sandboxfs [flags...] mount-point
+	var wantStdout string
+	if utils.GetConfig().RustVariant {
+		wantStdout = `Usage: sandboxfs [options] MOUNT_POINT
+
+Options:
+    --allow other|root|self
+                        specifies who should have access to the file system
+                        (default: self)
+    --help              prints usage information and exits
+    --mapping TYPE:PATH:UNDERLYING_PATH
+                        type and locations of a mapping
+    --ttl TIMEs         how long the kernel is allowed to keep file metadata
+                        (default: 60s)
+    --version           prints version information and exits
+`
+	} else {
+		wantStdout = `Usage: sandboxfs [flags...] mount-point
 
 Available flags:
   -allow value
@@ -52,6 +68,7 @@ Available flags:
   -volume_name string
     	name for the sandboxfs volume (default "sandbox")
 `
+	}
 
 	stdout, stderr, err := utils.RunAndWait(0, "--help")
 	if err != nil {
@@ -78,6 +95,9 @@ func TestCli_Version(t *testing.T) {
 }
 
 func TestCli_VersionNotForRelease(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Rust variant of sandboxfs also bundles a version number")
+	}
 	if !utils.GetConfig().ReleaseBinary {
 		t.Skipf("Binary intentionally built not for release")
 	}
@@ -98,12 +118,41 @@ func TestCli_ExclusiveFlagsPriority(t *testing.T) {
 		args           []string
 		wantExitStatus int
 		wantStdout     string
-		wantStderr     string
+		wantGoStderr   string
+		wantRustStderr string
 	}{
-		{"BogusFlagsWinOverEverything", []string{"--version", "--help", "--foo"}, 2, "", "not defined.*foo"},
-		{"BogusHFlagWinsOverEverything", []string{"--version", "--help", "-h"}, 2, "", "not defined.*-h"},
-		{"HelpWinsOverValidArgs", []string{"--version", "--mem_profile=foo", "--help", "--volume_name=foo"}, 0, "Usage:", ""},
-		{"VersionWinsOverValidArgsButHelp", []string{"--mem_profile=foo", "--version", "--volume_name=foo"}, 0, versionPattern, ""},
+		{
+			"BogusFlagsWinOverEverything",
+			[]string{"--version", "--help", "--foo"},
+			2,
+			"",
+			"not defined.*foo",
+			"Unrecognized option.*'foo'",
+		},
+		{
+			"BogusHFlagWinsOverEverything",
+			[]string{"--version", "--help", "-h"},
+			2,
+			"",
+			"not defined.*-h",
+			"Unrecognized option.*'h'",
+		},
+		{
+			"HelpWinsOverValidArgs",
+			[]string{"--version", "--allow=self", "--help", "/mnt"},
+			0,
+			"Usage:",
+			"",
+			"",
+		},
+		{
+			"VersionWinsOverValidArgsButHelp",
+			[]string{"--allow=other", "--version", "/mnt"},
+			0,
+			versionPattern,
+			"",
+			"",
+		},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
@@ -116,10 +165,16 @@ func TestCli_ExclusiveFlagsPriority(t *testing.T) {
 			} else if len(d.wantStdout) > 0 && !utils.MatchesRegexp(d.wantStdout, stdout) {
 				t.Errorf("Got %s; want stdout to match %s", stdout, d.wantStdout)
 			}
-			if len(d.wantStderr) == 0 && len(stderr) > 0 {
+			var wantStderr string
+			if utils.GetConfig().RustVariant {
+				wantStderr = d.wantRustStderr
+			} else {
+				wantStderr = d.wantGoStderr
+			}
+			if len(wantStderr) == 0 && len(stderr) > 0 {
 				t.Errorf("Got %s; want stderr to be empty", stderr)
-			} else if len(d.wantStderr) > 0 && !utils.MatchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
+			} else if len(wantStderr) > 0 && !utils.MatchesRegexp(wantStderr, stderr) {
+				t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 			}
 		})
 	}
@@ -129,23 +184,66 @@ func TestCli_Syntax(t *testing.T) {
 	testData := []struct {
 		name string
 
-		args       []string
-		wantStderr string
+		args           []string
+		wantGoStderr   string
+		wantRustStderr string
 	}{
-		{"InvalidFlag", []string{"--foo"}, "not defined.*-foo"},
-		{"InvalidHFlag", []string{"-h"}, "not defined.*-h"},
-		{"NoArguments", []string{}, "invalid number of arguments"},
-		{"TooManyArguments", []string{"mount-point", "extra"}, "invalid number of arguments"},
-
-		{"InvalidFlagWinsOverHelp", []string{"--invalid_flag", "--help"}, "not defined.*-invalid_flag"},
+		{
+			"InvalidFlag",
+			[]string{"--foo"},
+			"not defined.*-foo",
+			"Unrecognized option.*'foo'",
+		},
+		{
+			"InvalidHFlag",
+			[]string{"-h"},
+			"not defined.*-h",
+			"Unrecognized option.*'h'",
+		},
+		{
+			"NoArguments",
+			[]string{},
+			"invalid number of arguments",
+			"invalid number of arguments",
+		},
+		{
+			"TooManyArguments",
+			[]string{"mount-point", "extra"},
+			"invalid number of arguments",
+			"invalid number of arguments",
+		},
+		{
+			"InvalidFlagWinsOverHelp",
+			[]string{"--invalid_flag", "--help"},
+			"not defined.*-invalid_flag",
+			"Unrecognized option.*'invalid_flag'",
+		},
 		// TODO(jmmv): For consistency with all previous tests, an invalid number of
-		// arguments should win over --help, but it currently does not.  Fix or turn help
-		// into a command of its own for consistency.
-		// {"InvalidArgumentsWinOverHelp", []string{"--help", "foo"}, "number of arguments"},
-
-		{"MappingMissingTarget", []string{"--mapping=ro:/foo"}, `invalid value "ro:/foo" for flag -mapping: flag "ro:/foo": expected contents to be of the form TYPE:MAPPING:TARGET`},
-		{"MappingRelativeTarget", []string{"--mapping=rw:/:relative/path"}, `invalid value "rw:/:relative/path" for flag -mapping: path "relative/path": target must be an absolute path`},
-		{"MappingBadType", []string{"--mapping=row:/foo:/bar"}, `invalid value "row:/foo:/bar" for flag -mapping: flag "row:/foo:/bar": unknown type row; must be one of ro,rw`},
+		// arguments should win over --help, but it currently does not.
+		// {
+		// 	"InvalidArgumentsWinOverHelp",
+		// 	[]string{"--help", "foo"},
+		// 	"invalid number of arguments",
+		// 	"invalid number of arguments",
+		// },
+		{
+			"MappingMissingTarget",
+			[]string{"--mapping=ro:/foo"},
+			`invalid value "ro:/foo" for flag -mapping: flag "ro:/foo": expected contents to be of the form TYPE:MAPPING:TARGET`,
+			`bad mapping ro:/foo: expected three colon-separated fields`,
+		},
+		{
+			"MappingRelativeTarget",
+			[]string{"--mapping=rw:/:relative/path"},
+			`invalid value "rw:/:relative/path" for flag -mapping: path "relative/path": target must be an absolute path`,
+			`bad mapping rw:/:relative/path: path "relative/path" is not absolute`,
+		},
+		{
+			"MappingBadType",
+			[]string{"--mapping=row:/foo:/bar"},
+			`invalid value "row:/foo:/bar" for flag -mapping: flag "row:/foo:/bar": unknown type row; must be one of ro,rw`,
+			`bad mapping row:/foo:/bar: type was row but should be ro or rw`,
+		},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
@@ -156,8 +254,14 @@ func TestCli_Syntax(t *testing.T) {
 			if len(stdout) > 0 {
 				t.Errorf("Got %s; want stdout to be empty", stdout)
 			}
-			if !utils.MatchesRegexp(d.wantStderr, stderr) {
-				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
+			var wantStderr string
+			if utils.GetConfig().RustVariant {
+				wantStderr = d.wantRustStderr
+			} else {
+				wantStderr = d.wantGoStderr
+			}
+			if !utils.MatchesRegexp(wantStderr, stderr) {
+				t.Errorf("Got %s; want stderr to match %s", stderr, wantStderr)
 			}
 			if !utils.MatchesRegexp("--help", stderr) {
 				t.Errorf("Got %s; want --help mention in stderr", stderr)

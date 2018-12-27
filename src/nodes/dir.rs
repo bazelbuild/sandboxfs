@@ -354,12 +354,24 @@ impl Dir {
     ///
     /// The behavior of these operations differs only in the syscall we invoke to delete the
     /// underlying entry, which is passed in as the `remove` parameter.
-    fn remove_any<R>(&self, name: &OsStr, remove: R) -> NodeResult<()>
+    fn remove_any<R>(&self, name: &OsStr, remove: R, cache: &Cache) -> NodeResult<()>
         where R: Fn(&PathBuf) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
         remove(&path)?;
+
+        // Removing the underlying path from the cache is not racy within the same directory: we
+        // hold the directory node locked while we perform the operations below to remove the child,
+        // which means that no other lookup on the node can complete.
+        //
+        // However... this is racy if the same underlying path is mapped in more than one location
+        // because different lookups on different nodes could still race against the cache state.
+        // We don't bother for now though: the Rust FUSE library serializes all requests so this
+        // situation cannot arise.
+        let node_type = state.children.get(name)
+            .expect("Presence guaranteed by get_writable_path call above").node.file_type_cached();
+        cache.delete(&path, node_type);
 
         state.children[name].node.delete();
         state.children.remove(name);
@@ -586,10 +598,10 @@ impl Node for Dir {
         Ok(())
     }
 
-    fn rmdir(&self, name: &OsStr) -> NodeResult<()> {
+    fn rmdir(&self, name: &OsStr, cache: &Cache) -> NodeResult<()> {
         // TODO(jmmv): Figure out how to remove the redundant closure.
         #[allow(clippy::redundant_closure)]
-        self.remove_any(name, |p| fs::remove_dir(p))
+        self.remove_any(name, |p| fs::remove_dir(p), cache)
     }
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
@@ -608,9 +620,9 @@ impl Node for Dir {
             fuse::FileType::Symlink, ids, cache)
     }
 
-    fn unlink(&self, name: &OsStr) -> NodeResult<()> {
+    fn unlink(&self, name: &OsStr, cache: &Cache) -> NodeResult<()> {
         // TODO(jmmv): Figure out how to remove the redundant closure.
         #[allow(clippy::redundant_closure)]
-        self.remove_any(name, |p| fs::remove_file(p))
+        self.remove_any(name, |p| fs::remove_file(p), cache)
     }
 }

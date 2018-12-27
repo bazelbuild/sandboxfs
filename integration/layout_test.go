@@ -31,7 +31,12 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	mountPoint := filepath.Join(tempDir, "non-existent")
-	wantStderr := "unable to mount: " + mountPoint + " does not exist\n"
+	var wantStderr string
+	if utils.GetConfig().RustVariant {
+		wantStderr = "Failed to mount " + mountPoint + ".*No such"
+	} else {
+		wantStderr = "unable to mount: " + mountPoint + " does not exist"
+	}
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+tempDir, mountPoint)
 	if err != nil {

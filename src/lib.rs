@@ -222,6 +222,20 @@ impl Cache {
         entries.insert(underlying_path.to_path_buf(), node.clone());
         node
     }
+
+    /// Deletes the entry `path` from the cache.
+    ///
+    /// The `file_type` corresponds to the type of the mapping that points to the given `path`.  We
+    /// don't need this information to remove an entry from the cache, but we use it to perform
+    /// consistency checks.
+    pub fn delete(&self, path: &Path, file_type: fuse::FileType) {
+        let mut entries = self.entries.lock().unwrap();
+        if file_type == fuse::FileType::Directory {
+            debug_assert!(!entries.contains_key(path), "Directories are not currently cached");
+        } else {
+            entries.remove(path).expect("Tried to delete unknown path from the cache");
+        }
+    }
 }
 
 /// FUSE file system implementation of sandboxfs.
@@ -527,7 +541,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.rmdir(name) {
+        match dir_node.rmdir(name, &self.cache) {
             Ok(_) => reply.ok(),
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -591,7 +605,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.unlink(name) {
+        match dir_node.unlink(name, &self.cache) {
             Ok(_) => reply.ok(),
             Err(e) => reply.error(e.errno_as_i32()),
         }
