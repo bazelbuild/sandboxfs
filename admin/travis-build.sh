@@ -73,61 +73,22 @@ do_lint() {
 do_rust() {
   PATH="${HOME}/.cargo/bin:${PATH}"
 
-  # The Rust implementation of sandboxfs is still experimental and is unable to
-  # pass all integration tests.  This blacklist keeps track of which those are.
-  # Ideally, by the time this alternative implementation is ready, this list
-  # will be empty and we can then refactor this file to just test one version.
-  local blacklist=(
-  )
-
   # TODO(https://github.com/bazelbuild/rules_rust/issues/2): Replace by a
   # Bazel-based build once the Rust rules are capable of doing so.
   cargo build
   local bin="$(pwd)/target/debug/sandboxfs"
   cargo test --verbose
 
-  local all=(
-      $(go test -test.list=".*" github.com/bazelbuild/sandboxfs/integration \
-          -sandboxfs_binary=irrelevant -rust_variant=true | grep -v "^ok")
-  )
+  go test -v -timeout=600s \
+      github.com/bazelbuild/sandboxfs/integration \
+      -sandboxfs_binary="${bin}" -release_build=false \
+      -rust_variant=true
 
-  # Compute the list of tests to run by comparing the full list of tests that
-  # we got from the test program and taking out all blacklisted tests.  This is
-  # O(n^2), sure, but it doesn't matter: the list is small and this will go away
-  # at some point.
-  set +x
-  local valid=()
-  for t in "${all[@]}"; do
-    local blacklisted=no
-    for o in "${blacklist[@]}"; do
-      if [ "${t}" = "${o}" ]; then
-        blacklisted=yes
-        break
-      fi
-    done
-    if [ "${blacklisted}" = yes ]; then
-      echo "Skipping blacklisted test ${t}" 1>&2
-      continue
-    fi
-    valid+=("${t}")
-  done
-  set -x
-
-  [ "${#valid[@]}" -gt 0 ] || return 0  # Only run tests if any are valid.
-  local failed=no
-  for t in "${valid[@]}"; do
-    go test -v -timeout=600s -test.run="^${t}$" \
-        github.com/bazelbuild/sandboxfs/integration \
-        -sandboxfs_binary="${bin}" -release_build=false \
-        -rust_variant=true || failed=yes
-
-    sudo -H "${rootenv[@]}" -s \
-        go test -v -timeout=600s -test.run="^${t}$" \
-        github.com/bazelbuild/sandboxfs/integration \
-        -sandboxfs_binary="${bin}" -release_build=false \
-        -rust_variant=true || failed=yes
-  done
-  [ "${failed}" = no ]
+  sudo -H "${rootenv[@]}" -s \
+      go test -v -timeout=600s \
+      github.com/bazelbuild/sandboxfs/integration \
+      -sandboxfs_binary="${bin}" -release_build=false \
+      -rust_variant=true -unprivileged_user="${USER}"
 }
 
 case "${DO}" in
