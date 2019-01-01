@@ -46,7 +46,7 @@ fn system_time_to_timespec(path: &Path, name: &str, time: &io::Result<SystemTime
             }
         },
         Err(e) => {
-            warn!("File system did not return a {} timestamp for {:?}: {}", name, path, e);
+            debug!("File system did not return a {} timestamp for {:?}: {}", name, path, e);
             BAD_TIME
         },
     }
