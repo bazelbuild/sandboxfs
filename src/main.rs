@@ -25,7 +25,7 @@ extern crate getopts;
 extern crate sandboxfs;
 extern crate time;
 
-use failure::{Error, ResultExt};
+use failure::{Error, Fallible, ResultExt};
 use getopts::Options;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -162,7 +162,7 @@ fn version() {
 /// Program's entry point.  This is a "safe" version of `main` in the sense that this doesn't
 /// directly handle errors: all errors are returned to the caller for consistent reporter to the
 /// user depending on their type.
-fn safe_main(program: &str, args: &[String]) -> Result<(), Error> {
+fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     env_logger::init();
 
     let mut opts = Options::new();

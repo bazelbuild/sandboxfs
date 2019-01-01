@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-use failure::Error;
+use failure::Fallible;
 use nix::unistd;
 use nix::sys::{self, signal};
 use signal_hook;
@@ -216,7 +216,7 @@ impl SignalsInstaller {
     }
 
     /// Installs all signal handlers to unmount the given `mount_point`.
-    pub fn install(self, mount_point: PathBuf) -> Result<SignalsHandler, Error> {
+    pub fn install(self, mount_point: PathBuf) -> Fallible<SignalsHandler> {
         let (signal_sender, signal_receiver) = mpsc::channel();
 
         let mut signums = vec!();

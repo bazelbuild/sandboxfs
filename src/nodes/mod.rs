@@ -13,7 +13,7 @@
 // under the License.
 
 use {Cache, IdGenerator};
-use failure::Error;
+use failure::Fallible;
 use fuse;
 use nix;
 use nix::errno::Errno;
@@ -311,7 +311,7 @@ pub trait Node {
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when this algorithm instantiates any new node.
     fn map(&self, _components: &[Component], _underlying_path: &Path, _writable: bool,
-        _ids: &IdGenerator, _cache: &Cache) -> Result<(), Error> {
+        _ids: &IdGenerator, _cache: &Cache) -> Fallible<()> {
         panic!("Not implemented")
     }
 
