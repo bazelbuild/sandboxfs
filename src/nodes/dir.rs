@@ -16,7 +16,7 @@ extern crate fuse;
 extern crate time;
 
 use {Cache, IdGenerator};
-use failure::{Error, ResultExt};
+use failure::{Fallible, ResultExt};
 use nix::{errno, fcntl, sys, unistd};
 use nix::dir as rawdir;
 use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
@@ -408,7 +408,7 @@ impl Node for Dir {
     }
 
     fn map(&self, components: &[Component], underlying_path: &Path, writable: bool,
-        ids: &IdGenerator, cache: &Cache) -> Result<(), Error> {
+        ids: &IdGenerator, cache: &Cache) -> Fallible<()> {
         let (name, remainder) = split_components(components);
 
         let mut state = self.state.lock().unwrap();

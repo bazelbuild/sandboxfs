@@ -36,7 +36,7 @@ extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 extern crate time;
 
-use failure::{Error, ResultExt};
+use failure::{Fallible, ResultExt};
 use nix::errno::Errno;
 use nix::{sys, unistd};
 use std::collections::HashMap;
@@ -257,8 +257,7 @@ struct SandboxFS {
 }
 
 /// Creates the initial node hierarchy based on a collection of `mappings`.
-fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
-    -> Result<nodes::ArcNode, Error> {
+fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache) -> Fallible<nodes::ArcNode> {
     let now = time::get_time();
 
     let (root, rest) = if mappings.is_empty() {
@@ -291,7 +290,7 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache)
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn create(mappings: &[Mapping], ttl: Timespec) -> Result<SandboxFS, Error> {
+    fn create(mappings: &[Mapping], ttl: Timespec) -> Fallible<SandboxFS> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
         let cache = Cache::default();
 
@@ -624,7 +623,7 @@ impl fuse::Filesystem for SandboxFS {
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec)
-    -> Result<(), Error> {
+    -> Fallible<()> {
     let os_options = options.iter().map(|o| o.as_ref()).collect::<Vec<&OsStr>>();
     let fs = SandboxFS::create(mappings, ttl)?;
     info!("Mounting file system onto {:?}", mount_point);
