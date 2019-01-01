@@ -503,9 +503,10 @@ impl Node for Dir {
         };
 
         let exp_filetype = match sflag {
-            sys::stat::SFlag::S_IFCHR => fuse::FileType::CharDevice,
             sys::stat::SFlag::S_IFBLK => fuse::FileType::BlockDevice,
+            sys::stat::SFlag::S_IFCHR => fuse::FileType::CharDevice,
             sys::stat::SFlag::S_IFIFO => fuse::FileType::NamedPipe,
+            sys::stat::SFlag::S_IFREG => fuse::FileType::RegularFile,
             _ => {
                 warn!("mknod received request to create {} with type {:?}, which is not supported",
                     path.display(), sflag);
