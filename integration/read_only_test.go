@@ -232,7 +232,14 @@ func TestReadOnly_Attributes(t *testing.T) {
 			// protocol, which does not allow returning a block size from the getattr
 			// call.  Such a feature appeared with version 7.9.  The value we get is
 			// hardcoded so cope with it here.
-			wantBlksize = 65536
+			switch runtime.GOOS {
+			case "darwin":
+				wantBlksize = 65536
+			case "linux":
+				wantBlksize = 4096
+			default:
+				t.Fatalf("Don't know how this test behaves in this platform")
+			}
 		}
 		if innerStat.Blksize != wantBlksize {
 			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, wantBlksize)
