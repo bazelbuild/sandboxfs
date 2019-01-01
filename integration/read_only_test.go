@@ -432,11 +432,7 @@ func TestReadOnly_ReaddirFromFileFails(t *testing.T) {
 	case "darwin":
 		wantErr = unix.EINVAL
 	case "linux":
-		if utils.GetConfig().RustVariant {
-			wantErr = unix.EINVAL
-		} else {
-			wantErr = unix.ENOTDIR
-		}
+		wantErr = unix.ENOTDIR
 	default:
 		t.Fatalf("Don't know how this test behaves in this platform")
 	}
