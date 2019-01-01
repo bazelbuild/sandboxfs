@@ -130,7 +130,7 @@ fn setattr_owners(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, uid: Option
         unistd::fchownat(None, p, uid, gid, unistd::FchownatFlags::NoFollowSymlink));
     if result.is_ok() {
         attr.uid = uid.map_or(attr.uid, u32::from);
-        attr.gid = uid.map_or(attr.gid, u32::from);
+        attr.gid = gid.map_or(attr.gid, u32::from);
     }
     result
 }
