@@ -416,7 +416,8 @@ impl Node for Dir {
         if let Some(dirent) = state.children.get(name) {
             // TODO(jmmv): We should probably mark this dirent as an explicit mapping if it already
             // wasn't, but the Go variant of this code doesn't do this -- so investigate later.
-            ensure!(dirent.node.file_type_cached() == fuse::FileType::Directory, "Already mapped");
+            ensure!(dirent.node.file_type_cached() == fuse::FileType::Directory
+                && !remainder.is_empty(), "Already mapped");
             return dirent.node.map(remainder, underlying_path, writable, ids, cache);
         }
 
