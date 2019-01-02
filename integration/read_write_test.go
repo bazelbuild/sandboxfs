@@ -27,7 +27,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
-	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 // The tests in this file verify the read/write mapping.  In principle, they should ensure that the
@@ -816,11 +815,11 @@ func TestReadWrite_Chtimes(t *testing.T) {
 			if !fileInfo.ModTime().Equal(wantMtime) {
 				return fmt.Errorf("got mtime %v for %s, want %v", fileInfo.ModTime(), path, wantMtime)
 			}
-			if !wantAtime.Equal(time.Unix(0, 0)) && !sandbox.Atime(stat).Equal(wantAtime) {
-				return fmt.Errorf("got atime %v for %s, want %v", sandbox.Atime(stat), path, wantAtime)
+			if !wantAtime.Equal(time.Unix(0, 0)) && !utils.Atime(stat).Equal(wantAtime) {
+				return fmt.Errorf("got atime %v for %s, want %v", utils.Atime(stat), path, wantAtime)
 			}
-			if sandbox.Ctime(stat).Before(wantMinCtime) {
-				return fmt.Errorf("got ctime %v for %s, want <= %v", sandbox.Ctime(stat), path, wantMinCtime)
+			if utils.Ctime(stat).Before(wantMinCtime) {
+				return fmt.Errorf("got ctime %v for %s, want <= %v", utils.Ctime(stat), path, wantMinCtime)
 			}
 		}
 		return nil
@@ -931,8 +930,8 @@ func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
 			if err := syscall.Fstat(fd, &stat); err != nil {
 				t.Fatalf("Fstat failed on deleted entry: %v", err)
 			}
-			if !someAtime.Equal(sandbox.Atime(&stat)) || !someMtime.Equal(sandbox.Mtime(&stat)) {
-				t.Errorf("Want atime %v, mtime %v; got atime %v, mtime %v", someAtime, someMtime, sandbox.Atime(&stat), sandbox.Mtime(&stat))
+			if !someAtime.Equal(utils.Atime(&stat)) || !someMtime.Equal(utils.Mtime(&stat)) {
+				t.Errorf("Want atime %v, mtime %v; got atime %v, mtime %v", someAtime, someMtime, utils.Atime(&stat), utils.Mtime(&stat))
 			}
 		})
 	}

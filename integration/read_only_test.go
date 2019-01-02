@@ -24,7 +24,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
-	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 func TestReadOnly_DirectoryStructure(t *testing.T) {
@@ -206,14 +205,14 @@ func TestReadOnly_Attributes(t *testing.T) {
 			t.Errorf("Got mode %v for %s, want %v", innerFileInfo.Mode(), innerPath, outerFileInfo.Mode())
 		}
 
-		if sandbox.Atime(innerStat) != sandbox.Atime(outerStat) {
-			t.Errorf("Got atime %v for %s, want %v", sandbox.Atime(innerStat), innerPath, sandbox.Atime(outerStat))
+		if utils.Atime(innerStat) != utils.Atime(outerStat) {
+			t.Errorf("Got atime %v for %s, want %v", utils.Atime(innerStat), innerPath, utils.Atime(outerStat))
 		}
 		if innerFileInfo.ModTime() != outerFileInfo.ModTime() {
 			t.Errorf("Got mtime %v for %s, want %v", innerFileInfo.ModTime(), innerPath, outerFileInfo.ModTime())
 		}
-		if sandbox.Ctime(innerStat) != sandbox.Ctime(outerStat) {
-			t.Errorf("Got ctime %v for %s, want %v", sandbox.Ctime(innerStat), innerPath, sandbox.Ctime(outerStat))
+		if utils.Ctime(innerStat) != utils.Ctime(outerStat) {
+			t.Errorf("Got ctime %v for %s, want %v", utils.Ctime(innerStat), innerPath, utils.Ctime(outerStat))
 		}
 
 		// Even though we ignore underlying link counts, we expect these internal files to

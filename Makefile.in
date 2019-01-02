@@ -42,7 +42,9 @@ check: check-unit check-integration
 check-unit: Cargo.toml $(RUST_SRCS)
 	$(CARGO) test --verbose
 
-check-integration: target/debug/sandboxfs
+@IS_BMAKE@GO_SRCS != find integration -name "*.go"
+@IS_GNUMAKE@GO_SRCS = $(shell find integration -name "*.go")
+check-integration: target/debug/sandboxfs $(GO_SRCS)
 	GOPATH=$(GOPATH) GOROOT=$(GOROOT) $(GOROOT)/bin/go test \
 	    -v -timeout=600s \
 	    github.com/bazelbuild/sandboxfs/integration \

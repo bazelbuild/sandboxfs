@@ -24,9 +24,23 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-
-	"github.com/bazelbuild/sandboxfs/internal/shell"
 )
+
+// grep checks whether the given file's contents match the pattern.
+func grep(pattern string, file string) (bool, error) {
+	input, err := os.OpenFile(file, os.O_RDONLY, 0)
+	if err != nil {
+		return false, fmt.Errorf("failed to open %s for read: %v", file, err)
+	}
+	defer input.Close()
+
+	matched, err := regexp.MatchReader(pattern, bufio.NewReader(input))
+	if err != nil {
+		return false, fmt.Errorf("failed to search for %s in %s: %v", pattern, file, err)
+	}
+
+	return matched, nil
+}
 
 // checkLicense checks if the given file contains the necessary license information and returns an
 // error if this is not true or if the check cannot be performed.
@@ -35,7 +49,7 @@ func checkLicense(workspaceDir string, file string) error {
 		`Copyright.*Google`,
 		`Apache License.*2.0`,
 	} {
-		matched, err := shell.Grep(pattern, file)
+		matched, err := grep(pattern, file)
 		if err != nil {
 			return fmt.Errorf("license check failed for %s: %v", file, err)
 		}
