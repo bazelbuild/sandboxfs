@@ -89,7 +89,7 @@ func main() {
 		{"NEWS.md", "share/doc/sandboxfs", dataPerm},
 		{"README.md", "share/doc/sandboxfs", dataPerm},
 
-		{"cmd/sandboxfs/sandboxfs.1", "share/man/man1", dataPerm},
+		{"man/sandboxfs.1", "share/man/man1", dataPerm},
 	}
 
 	if err := doInstall(*prefix, filesToInstall); err != nil {

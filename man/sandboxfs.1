@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd February 28, 2018
+.Dd January 2, 2019
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -20,16 +20,12 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl -allow Ar who
-.Op Fl -cpu_profile Ar file
-.Op Fl -debug
 .Op Fl -input Ar file
-.Op Fl -listen_address Ar host:port
 .Op Fl -help
 .Op Fl -mapping Ar type:mapping:target
-.Op Fl -mem_profile Ar file
 .Op Fl -output Ar file
+.Op Fl -ttl Ar duration
 .Op Fl -version
-.Op Fl -volume_name Ar volume_name
 .Ar mount_point
 .Sh DESCRIPTION
 .Nm
@@ -92,17 +88,6 @@ This is because the
 .Xr amfid 8
 daemon, which implements the signature validation, runs as a different user
 and must be able to access the executables.
-.It Fl -cpu_profile Ar file
-Enables CPU profiling and writes a profile to the given
-.Ar file
-on exit.
-.Pp
-This option is incompatible with
-.Fl -listen_address
-because only one profiling mechanism can be enabled at once.
-.It Fl -debug
-Logs details about all FUSE operations received and responded to by the FUSE
-process to stderr.
 .It Fl -input Ar path
 Points to the file from which to read new configuration requests, or
 .Sq -
@@ -110,18 +95,6 @@ Points to the file from which to read new configuration requests, or
 See the
 .Sx Reconfigurations
 subsection for details on the contents and behavior of the input file.
-.It Fl -listen_address Ar host:port
-Starts an HTTP server listening on
-.Ar host:port .
-The HTTP server exposes the Go pprof endpoints at
-.Pa /debug/pprof/ .
-If you want to allocate an arbitrary unused port, pass 0 as the port number.
-.Pp
-This option is incompatible with
-.Fl -cpu_profile
-and
-.Fl -mem_profile
-because only one profiling mechanism can be enabled at once.
 .It Fl -help
 Prints global help details and exits.
 Specifying this flag causes all other valid flags and arguments to be ignored.
@@ -133,14 +106,6 @@ is not repeated.
 See the
 .Sx Mapping specifications
 subsection for details on how a mapping is specified.
-.It Fl -mem_profile Ar file
-Enables memory profiling and writes a profile to the given
-.Ar file
-on exit.
-.Pp
-This option is incompatible with
-.Fl -listen_address
-because only one profiling mechanism can be enabled at once.
 .It Fl -output Ar path
 Points to the file to which to write confirmations of reconfiguration, or
 .Sq -
@@ -148,6 +113,11 @@ Points to the file to which to write confirmations of reconfiguration, or
 See the
 .Sx Reconfigurations
 subsection for details on the contents and behavior of the output file.
+.It Fl -ttl Ar duration
+Specifies how long the kernel is allowed to cache file metadata for.
+The duration is currently specified as a number of seconds followed by the
+.Sq s
+suffix.
 .It Fl -version
 Prints version information and exits.
 Specifying this flag causes all other valid flags and arguments to be ignored
@@ -164,12 +134,6 @@ sandboxfs MAJOR.MINOR[.ADDITIONAL OPTIONAL QUALIFIERS]
 Programs automating invocations of
 .Nm
 can use this information to determine the correct command-line syntax to use.
-.It Fl -volume_name Ar volume_name
-Specifies the name of the mounted volume, which is used by some operating
-systems (such as macOS) to display a volume label in the system UI.
-.Pp
-Default:
-.Sq sandboxfs .
 .El
 .Ss Mapping specifications
 The basic concept behind a
@@ -305,12 +269,34 @@ mount point is released.
 If the file system is busy, the signal will be queued until all open file
 descriptors on the file system are released at which point the file system
 will try to exit cleanly again.
-Note that, due to the nature of signal handling in Go (which is the language
+Note that, due to limitations in signal handling in Rust (which is the language
 in which
 .Nm
 is implemented), the reception of a signal will cause
 .Nm
 to return 1 instead of terminating with a signal condition.
+.Sh ENVIRONMENT
+.Nm
+recognizes the following environment variables:
+.Bl -tag -width XXXX
+.It Va RUST_LOG
+Sets the maximum level of logging messages sent to stderr.
+Possible values include
+.Sq error ,
+.Sq warn ,
+.Sq info
+and
+.Sq debug ,
+though many more syntaxes are supported.
+See the documentation for Rust's
+.Sq env_logger
+crate for more details.
+.El
+.Pp
+.Nm
+may recognize other standard Rust variables like
+.Va RUST_BACKTRACE
+but the list above attempts to describe the ones a user may find most useful.
 .Sh EXAMPLES
 The following example configures a sandbox that maps the whole host's
 file system but clears
@@ -336,12 +322,13 @@ by pointing it at another location.
 .An -nosplit
 The
 .Nm
-package was originally developed by
+was originally developed as a Go program by
 .An Pallav Agarwal
 .Aq pallavag@google.com
-and
+with guidance from
 .An Julio Merino
 .Aq jmmv@google.com .
+The program was later reimplemented in Rust by the latter.
 .Sh BUGS
 The following are known limitations of
 .Nm :
@@ -358,9 +345,9 @@ the mount point may have cached different contents, returning different data
 than what's truly on disk.
 .It
 The
-.Fl allow Ar root
+.Fl -allow Ar root
 setting does not work on Linux; use
-.Fl allow Ar other
+.Fl -allow Ar other
 as the alternative.
 See https://github.com/bazil/fuse/issues/144 for details.
 .It
@@ -402,4 +389,15 @@ system is not usable until the FIFO is opened.
 While it is possible to reconfigure the entries of the root directory of a
 running file system, it is not possible to reconfigure the root mapping itself
 to point to a different location or to change its writability properties.
+.It
+Unmapping entries doesn't fully work.
+The FUSE library that
+.Nm
+currently uses does not support sending cache invalidation requests to the
+kernel, which means unmapped entries will not vanish immediately from the
+file system.
+You may be able to mitigate this by setting a low node TTL with the
+.Fl -ttl
+flag, but this doesn't work on macOS either because OSXFUSE does not honor
+node TTLs.
 .El

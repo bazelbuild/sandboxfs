@@ -26,11 +26,11 @@ See the [release notes](NEWS.md) file for more details.
 ## Usage
 
 sandboxfs is fully documented in the `sandboxfs(1)` manual page, which is
-located in the [`cmd/sandboxfs/sandboxfs.1`](cmd/sandboxfs/sandboxfs.1)
-file.  You can view a rendered version of this manual page using the
-following command after cloning the tree:
+located in the [`man/sandboxfs.1`](man/sandboxfs.1) file.  You can view a
+rendered version of this manual page using the following command after
+cloning the tree:
 
-    man ./cmd/sandboxfs/sandboxfs.1
+    man ./man/sandboxfs.1
 
 ## Go and Rust
 
