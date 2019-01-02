@@ -21,29 +21,6 @@ rootenv+=(PATH="${PATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
 readonly rootenv
 
-do_gotools() {
-  go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
-
-  go test -v -timeout=600s github.com/bazelbuild/sandboxfs/internal/sandbox
-  go test -v -timeout=600s github.com/bazelbuild/sandboxfs/internal/shell
-
-  go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration \
-      -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false
-  if go test -v -timeout=600s -run TestCli_VersionNotForRelease \
-      github.com/bazelbuild/sandboxfs/integration \
-      -sandboxfs_binary="$(pwd)/sandboxfs"
-  then
-    echo "Tests did not catch that the current build is not for release" 1>&2
-    exit 1
-  else
-    echo "Previous test was expected to fail, and it did! All good." 1>&2
-  fi
-
-  sudo -H "${rootenv[@]}" -s \
-      go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration \
-      -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false
-}
-
 do_install() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo" --prefix="/opt/sandboxfs"
   make release
@@ -58,29 +35,16 @@ do_lint() {
   PATH="${HOME}/.cargo/bin:${PATH}" cargo clippy -- -D warnings
 }
 
-do_rust() {
-  PATH="${HOME}/.cargo/bin:${PATH}"
-
-  # TODO(https://github.com/bazelbuild/rules_rust/issues/2): Replace by a
-  # Bazel-based build once the Rust rules are capable of doing so.
-  cargo build
-  local bin="$(pwd)/target/debug/sandboxfs"
-  cargo test --verbose
-
-  go test -v -timeout=600s \
-      github.com/bazelbuild/sandboxfs/integration \
-      -sandboxfs_binary="${bin}" -release_build=false \
-      -rust_variant=true
-
-  sudo -H "${rootenv[@]}" -s \
-      go test -v -timeout=600s \
-      github.com/bazelbuild/sandboxfs/integration \
-      -sandboxfs_binary="${bin}" -release_build=false \
-      -rust_variant=true -unprivileged_user="${USER}"
+do_test() {
+  ./configure --cargo="${HOME}/.cargo/bin/cargo"
+  make debug
+  make check
+  sudo -H "${rootenv[@]}" -s make check-integration \
+      CHECK_INTEGRATION_FLAGS=-unprivileged_user="${USER}"
 }
 
 case "${DO}" in
-  gotools|install|lint|rust)
+  install|lint|test)
     "do_${DO}"
     ;;
 

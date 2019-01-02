@@ -86,7 +86,7 @@ case "${DO}" in
     rustup component add clippy-preview
     ;;
 
-  rust)
+  test)
     install_fuse
     install_rust
     ;;

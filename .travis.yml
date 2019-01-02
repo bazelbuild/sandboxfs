@@ -31,32 +31,19 @@ language:
   - java  # For Bazel.
 
 go:
-  - "1.10"
   - "1.11"
 go_import_path: github.com/bazelbuild/sandboxfs
 
 env:
-  - DO=gotools
   - DO=install
   - DO=lint
-  - DO=rust
+  - DO=test
 
 before_install: ./admin/travis-install.sh
 script: ./admin/travis-build.sh
 
 matrix:
   exclude:
-    # For Go 1.10, we are only interested in testing that our code builds
-    # correctly under that version of the language.  A single test is sufficient
-    # for this, so remove all other configurations.
-    - env: DO=gotools
-      go: "1.10"
-    - env: DO=gotools
-      go: "1.10"
-      os: osx
-    - go: "1.10"
-      os: osx
-
     # For tool installation and Makefile verification, we don't really need to
     # verify multiple platforms.  It'd be good if we did it, but macOS
     # resources on Travis are precious so let's be careful with them.
@@ -66,11 +53,4 @@ matrix:
     # For code linting, we just need to run this under a single configuration.
     # Trim all but one, and prefer Linux over macOS because it's much faster.
     - env: DO=lint
-      go: "1.10"
-    - env: DO=lint
       os: osx
-
-    # For testing the Rust implementation, we only need to build the tests using
-    # one Go version.
-    - env: DO=rust
-      go: "1.10"
