@@ -36,8 +36,8 @@ go:
 go_import_path: github.com/bazelbuild/sandboxfs
 
 env:
-  - DO=bazel
   - DO=gotools
+  - DO=install
   - DO=lint
   - DO=rust
 
@@ -55,6 +55,12 @@ matrix:
       go: "1.10"
       os: osx
     - go: "1.10"
+      os: osx
+
+    # For tool installation and Makefile verification, we don't really need to
+    # verify multiple platforms.  It'd be good if we did it, but macOS
+    # resources on Travis are precious so let's be careful with them.
+    - env: DO=install
       os: osx
 
     # For code linting, we just need to run this under a single configuration.

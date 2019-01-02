@@ -1,0 +1,56 @@
+# Copyright 2019 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may not
+# use this file except in compliance with the License.  You may obtain a copy
+# of the License at:
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+.PHONY: all
+all: Makefile debug
+
+# TODO(jmmv): Should automatically reinvoke configure... but this is difficult
+# because we need to remember the flags originally passed by the user, and
+# we need to tell make to reload the Makefile somehow.
+Makefile: configure Makefile.in
+	@echo "Makefile out of date; rerun ./configure with desired args"
+	@false
+
+@IS_BMAKE@RUST_SRCS != find src -name "*.rs"
+@IS_GNUMAKE@RUST_SRCS = $(shell find src -name "*.rs")
+target/debug/sandboxfs: Cargo.toml $(RUST_SRCS)
+	$(CARGO) build
+
+.PHONY: debug
+debug: target/debug/sandboxfs
+
+target/release/sandboxfs: Cargo.toml $(RUST_SRCS)
+	$(CARGO) build --release
+
+.PHONY: release
+release: target/release/sandboxfs
+
+.PHONY: install
+install: target/release/sandboxfs
+	install -m 0755 -d $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 -c target/release/sandboxfs \
+	    $(DESTDIR)$(PREFIX)/bin/sandboxfs
+	install -m 0755 -d $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 0644 -c man/sandboxfs.1 $(DESTDIR)$(PREFIX)/share/man/man1
+	install -m 0755 -d $(DESTDIR)$(PREFIX)/share/doc/sandboxfs
+	install -m 0644 -c AUTHORS CONTRIBUTING.md CONTRIBUTORS LICENSE \
+	    NEWS.md README.md $(DESTDIR)$(PREFIX)/share/doc/sandboxfs
+
+.PHONY: clean
+clean:
+	rm -rf $(CLEANFILES)
+
+.PHONY: distclean
+distclean: clean
+	rm -rf $(DISTCLEANFILES)

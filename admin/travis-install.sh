@@ -74,6 +74,11 @@ case "${DO}" in
     install_fuse
     ;;
 
+  install)
+    install_fuse
+    install_rust
+    ;;
+
   lint)
     install_bazel
     install_fuse  # Needed by Clippy to build the fuse Rust dependency.

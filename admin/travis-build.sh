@@ -21,27 +21,6 @@ rootenv+=(PATH="${PATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
 readonly rootenv
 
-do_bazel() {
-  bazel run //admin/install -- --prefix="$(pwd)/local"
-
-  # The globs below in the invocation of the binaries exist because of
-  # https://github.com/bazelbuild/rules_go/issues/1239: we cannot predict
-  # the path to the built binaries so we must discover it dynamically.
-  # We know we have built them once, so these should only match one entry.
-
-  # TODO(jmmv): We disable Bazel's sandboxing because it denies our tests from
-  # using FUSE (e.g. accessing system-wide helper binaries).  Figure out a way
-  # to not require this.
-  bazel test --spawn_strategy=standalone --test_output=streamed //...
-  sudo -H "${rootenv[@]}" -s \
-      ./bazel-bin/integration/*/go_default_test -test.v -test.timeout=600s \
-      -sandboxfs_binary="$(pwd)/local/bin/sandboxfs" \
-      -unprivileged_user="${USER}"
-
-  # Make sure we can install as root as documented in INSTALL.md.
-  sudo ./bazel-bin/admin/install/*/install --prefix="$(pwd)/local-root"
-}
-
 do_gotools() {
   go build -o ./sandboxfs github.com/bazelbuild/sandboxfs/cmd/sandboxfs
 
@@ -63,6 +42,15 @@ do_gotools() {
   sudo -H "${rootenv[@]}" -s \
       go test -v -timeout=600s github.com/bazelbuild/sandboxfs/integration \
       -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false
+}
+
+do_install() {
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --prefix="/opt/sandboxfs"
+  make release
+  make install DESTDIR="$(pwd)/destdir"
+  test -x destdir/opt/sandboxfs/bin/sandboxfs
+  test -e destdir/opt/sandboxfs/share/man/man1/sandboxfs.1
+  test -e destdir/opt/sandboxfs/share/doc/sandboxfs/README.md
 }
 
 do_lint() {
@@ -92,7 +80,7 @@ do_rust() {
 }
 
 case "${DO}" in
-  bazel|gotools|lint|rust)
+  gotools|install|lint|rust)
     "do_${DO}"
     ;;
 

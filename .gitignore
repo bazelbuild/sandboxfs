@@ -6,4 +6,5 @@
 /.gopath-tools
 /bazel-*
 Cargo.lock
+Makefile
 target
