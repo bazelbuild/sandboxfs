@@ -17,6 +17,7 @@ package integration
 import (
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -63,14 +64,31 @@ func TestOptions_Allow(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			if !d.wantMountOk {
-				tempDir, err := ioutil.TempDir("", "test")
-				if err != nil {
-					t.Fatalf("Failed to create temporary directory: %v", err)
-				}
-				defer os.RemoveAll(tempDir)
+			tempDir, err := ioutil.TempDir("", "test")
+			if err != nil {
+				t.Fatalf("Failed to create temporary directory: %v", err)
+			}
+			defer os.RemoveAll(tempDir)
 
-				_, stderr, err := utils.RunAndWait(1, d.allowFlag, "--mapping=ro:/:/", tempDir)
+			// The defaults cause sandboxfs to try to reopen /dev/{stdin,stdout}
+			// which is not possible under this test: we lower our privileges
+			// before running sandboxfs, but these special devices remain owned
+			// by root and are thus innaccessible.
+			input := filepath.Join(tempDir, "input")
+			utils.MustWriteFile(t, input, 0644, "")
+			output := filepath.Join(tempDir, "output")
+			utils.MustWriteFile(t, output, 0644, "")
+			if err := os.Chmod(tempDir, 0755); err != nil {
+				t.Fatalf("Could not change permissions of %s: %v", tempDir, err)
+			}
+			for _, file := range []string{tempDir, input, output} {
+				if err := os.Chown(file, user.UID, user.GID); err != nil {
+					t.Fatalf("Could not change owner of %s: %v", file, err)
+				}
+			}
+
+			if !d.wantMountOk {
+				_, stderr, err := utils.RunAndWait(1, d.allowFlag, "--mapping=ro:/:/", "--input="+input, "--output="+output, tempDir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -80,7 +98,7 @@ func TestOptions_Allow(t *testing.T) {
 				return
 			}
 
-			args := make([]string, 0)
+			args := []string{"--input=" + input, "--output=" + output}
 			if d.allowFlag != "" {
 				args = append(args, d.allowFlag)
 			}

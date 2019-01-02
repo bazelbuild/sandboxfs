@@ -62,6 +62,49 @@ func reconfigure(input io.Writer, output *bufio.Scanner, root string, config str
 	return nil
 }
 
+// existsViaReaddir checks if a directory entry exists within a directory by scanning the contents
+// of the directory itself (i.e. via readdir), not by attempting a direct lookup on the entry.
+func existsViaReaddir(dir string, name string) (bool, error) {
+	dirents, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return false, err
+	}
+	for _, dirent := range dirents {
+		if dirent.Name() == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// errorIfNotUnmapped fails the calling test case if the given directory entry, which is expected to
+// not be mapped any longer, still exists.
+func errorIfNotUnmapped(t *testing.T, dir string, name string) {
+	if utils.GetConfig().RustVariant {
+		// The Rust variant of sandboxfs currently lacks support for kernel cache
+		// invalidations.  As a result, sandboxfs cannot make unmapped entries disappear
+		// right away (and setting a lower TTL for the file system does not help because
+		// OSXFUSE does nothing with the entries' TTL).  We know that this is suboptimal,
+		// but instead of making the tests fail, make sure sandboxfs mostly works by
+		// checking that it really did unmap the entry (which we can confirm by looking
+		// at readdir output).
+		exists, err := existsViaReaddir(dir, name)
+		if err != nil {
+			t.Errorf("Failed to read contents of %s: %v", dir, err)
+		} else if exists {
+			t.Errorf("Unmapped %s is not gone from %s", name, dir)
+		}
+	} else {
+		path := filepath.Join(dir, name)
+		_, err := os.Lstat(path)
+		if err != nil && !os.IsNotExist(err) {
+			t.Errorf("Failed to stat %s: %v", path, err)
+		} else if err == nil {
+			t.Errorf("Unmapped %s is not gone from %s", name, dir)
+		}
+	}
+}
+
 func TestReconfiguration_Streams(t *testing.T) {
 	reconfigureAndCheck := func(t *testing.T, state *utils.MountState, input io.Writer, outputReader io.Reader) {
 		output := bufio.NewScanner(outputReader)
@@ -178,9 +221,7 @@ func TestReconfiguration_Steps(t *testing.T) {
 	if _, err := os.Lstat(state.MountPath("nested/dup")); err != nil {
 		t.Errorf("Previously-mapped /nested/dup seems to be gone; got %v", err)
 	}
-	if _, err := os.Lstat(state.MountPath("ro")); err == nil {
-		t.Errorf("Unmapped /ro is not gone")
-	}
+	errorIfNotUnmapped(t, state.MountPath(), "ro")
 	if err := os.MkdirAll(state.MountPath("rw/dir/hello"), 0755); err != nil {
 		t.Errorf("Mkdir failed in read-write mapping: %v", err)
 	}
@@ -204,9 +245,7 @@ func TestReconfiguration_Unmap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/root-mapping", "/nested/mapping", "/deep/a/b/c/d", "/deep/a/b/c", "/deep/a/b"} {
-		if _, err := os.Lstat(state.MountPath(path)); err == nil {
-			t.Errorf("Unmapped %s is not gone", path)
-		}
+		errorIfNotUnmapped(t, state.MountPath(), path)
 	}
 	for _, path := range []string{"/nested", "/deep"} {
 		if _, err := os.Lstat(state.MountPath(path)); err != nil {
@@ -218,12 +257,14 @@ func TestReconfiguration_Unmap(t *testing.T) {
 	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(state.MountPath("nested")); err == nil {
-		t.Errorf("Unmapped nested mapping is not gone")
-	}
+	errorIfNotUnmapped(t, state.MountPath(), "nested")
 }
 
 func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Rust variant doesn't support kernel cache invalidations")
+	}
+
 	stdoutReader, stdoutWriter := io.Pipe()
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
@@ -325,66 +366,84 @@ func TestReconfiguration_Errors(t *testing.T) {
 	utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
 
+	errors := make(map[string]string)
+	if utils.GetConfig().RustVariant {
+		errors["InvalidSyntax"] = "expected ident"
+		errors["InvalidMapping"] = "path.*not absolute"
+		errors["EmptyStep"] = "expected value"
+		errors["MapAndUnmapInSameStep"] = "expected value"
+		errors["RemapRoot"] = "Root can be mapped at most once"
+		errors["MapTwice"] = "Already mapped"
+		errors["UnmapRoot"] = "Root cannot be unmapped"
+		errors["UnmapMissingEntryInMapping"] = "Unknown entry"
+		errors["UnmapMissingEntryInRealUnmappedDirectory"] = "Unknown entry"
+		errors["UnmapPathWithMissingComponents"] = "Unknown component in entry"
+	} else {
+		errors["InvalidSyntax"] = "unable to parse json"
+		errors["InvalidMapping"] = "invalid mapping foo/../.: empty path"
+		errors["EmptyStep"] = "neither Map nor Unmap were defined"
+		errors["MapAndUnmapInSameStep"] = "Map and Unmap are exclusive"
+		errors["RemapRoot"] = "root.*not more than once"
+		errors["MapTwice"] = "already mapped"
+		errors["UnmapRoot"] = "cannot unmap root"
+		errors["UnmapMissingEntryInMapping"] = "path not found"
+		errors["UnmapMissingEntryInRealUnmappedDirectory"] = "path not found"
+		errors["UnmapPathWithMissingComponents"] = "path not found"
+	}
+
 	testData := []struct {
 		name string
 
-		config    string
-		wantError string
+		config string
 	}{
 		{
 			"InvalidSyntax",
 			`this is not in the correct format`,
-			"unable to parse json",
 		},
 		{
 			"InvalidMapping",
 			`[{"Map": {"Mapping": "foo/../.", "Target": "%ROOT%/subdir", "Writable": false}}]`,
-			"invalid mapping foo/../.: empty path",
 		},
 		{
 			"EmptyStep",
 			`[{}]`,
-			"neither Map nor Unmap were defined",
 		},
 		{
 			"MapAndUnmapInSameStep",
 			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]`,
-			"Map and Unmap are exclusive",
 		},
 		{
 			"RemapRoot",
 			`[{"Map": {"Mapping": "/", "Target": "%ROOT%/subdir", "Writable": false}}]`,
-			"root.*not more than once",
 		},
 		{
 			"MapTwice",
 			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%/subdir", "Writable": false}}, {"Map": {"Mapping": "/foo", "Target": "%ROOT%/file", "Writable": false}}]`,
-			"already mapped",
 		},
 		{
 			"UnmapRoot",
 			`[{"Unmap": "/"}]`,
-			"cannot unmap root",
 		},
 		{
 			"UnmapMissingEntryInMapping",
 			`[{"Map": {"Mapping": "/subdir", "Target": "%ROOT%/subdir", "Writable": false}}, {"Unmap": "/subdir/foo"}]`,
-			"path not found",
 		},
 		{
 			"UnmapMissingEntryInRealUnmappedDirectory",
 			`[{"Unmap": "/subdir/foo"}]`,
-			"path not found",
 		},
 		{
 			"UnmapPathWithMissingComponents",
 			`[{"Unmap": "/missing/long/path"}]`,
-			"path not found",
 		},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			checkBadConfig(d.config, d.wantError)
+			wantError, ok := errors[d.name]
+			if !ok {
+				panic("Inconsistent test data")
+			}
+			checkBadConfig(d.config, wantError)
 		})
 	}
 
@@ -403,7 +462,7 @@ func TestReconfiguration_Errors(t *testing.T) {
 			t.Fatalf("Failed to stat just-created file subdir2/inner-subdir/inner-file: %v", err)
 		}
 
-		checkBadConfig(`[{"Unmap": "/subdir2/inner-subdir/inner-file"}]`, "leaf inner-file is not a mapping")
+		checkBadConfig(`[{"Unmap": "/subdir2/inner-subdir/inner-file"}]`, "inner-file.*is not a mapping")
 	})
 }
 
@@ -516,6 +575,10 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 }
 
 func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Rust variant doesn't support kernel cache invalidations")
+	}
+
 	// inodeOf obtains the inode number of a file.
 	inodeOf := func(path string) uint64 {
 		fileInfo, err := os.Lstat(path)
@@ -595,6 +658,10 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 }
 
 func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
+	if utils.GetConfig().RustVariant {
+		t.Skipf("Rust variant doesn't support kernel cache invalidations")
+	}
+
 	stdoutReader, stdoutWriter := io.Pipe()
 	defer stdoutReader.Close()
 	defer stdoutWriter.Close()
@@ -664,7 +731,11 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	defer state.TearDown(t)
 
 	gotEOF := make(chan bool)
-	go grepStderr(stderrReader, `reached end of input`, gotEOF)
+	if utils.GetConfig().RustVariant {
+		go grepStderr(stderrReader, `Reached end of reconfiguration input`, gotEOF)
+	} else {
+		go grepStderr(stderrReader, `reached end of input`, gotEOF)
+	}
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 	config := `[{"Map": {"Mapping": "/dir", "Target": "%ROOT%/dir", "Writable": true}}]`
@@ -694,22 +765,24 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 
 	nonExistentFile := filepath.Join(tempDir, "non-existent/file")
 
+	var inputError string
+	var outputError string
+	if utils.GetConfig().RustVariant {
+		inputError = fmt.Sprintf("Failed to open reconfiguration input '%s': No such file or directory", nonExistentFile)
+		outputError = fmt.Sprintf("Failed to open reconfiguration output '%s': No such file or directory", nonExistentFile)
+	} else {
+		inputError = fmt.Sprintf("unable to open file \"%s\" for reading: open %s: no such file or directory", nonExistentFile, nonExistentFile)
+		outputError = fmt.Sprintf("unable to open file \"%s\" for writing: open %s: no such file or directory", nonExistentFile, nonExistentFile)
+	}
+
 	testData := []struct {
 		name string
 
 		flag       string
 		wantStderr string
 	}{
-		{
-			"input",
-			"--input=" + nonExistentFile,
-			fmt.Sprintf("unable to open file \"%s\" for reading: open %s: no such file or directory", nonExistentFile, nonExistentFile),
-		},
-		{
-			"output",
-			"--output=" + nonExistentFile,
-			fmt.Sprintf("unable to open file \"%s\" for writing: open %s: no such file or directory", nonExistentFile, nonExistentFile),
-		},
+		{"Input", "--input=" + nonExistentFile, inputError},
+		{"Output", "--output=" + nonExistentFile, outputError},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {

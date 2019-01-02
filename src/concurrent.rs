@@ -45,7 +45,6 @@ fn nix_to_io_error(err: nix::Error) -> io::Error {
 /// file handle.  Such views must accept the fact that the handle can be closed at any time, a
 /// condition that is simply exposed as if the handle reached EOF.  Concurrent views can safely be
 /// moved across threads.
-#[allow(unused)]  // TODO(jmmv): Remove once we use this code for reconfigurations.
 pub struct ShareableFile {
     /// Underlying file descriptor shared across all views of this file.
     fd: unix_io::RawFd,
@@ -64,7 +63,6 @@ pub struct ShareableFile {
 
 impl ShareableFile {
     /// Constructs a new `ShareableFile` from an open file and takes ownership of it.
-    #[allow(unused)]  // TODO(jmmv): Remove once we use this code for reconfigurations.
     pub fn from(file: fs::File) -> ShareableFile {
         use std::os::unix::io::IntoRawFd;
         ShareableFile {
@@ -77,7 +75,6 @@ impl ShareableFile {
     /// Returns an unowned view of the file.
     ///
     /// Users of this file must accept that the file can be closed at any time by the owner.
-    #[allow(unused)]  // TODO(jmmv): Remove once we use this code for reconfigurations.
     pub fn reader(&mut self) -> io::Result<ShareableFileReader> {
         let (notifier, watcher) = unistd::pipe().map_err(nix_to_io_error)?;
         self.watchers.push(watcher);

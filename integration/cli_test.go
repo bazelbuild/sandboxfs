@@ -35,8 +35,11 @@ Options:
                         specifies who should have access to the file system
                         (default: self)
     --help              prints usage information and exits
+    --input [PATH]      where to read reconfiguration data from (- for stdin)
     --mapping TYPE:PATH:UNDERLYING_PATH
                         type and locations of a mapping
+    --output [PATH]     where to write the reconfiguration status to (- for
+                        stdout)
     --ttl TIMEs         how long the kernel is allowed to keep file metadata
                         (default: 60s)
     --version           prints version information and exits

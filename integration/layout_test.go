@@ -108,7 +108,7 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 
 	var wantStderr string
 	if utils.GetConfig().RustVariant {
-		wantStderr = "Failed to map .*\"/a/a\".* Already mapped\n"
+		wantStderr = "Cannot map .*'/a/a .* Already mapped\n"
 	} else {
 		wantStderr = "unable to init sandbox: cannot map /a/a: already mapped\n"
 	}
@@ -142,7 +142,7 @@ func TestLayout_TargetIsScaffoldDirectory(t *testing.T) {
 
 	var wantStderr string
 	if utils.GetConfig().RustVariant {
-		wantStderr = "Failed to map .*\"/a\".* Already mapped"
+		wantStderr = "Cannot map .*'/a .* Already mapped"
 	} else {
 		wantStderr = "unable to init sandbox: cannot map /a: already mapped\n"
 	}
