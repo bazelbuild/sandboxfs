@@ -25,10 +25,6 @@ type Config struct {
 	// mode, false otherwise.
 	ReleaseBinary bool
 
-	// True if using the new Rust variant of sandboxfs.  Should only be used to change the
-	// behavior of tests due to cosmetic details.
-	RustVariant bool
-
 	// SandboxfsBinary contains the absolute path to the sandboxfs binary to test.
 	SandboxfsBinary string
 
@@ -45,7 +41,7 @@ var globalConfig *Config
 
 // SetConfigFromFlags initializes the test configuration based on the raw values provided by the
 // user on the command line.  Returns an error if any of those values is incorrect.
-func SetConfigFromFlags(releaseBinary bool, rustVariant bool, rawSandboxfsBinary string, unprivilegedUserName string) error {
+func SetConfigFromFlags(releaseBinary bool, rawSandboxfsBinary string, unprivilegedUserName string) error {
 	if globalConfig != nil {
 		panic("SetConfigFromFlags can only be called once")
 	}
@@ -65,7 +61,6 @@ func SetConfigFromFlags(releaseBinary bool, rustVariant bool, rawSandboxfsBinary
 
 	globalConfig = &Config{
 		ReleaseBinary:    releaseBinary,
-		RustVariant:      rustVariant,
 		SandboxfsBinary:  sandboxfsBinary,
 		UnprivilegedUser: unprivilegedUser,
 	}

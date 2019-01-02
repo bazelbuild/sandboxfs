@@ -88,14 +88,8 @@ func TestSignal_UnmountWhenCaught(t *testing.T) {
 			if err := checkSignalHandled(state); err != nil {
 				t.Fatal(err)
 			}
-			if utils.GetConfig().RustVariant {
-				if !utils.MatchesRegexp(fmt.Sprintf("Caught signal %d", signal), stderr.String()) {
-					t.Errorf("Termination error message does not mention signal number; got %v", stderr)
-				}
-			} else {
-				if !utils.MatchesRegexp(fmt.Sprintf("caught signal.*%v", signal.String()), stderr.String()) {
-					t.Errorf("Termination error message does not mention signal name; got %v", stderr)
-				}
+			if !utils.MatchesRegexp(fmt.Sprintf("Caught signal %d", signal), stderr.String()) {
+				t.Errorf("Termination error message does not mention signal number; got %v", stderr)
 			}
 
 			if _, err := os.Lstat(state.MountPath("a")); os.IsExist(err) {
@@ -136,19 +130,13 @@ func TestSignal_QueuedWhileInUse(t *testing.T) {
 	// pipe.
 	received := make(chan bool)
 	go func() {
-		var waitRegexp string
-		if utils.GetConfig().RustVariant {
-			waitRegexp = "Unmounting.*failed.*will retry"
-		} else {
-			waitRegexp = "unmounting.*failed.*will retry"
-		}
 		notified := false
 		for {
 			if !stderr.Scan() {
 				break
 			}
 			os.Stderr.WriteString(stderr.Text() + "\n")
-			if utils.MatchesRegexp(waitRegexp, stderr.Text()) {
+			if utils.MatchesRegexp("Unmounting.*failed.*will retry", stderr.Text()) {
 				if !notified {
 					received <- true
 					notified = true

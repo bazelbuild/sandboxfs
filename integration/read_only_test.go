@@ -225,20 +225,18 @@ func TestReadOnly_Attributes(t *testing.T) {
 			t.Errorf("Got rdev %v for %s, want %v", innerStat.Rdev, innerPath, outerStat.Rdev)
 		}
 
-		wantBlksize := outerStat.Blksize
-		if utils.GetConfig().RustVariant {
-			// The FUSE bindings for Rust only implement version 7.8 of the kernel
-			// protocol, which does not allow returning a block size from the getattr
-			// call.  Such a feature appeared with version 7.9.  The value we get is
-			// hardcoded so cope with it here.
-			switch runtime.GOOS {
-			case "darwin":
-				wantBlksize = 65536
-			case "linux":
-				wantBlksize = 4096
-			default:
-				t.Fatalf("Don't know how this test behaves in this platform")
-			}
+		wantBlksize := outerStat.Blksize // Assign only to automatically determine integer size.
+		// The FUSE bindings for Rust only implement version 7.8 of the kernel
+		// protocol, which does not allow returning a block size from the getattr
+		// call.  Such a feature appeared with version 7.9.  The value we get is
+		// hardcoded so cope with it here.
+		switch runtime.GOOS {
+		case "darwin":
+			wantBlksize = 65536
+		case "linux":
+			wantBlksize = 4096
+		default:
+			t.Fatalf("Don't know how this test behaves in this platform")
 		}
 		if innerStat.Blksize != wantBlksize {
 			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, wantBlksize)

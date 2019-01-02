@@ -49,7 +49,7 @@ check-integration: target/debug/sandboxfs $(GO_SRCS)
 	    -v -timeout=600s \
 	    github.com/bazelbuild/sandboxfs/integration \
 	    -sandboxfs_binary="$$(pwd)/target/debug/sandboxfs" \
-	    -rust_variant=true $(CHECK_INTEGRATION_FLAGS)
+	    $(CHECK_INTEGRATION_FLAGS)
 
 .PHONY: lint
 lint:
