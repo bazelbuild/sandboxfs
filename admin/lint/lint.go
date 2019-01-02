@@ -25,43 +25,6 @@ import (
 	"strings"
 )
 
-// getWorkspaceDir finds the path to the workspace given a path to a WORKSPACE file (which could be
-// a symlink as staged by Bazel).  The returned path is absolute.
-func getWorkspaceDir(file string) (string, error) {
-	fileInfo, err := os.Lstat(file)
-	if err != nil {
-		return "", fmt.Errorf("cannot find %s: %v", file, err)
-	}
-
-	var dir string
-	if fileInfo.Mode()&os.ModeType == os.ModeSymlink {
-		realFile, err := os.Readlink(file)
-		if err != nil {
-			return "", fmt.Errorf("cannot read link %s: %v", file, err)
-		}
-		dir = filepath.Dir(realFile)
-	} else {
-		dir = filepath.Dir(file)
-	}
-
-	dir, err = filepath.Abs(dir)
-	if err != nil {
-		return "", fmt.Errorf("cannot convert %s to an absolute path: %v", dir, err)
-	}
-
-	// We have computed the real path to the workspace.  Now... let's make sure that's true by
-	// looking for a known file.
-	fileInfo, err = os.Stat(filepath.Join(dir, "README.md"))
-	if err != nil {
-		return "", fmt.Errorf("cannot find README.md in workspace %s: %v", dir, err)
-	}
-	if fileInfo.Mode()&os.ModeType != 0 {
-		return "", fmt.Errorf("workspace %s contents are not regular files", dir)
-	}
-
-	return dir, nil
-}
-
 // isBlacklisted returns true if the given filename should not be linted.  The candidate must be
 // given as a relative path to the workspace directory.
 func isBlacklisted(candidate string) bool {
@@ -111,7 +74,7 @@ func collectFiles(dir string) ([]string, error) {
 
 func main() {
 	verbose := flag.Bool("verbose", false, "Enables extra logging")
-	workspace := flag.String("workspace", "WORKSPACE", "Path to the WORKSPACE file where the source tree list; used to find source files (symlinks are followed) and to resolve relative paths to sources")
+	workspace := flag.String("workspace", ".", "Path to the directory where the source tree lives; used to find source files (symlinks are followed) and to resolve relative paths to sources")
 	flag.Parse()
 
 	if *verbose {
@@ -120,16 +83,11 @@ func main() {
 		log.SetOutput(ioutil.Discard)
 	}
 
-	workspaceDir, err := getWorkspaceDir(*workspace)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
-		os.Exit(1)
-	}
-
 	var relFiles []string
 	if len(flag.Args()) == 0 {
-		log.Printf("Searching for source files in %s", workspaceDir)
-		relFiles, err = collectFiles(workspaceDir)
+		log.Printf("Searching for source files in %s", *workspace)
+		var err error
+		relFiles, err = collectFiles(*workspace)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 			os.Exit(1)
@@ -149,13 +107,13 @@ func main() {
 		if isBlacklisted(file) {
 			log.Printf("Skipping linting of %s because it is blacklisted", file)
 		} else {
-			files = append(files, filepath.Join(workspaceDir, file))
+			files = append(files, filepath.Join(*workspace, file))
 		}
 	}
 
 	failed := false
 	for _, file := range files {
-		if !checkAll(workspaceDir, file) {
+		if !checkAll(*workspace, file) {
 			failed = true
 		}
 	}

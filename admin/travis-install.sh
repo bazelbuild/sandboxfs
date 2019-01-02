@@ -15,21 +15,6 @@
 
 set -e -u
 
-install_bazel() {
-  local osname
-  case "${TRAVIS_OS_NAME}" in
-    osx) osname=darwin ;;
-    *) osname="${TRAVIS_OS_NAME}" ;;
-  esac
-
-  local github="https://github.com/bazelbuild/bazel/releases/download/0.20.0"
-  local url="${github}/bazel-0.20.0-${osname}-x86_64"
-  mkdir -p ~/bin
-  wget -O ~/bin/bazel "${url}"
-  chmod +x ~/bin/bazel
-  PATH="${HOME}/bin:${PATH}"
-}
-
 install_fuse() {
   case "${TRAVIS_OS_NAME}" in
     linux)
@@ -65,22 +50,12 @@ install_rust() {
 }
 
 case "${DO}" in
-  bazel)
-    install_bazel
-    install_fuse
-    ;;
-
-  gotools)
-    install_fuse
-    ;;
-
   install)
     install_fuse
     install_rust
     ;;
 
   lint)
-    install_bazel
     install_fuse  # Needed by Clippy to build the fuse Rust dependency.
     install_rust
     rustup component add clippy-preview

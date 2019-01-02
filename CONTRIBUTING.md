@@ -38,15 +38,6 @@ install necessary Git hooks into the current workspace.  Failure to do so will
 potentially result in commits that are not up to the standards that we expect
 and delay your code reviews.
 
-## Updating BUILD.bazel files
-
-We use the Gazelle tool to maintain the Go targets in the `BUILD.bazel` files
-throughout the project.
-
-If you find yourself needing to modify any of the `go_*` rules, stop and
-run `bazel run //admin:gazelle` instead.  This will take care of updating the
-build rules automatically.
-
 ## IDE support
 
 sandboxfs' build scripts integrate well with the [Visual Studio Code
@@ -64,7 +55,7 @@ made comply with the expected coding style.  If there are any problems, you
 will see a report on the command-line with the specifics.
 
 If you want to run the style check by hand, you can invoke it with the
-`bazel run //admin/lint` command.
+`make lint` command.
 
 ## Code reviews
 
