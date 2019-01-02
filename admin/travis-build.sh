@@ -31,8 +31,8 @@ do_install() {
 }
 
 do_lint() {
-  bazel run //admin/lint -- --verbose
-  PATH="${HOME}/.cargo/bin:${PATH}" cargo clippy -- -D warnings
+  ./configure --cargo="${HOME}/.cargo/bin/cargo"
+  make lint
 }
 
 do_test() {

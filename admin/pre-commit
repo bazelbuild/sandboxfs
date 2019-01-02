@@ -18,9 +18,9 @@ exec 1>&2
 # Obtain the list of files from the index (i.e. the files to be committed).
 # From the list, resolve renames to their target.
 index_files="$(git status --porcelain --untracked-files=no \
-    | grep '^[MARC]' | cut -c 4- | sed -e 's,^.* -> ,,')"
+    | grep '^[MARC]' | cut -c 4- | sed -e 's,^.* -> ,,' | paste -s -)"
 
 if [ -n "${index_files}" ]; then
   echo "Linting changed files..."
-  bazel run //admin/lint -- --verbose ${index_files} || exit 1
+  make lint LINT_FILES="${index_files}" || exit 1
 fi

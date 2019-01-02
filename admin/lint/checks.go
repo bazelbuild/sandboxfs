@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/bazelbuild/rules_go/go/tools/bazel"
 	"github.com/bazelbuild/sandboxfs/internal/shell"
 )
 
@@ -84,16 +83,11 @@ func checkNoTabs(workspaceDir string, file string) error {
 // even when the given files are not compliant.  The arguments indicate the full command line to
 // run, including the path to the tool as the first argument.  The file to check is expected to
 // appear as the last argument.
-func runLinter(pkg string, toolName string, arg ...string) error {
+func runLinter(toolName string, arg ...string) error {
 	file := arg[len(arg)-1]
 
-	toolPath, ok := bazel.FindBinary(pkg, toolName)
-	if !ok {
-		return fmt.Errorf("%s check failed for %s: cannot find tool %s", toolName, file, toolName)
-	}
-
 	var output bytes.Buffer
-	cmd := exec.Command(toolPath, arg...)
+	cmd := exec.Command(toolName, arg...)
 	cmd.Stdout = &output
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
@@ -108,22 +102,10 @@ func runLinter(pkg string, toolName string, arg ...string) error {
 	return nil
 }
 
-// checkBuildifier checks if the given file is formatted according to buildifier and, if not, prints
-// a diff detailing what's wrong with the file to stdout and returns an error.
-func checkBuildifier(workspaceDir string, file string) error {
-	return runLinter("../com_github_bazelbuild_buildtools/buildifier", "buildifier", "--mode=diff", file)
-}
-
-// checkGazelle checks if the given file is formatted according to gazelle and, if not, prints
-// a diff detailing what's wrong with the file to stdout and returns an error.
-func checkGazelle(workspaceDir string, file string) error {
-	return runLinter("../bazel_gazelle/cmd/gazelle", "gazelle", "--go_prefix=github.com/bazelbuild/sandboxfs", "--mode=diff", "--repo_root="+workspaceDir, filepath.Dir(file))
-}
-
 // checkGoFmt checks if the given file is formatted according to gofmt and, if not, prints a diff
 // detailing what's wrong with the file to stdout and returns an error.
 func checkGofmt(workspaceDir string, file string) error {
-	return runLinter("../go_sdk/bin", "gofmt", "-d", "-e", "-s", file)
+	return runLinter("gofmt", "-d", "-e", "-s", file)
 }
 
 // checkGoLint checks if the given file passes golint checks and, if not, prints diagnostic messages
@@ -134,13 +116,13 @@ func checkGolint(workspaceDir string, file string) error {
 	// docstring in other packages.
 	minConfidenceFlag := "-min_confidence=0.3"
 
-	return runLinter("../org_golang_x_lint/golint", "golint", minConfidenceFlag, file)
+	return runLinter("golint", minConfidenceFlag, file)
 }
 
 // checkAll runs all possible checks on a file.  Returns true if all checks pass, and false
 // otherwise.  Error details are dumped to stderr.
 func checkAll(workspaceDir string, file string) bool {
-	isBuildFile := filepath.Base(file) == "BUILD.bazel" || filepath.Ext(file) == ".bzl"
+	isBuildFile := filepath.Base(file) == "BUILD.bazel" || filepath.Ext(file) == ".bzl" || filepath.Base(file) == "Makefile.in"
 
 	// If a file starts with an upper-case letter, assume it's supporting package documentation
 	// (all those files in the root directory) and avoid linting it.
@@ -160,15 +142,10 @@ func checkAll(workspaceDir string, file string) bool {
 		runCheck(checkLicense, file)
 	}
 
-	if isBuildFile {
-		runCheck(checkBuildifier, file)
-		runCheck(checkGazelle, file)
-	}
-
 	if filepath.Ext(file) == ".go" {
 		runCheck(checkGofmt, file)
 		runCheck(checkGolint, file)
-	} else {
+	} else if !isBuildFile {
 		runCheck(checkNoTabs, file)
 	}
 

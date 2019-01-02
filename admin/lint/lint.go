@@ -23,8 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/bazelbuild/rules_go/go/tools/bazel"
 )
 
 // getWorkspaceDir finds the path to the workspace given a path to a WORKSPACE file (which could be
@@ -79,6 +77,11 @@ func isBlacklisted(candidate string) bool {
 		return true
 	}
 
+	// Only worry about non-generated files.
+	if filepath.Base(candidate) == "Makefile" {
+		return true
+	}
+
 	return false
 }
 
@@ -115,11 +118,6 @@ func main() {
 		log.SetOutput(os.Stderr)
 	} else {
 		log.SetOutput(ioutil.Discard)
-	}
-
-	if err := bazel.EnterRunfiles("sandboxfs", "admin/lint", "lint", "admin/lint"); err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		os.Exit(1)
 	}
 
 	workspaceDir, err := getWorkspaceDir(*workspace)

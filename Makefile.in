@@ -49,6 +49,13 @@ check-integration: target/debug/sandboxfs
 	    -sandboxfs_binary="$$(pwd)/target/debug/sandboxfs" \
 	    -rust_variant=true $(CHECK_INTEGRATION_FLAGS)
 
+.PHONY: lint
+lint:
+	$(CARGO) clippy -- -D warnings
+	PATH=$(GOPATH)/bin:$${PATH} GOPATH=$(GOPATH) GOROOT=$(GOROOT) \
+            $(GOROOT)/bin/go run \
+	    github.com/bazelbuild/sandboxfs/admin/lint $(LINT_FILES)
+
 .PHONY: install
 install: target/release/sandboxfs
 	install -m 0755 -d $(DESTDIR)$(PREFIX)/bin
