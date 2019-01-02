@@ -54,14 +54,29 @@ struct UsageError {
 ///
 /// Returns the collection of options, if any, to be passed to the FUSE mount operation in order to
 /// grant the requested permissions.
-fn parse_allow(s: &str) -> Result<&'static [&'static str], UsageError> {
+fn parse_allow(s: &str) -> Fallible<&'static [&'static str]> {
     match s {
         "other" => Ok(&["-o", "allow_other"]),
-        "root" => Ok(&["-o", "allow_root"]),
+        "root" => {
+            if cfg!(target_os = "linux") {
+                // "-o allow_root" is broken on Linux because this is not actually a
+                // fusermount option: it is a libfuse option and the Go bindings don't
+                // implement it as such.  We could implement this on our own by handling
+                // allow_root as if it were allow_other with an explicit user check... but
+                // it's probably not worth doing.  For now, just tell the user that we know
+                // about the breakage.
+                //
+                // See https://github.com/bazil/fuse/issues/144 for context (which is about Go
+                // but applies equally here).
+                Err(format_err!("--allow=root is known to be broken on Linux"))
+            } else {
+                Ok(&["-o", "allow_root"])
+            }
+        },
         "self" => Ok(&[]),
         _ => {
             let message = format!("{} must be one of other, root, or self", s);
-            Err(UsageError { message })
+            Err(UsageError { message }.into())
         },
     }
 }
