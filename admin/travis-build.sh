@@ -120,22 +120,25 @@ do_rust() {
       echo "Skipping blacklisted test ${t}" 1>&2
       continue
     fi
-    valid+="${t}"
+    valid+=("${t}")
   done
   set -x
 
   [ "${#valid[@]}" -gt 0 ] || return 0  # Only run tests if any are valid.
+  local failed=no
   for t in "${valid[@]}"; do
     go test -v -timeout=600s -test.run="^${t}$" \
         github.com/bazelbuild/sandboxfs/integration \
-        -sandboxfs_binary="${bin}" -release_build=false
+        -sandboxfs_binary="${bin}" -release_build=false \
+        -rust_variant=true || failed=yes
 
     sudo -H "${rootenv[@]}" -s \
         go test -v -timeout=600s -test.run="^${t}$" \
         github.com/bazelbuild/sandboxfs/integration \
-        -sandboxfs_binary="$(pwd)/sandboxfs" -release_build=false \
-        -rust_variant=true
+        -sandboxfs_binary="${bin}" -release_build=false \
+        -rust_variant=true || failed=yes
   done
+  [ "${failed}" = no ]
 }
 
 case "${DO}" in

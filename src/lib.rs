@@ -624,7 +624,13 @@ impl fuse::Filesystem for SandboxFS {
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec)
     -> Fallible<()> {
-    let os_options = options.iter().map(|o| o.as_ref()).collect::<Vec<&OsStr>>();
+    let mut os_options = options.iter().map(|o| o.as_ref()).collect::<Vec<&OsStr>>();
+
+    // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
+    // them on our own.
+    os_options.push(OsStr::new("-o"));
+    os_options.push(OsStr::new("default_permissions"));
+
     let fs = SandboxFS::create(mappings, ttl)?;
     info!("Mounting file system onto {:?}", mount_point);
 

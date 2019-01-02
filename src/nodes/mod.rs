@@ -111,8 +111,14 @@ fn setattr_mode(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, mode: Option<
     }
     let perm = mode.bits() as u16;
 
+    if attr.kind == fuse::FileType::Symlink {
+        // TODO(jmmv): Should use NoFollowSymlink to support changing the mode of a symlink if
+        // requested to do so, but this is not supported on Linux.
+        return Err(nix::Error::from_errno(Errno::EOPNOTSUPP));
+    }
+
     let result = try_path(path, |p|
-        sys::stat::fchmodat(None, p, mode, sys::stat::FchmodatFlags::NoFollowSymlink));
+        sys::stat::fchmodat(None, p, mode, sys::stat::FchmodatFlags::FollowSymlink));
     if result.is_ok() {
         attr.perm = perm;
     }
@@ -130,7 +136,7 @@ fn setattr_owners(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, uid: Option
         unistd::fchownat(None, p, uid, gid, unistd::FchownatFlags::NoFollowSymlink));
     if result.is_ok() {
         attr.uid = uid.map_or(attr.uid, u32::from);
-        attr.gid = uid.map_or(attr.gid, u32::from);
+        attr.gid = gid.map_or(attr.gid, u32::from);
     }
     result
 }

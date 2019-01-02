@@ -21,6 +21,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::os::unix::io as unix_io;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -241,6 +242,31 @@ impl Drop for SignalsInstaller {
     }
 }
 
+/// Unmounts a file system by shelling out to the correct unmount tool.
+///
+/// Doing this in-process is very difficult because of differences across systems and the fact that
+/// neither `nix` nor `libc` currently expose any of the unmounting functionality.
+fn unmount(path: &Path) -> Fallible<()> {
+    #[cfg(not(any(target_os = "linux")))]
+    fn run_unmount(path: &Path) -> io::Result<process::Output> {
+        process::Command::new("umount").arg(path).output()
+    }
+
+    #[cfg(any(target_os = "linux"))]
+    fn run_unmount(path: &Path) -> io::Result<process::Output> {
+        process::Command::new("fusermount").arg("-u").arg(path).output()
+    }
+
+    let output = run_unmount(path)?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format_err!("stdout: {}, stderr: {}",
+            String::from_utf8_lossy(&output.stdout).trim(),
+            String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
 /// Tries to unmount the given file system indefinitely.
 ///
 /// If unmounting fails, it is probably because the file system is busy.  We don't know but it
@@ -251,11 +277,11 @@ fn retry_unmount<P: AsRef<Path>>(mount_point: P) {
     let mut backoff = time::Duration::from_millis(10);
     let goal = time::Duration::from_secs(1);
     'retry: loop {
-        match fuse::unmount(mount_point.as_ref()) {
+        match unmount(mount_point.as_ref()) {
             Ok(()) => break 'retry,
             Err(e) => {
                 if backoff >= goal {
-                    warn!("Unmounting file system failed with error '{}'; will retry in {:?}",
+                    warn!("Unmounting file system failed with '{}'; will retry in {:?}",
                         e, backoff);
                 }
                 thread::sleep(backoff);

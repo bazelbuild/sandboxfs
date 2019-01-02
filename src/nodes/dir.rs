@@ -416,7 +416,8 @@ impl Node for Dir {
         if let Some(dirent) = state.children.get(name) {
             // TODO(jmmv): We should probably mark this dirent as an explicit mapping if it already
             // wasn't, but the Go variant of this code doesn't do this -- so investigate later.
-            ensure!(dirent.node.file_type_cached() == fuse::FileType::Directory, "Already mapped");
+            ensure!(dirent.node.file_type_cached() == fuse::FileType::Directory
+                && !remainder.is_empty(), "Already mapped");
             return dirent.node.map(remainder, underlying_path, writable, ids, cache);
         }
 
@@ -502,9 +503,10 @@ impl Node for Dir {
         };
 
         let exp_filetype = match sflag {
-            sys::stat::SFlag::S_IFCHR => fuse::FileType::CharDevice,
             sys::stat::SFlag::S_IFBLK => fuse::FileType::BlockDevice,
+            sys::stat::SFlag::S_IFCHR => fuse::FileType::CharDevice,
             sys::stat::SFlag::S_IFIFO => fuse::FileType::NamedPipe,
+            sys::stat::SFlag::S_IFREG => fuse::FileType::RegularFile,
             _ => {
                 warn!("mknod received request to create {} with type {:?}, which is not supported",
                     path.display(), sflag);
