@@ -24,7 +24,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
-	"github.com/bazelbuild/sandboxfs/internal/sandbox"
 )
 
 func TestReadOnly_DirectoryStructure(t *testing.T) {
@@ -206,14 +205,14 @@ func TestReadOnly_Attributes(t *testing.T) {
 			t.Errorf("Got mode %v for %s, want %v", innerFileInfo.Mode(), innerPath, outerFileInfo.Mode())
 		}
 
-		if sandbox.Atime(innerStat) != sandbox.Atime(outerStat) {
-			t.Errorf("Got atime %v for %s, want %v", sandbox.Atime(innerStat), innerPath, sandbox.Atime(outerStat))
+		if utils.Atime(innerStat) != utils.Atime(outerStat) {
+			t.Errorf("Got atime %v for %s, want %v", utils.Atime(innerStat), innerPath, utils.Atime(outerStat))
 		}
 		if innerFileInfo.ModTime() != outerFileInfo.ModTime() {
 			t.Errorf("Got mtime %v for %s, want %v", innerFileInfo.ModTime(), innerPath, outerFileInfo.ModTime())
 		}
-		if sandbox.Ctime(innerStat) != sandbox.Ctime(outerStat) {
-			t.Errorf("Got ctime %v for %s, want %v", sandbox.Ctime(innerStat), innerPath, sandbox.Ctime(outerStat))
+		if utils.Ctime(innerStat) != utils.Ctime(outerStat) {
+			t.Errorf("Got ctime %v for %s, want %v", utils.Ctime(innerStat), innerPath, utils.Ctime(outerStat))
 		}
 
 		// Even though we ignore underlying link counts, we expect these internal files to
@@ -226,20 +225,18 @@ func TestReadOnly_Attributes(t *testing.T) {
 			t.Errorf("Got rdev %v for %s, want %v", innerStat.Rdev, innerPath, outerStat.Rdev)
 		}
 
-		wantBlksize := outerStat.Blksize
-		if utils.GetConfig().RustVariant {
-			// The FUSE bindings for Rust only implement version 7.8 of the kernel
-			// protocol, which does not allow returning a block size from the getattr
-			// call.  Such a feature appeared with version 7.9.  The value we get is
-			// hardcoded so cope with it here.
-			switch runtime.GOOS {
-			case "darwin":
-				wantBlksize = 65536
-			case "linux":
-				wantBlksize = 4096
-			default:
-				t.Fatalf("Don't know how this test behaves in this platform")
-			}
+		wantBlksize := outerStat.Blksize // Assign only to automatically determine integer size.
+		// The FUSE bindings for Rust only implement version 7.8 of the kernel
+		// protocol, which does not allow returning a block size from the getattr
+		// call.  Such a feature appeared with version 7.9.  The value we get is
+		// hardcoded so cope with it here.
+		switch runtime.GOOS {
+		case "darwin":
+			wantBlksize = 65536
+		case "linux":
+			wantBlksize = 4096
+		default:
+			t.Fatalf("Don't know how this test behaves in this platform")
 		}
 		if innerStat.Blksize != wantBlksize {
 			t.Errorf("Got blocksize %v for %s, want %v", innerStat.Blksize, innerPath, wantBlksize)

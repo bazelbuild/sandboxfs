@@ -31,12 +31,7 @@ func TestLayout_MountPointDoesNotExist(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	mountPoint := filepath.Join(tempDir, "non-existent")
-	var wantStderr string
-	if utils.GetConfig().RustVariant {
-		wantStderr = "Failed to mount " + mountPoint + ".*No such"
-	} else {
-		wantStderr = "unable to mount: " + mountPoint + " does not exist"
-	}
+	wantStderr := "Failed to mount " + mountPoint + ".*No such"
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+tempDir, mountPoint)
 	if err != nil {
@@ -60,12 +55,7 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 	file := filepath.Join(tempDir, "file")
 	utils.MustWriteFile(t, file, 0644, "")
 
-	var wantStderr string
-	if utils.GetConfig().RustVariant {
-		wantStderr = "Failed to map root: .*" + file + ".* not a directory"
-	} else {
-		wantStderr = "unable to init sandbox: cannot map file " + file + " at root: must be a directory\n"
-	}
+	wantStderr := "Failed to map root: .*" + file + ".* not a directory"
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:"+file, "irrelevant-mount-point")
 	if err != nil {
@@ -80,12 +70,7 @@ func TestLayout_RootMustBeDirectory(t *testing.T) {
 }
 
 func TestLayout_TargetDoesNotExist(t *testing.T) {
-	var wantStderr string
-	if utils.GetConfig().RustVariant {
-		wantStderr = "Failed to map root: stat failed .*/non-existent"
-	} else {
-		wantStderr = "failed to stat /non-existent when mapping /.*\n"
-	}
+	wantStderr := "Failed to map root: stat failed .*/non-existent"
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/:/non-existent", "irrelevant-mount-point")
 	if err != nil {
@@ -106,12 +91,7 @@ func TestLayout_DuplicateMapping(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	var wantStderr string
-	if utils.GetConfig().RustVariant {
-		wantStderr = "Cannot map .*'/a/a .* Already mapped\n"
-	} else {
-		wantStderr = "unable to init sandbox: cannot map /a/a: already mapped\n"
-	}
+	wantStderr := "Cannot map .*'/a/a .* Already mapped\n"
 
 	path1 := filepath.Join(tempDir, "1")
 	utils.MustWriteFile(t, path1, 0644, "")
@@ -140,12 +120,7 @@ func TestLayout_TargetIsScaffoldDirectory(t *testing.T) {
 	file := filepath.Join(tempDir, "file")
 	utils.MustWriteFile(t, file, 0644, "")
 
-	var wantStderr string
-	if utils.GetConfig().RustVariant {
-		wantStderr = "Cannot map .*'/a .* Already mapped"
-	} else {
-		wantStderr = "unable to init sandbox: cannot map /a: already mapped\n"
-	}
+	wantStderr := "Cannot map .*'/a .* Already mapped"
 
 	stdout, stderr, err := utils.RunAndWait(1, "--mapping=ro:/a/b/c:"+tempDir, "--mapping=ro:/a:"+file, "irrelevant-mount-point")
 	if err != nil {

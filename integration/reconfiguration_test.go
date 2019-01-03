@@ -28,6 +28,8 @@ import (
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
+const invalidationsWork = false
+
 // tryReconfigure pushes a new configuration to the sandboxfs process and returns the response from
 // the process.
 func tryReconfigure(input io.Writer, output *bufio.Scanner, root string, config string) (string, error) {
@@ -80,8 +82,8 @@ func existsViaReaddir(dir string, name string) (bool, error) {
 // errorIfNotUnmapped fails the calling test case if the given directory entry, which is expected to
 // not be mapped any longer, still exists.
 func errorIfNotUnmapped(t *testing.T, dir string, name string) {
-	if utils.GetConfig().RustVariant {
-		// The Rust variant of sandboxfs currently lacks support for kernel cache
+	if !invalidationsWork {
+		// The FUSE library we use from Rust currently lacks support for kernel cache
 		// invalidations.  As a result, sandboxfs cannot make unmapped entries disappear
 		// right away (and setting a lower TTL for the file system does not help because
 		// OSXFUSE does nothing with the entries' TTL).  We know that this is suboptimal,
@@ -261,8 +263,8 @@ func TestReconfiguration_Unmap(t *testing.T) {
 }
 
 func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
-	if utils.GetConfig().RustVariant {
-		t.Skipf("Rust variant doesn't support kernel cache invalidations")
+	if !invalidationsWork {
+		t.Skipf("Kernel cache invalidations are not currently supported")
 	}
 
 	stdoutReader, stdoutWriter := io.Pipe()
@@ -366,84 +368,66 @@ func TestReconfiguration_Errors(t *testing.T) {
 	utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
 
-	errors := make(map[string]string)
-	if utils.GetConfig().RustVariant {
-		errors["InvalidSyntax"] = "expected ident"
-		errors["InvalidMapping"] = "path.*not absolute"
-		errors["EmptyStep"] = "expected value"
-		errors["MapAndUnmapInSameStep"] = "expected value"
-		errors["RemapRoot"] = "Root can be mapped at most once"
-		errors["MapTwice"] = "Already mapped"
-		errors["UnmapRoot"] = "Root cannot be unmapped"
-		errors["UnmapMissingEntryInMapping"] = "Unknown entry"
-		errors["UnmapMissingEntryInRealUnmappedDirectory"] = "Unknown entry"
-		errors["UnmapPathWithMissingComponents"] = "Unknown component in entry"
-	} else {
-		errors["InvalidSyntax"] = "unable to parse json"
-		errors["InvalidMapping"] = "invalid mapping foo/../.: empty path"
-		errors["EmptyStep"] = "neither Map nor Unmap were defined"
-		errors["MapAndUnmapInSameStep"] = "Map and Unmap are exclusive"
-		errors["RemapRoot"] = "root.*not more than once"
-		errors["MapTwice"] = "already mapped"
-		errors["UnmapRoot"] = "cannot unmap root"
-		errors["UnmapMissingEntryInMapping"] = "path not found"
-		errors["UnmapMissingEntryInRealUnmappedDirectory"] = "path not found"
-		errors["UnmapPathWithMissingComponents"] = "path not found"
-	}
-
 	testData := []struct {
 		name string
 
-		config string
+		config    string
+		wantError string
 	}{
 		{
 			"InvalidSyntax",
 			`this is not in the correct format`,
+			"expected ident",
 		},
 		{
 			"InvalidMapping",
 			`[{"Map": {"Mapping": "foo/../.", "Target": "%ROOT%/subdir", "Writable": false}}]`,
+			"path.*not absolute",
 		},
 		{
 			"EmptyStep",
 			`[{}]`,
+			"expected value",
 		},
 		{
 			"MapAndUnmapInSameStep",
 			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]`,
+			"expected value",
 		},
 		{
 			"RemapRoot",
 			`[{"Map": {"Mapping": "/", "Target": "%ROOT%/subdir", "Writable": false}}]`,
+			"Root can be mapped at most once",
 		},
 		{
 			"MapTwice",
 			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%/subdir", "Writable": false}}, {"Map": {"Mapping": "/foo", "Target": "%ROOT%/file", "Writable": false}}]`,
+			"Already mapped",
 		},
 		{
 			"UnmapRoot",
 			`[{"Unmap": "/"}]`,
+			"Root cannot be unmapped",
 		},
 		{
 			"UnmapMissingEntryInMapping",
 			`[{"Map": {"Mapping": "/subdir", "Target": "%ROOT%/subdir", "Writable": false}}, {"Unmap": "/subdir/foo"}]`,
+			"Unknown entry",
 		},
 		{
 			"UnmapMissingEntryInRealUnmappedDirectory",
 			`[{"Unmap": "/subdir/foo"}]`,
+			"Unknown entry",
 		},
 		{
 			"UnmapPathWithMissingComponents",
 			`[{"Unmap": "/missing/long/path"}]`,
+			"Unknown component in entry",
 		},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			wantError, ok := errors[d.name]
-			if !ok {
-				panic("Inconsistent test data")
-			}
-			checkBadConfig(d.config, wantError)
+			checkBadConfig(d.config, d.wantError)
 		})
 	}
 
@@ -575,8 +559,8 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 }
 
 func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
-	if utils.GetConfig().RustVariant {
-		t.Skipf("Rust variant doesn't support kernel cache invalidations")
+	if !invalidationsWork {
+		t.Skipf("Kernel cache invalidations are not currently supported")
 	}
 
 	// inodeOf obtains the inode number of a file.
@@ -658,8 +642,8 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 }
 
 func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
-	if utils.GetConfig().RustVariant {
-		t.Skipf("Rust variant doesn't support kernel cache invalidations")
+	if !invalidationsWork {
+		t.Skipf("Kernel cache invalidations are not currently supported")
 	}
 
 	stdoutReader, stdoutWriter := io.Pipe()
@@ -731,11 +715,7 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	defer state.TearDown(t)
 
 	gotEOF := make(chan bool)
-	if utils.GetConfig().RustVariant {
-		go grepStderr(stderrReader, `Reached end of reconfiguration input`, gotEOF)
-	} else {
-		go grepStderr(stderrReader, `reached end of input`, gotEOF)
-	}
+	go grepStderr(stderrReader, `Reached end of reconfiguration input`, gotEOF)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
 	config := `[{"Map": {"Mapping": "/dir", "Target": "%ROOT%/dir", "Writable": true}}]`
@@ -765,24 +745,22 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 
 	nonExistentFile := filepath.Join(tempDir, "non-existent/file")
 
-	var inputError string
-	var outputError string
-	if utils.GetConfig().RustVariant {
-		inputError = fmt.Sprintf("Failed to open reconfiguration input '%s': No such file or directory", nonExistentFile)
-		outputError = fmt.Sprintf("Failed to open reconfiguration output '%s': No such file or directory", nonExistentFile)
-	} else {
-		inputError = fmt.Sprintf("unable to open file \"%s\" for reading: open %s: no such file or directory", nonExistentFile, nonExistentFile)
-		outputError = fmt.Sprintf("unable to open file \"%s\" for writing: open %s: no such file or directory", nonExistentFile, nonExistentFile)
-	}
-
 	testData := []struct {
 		name string
 
 		flag       string
 		wantStderr string
 	}{
-		{"Input", "--input=" + nonExistentFile, inputError},
-		{"Output", "--output=" + nonExistentFile, outputError},
+		{
+			"Input",
+			"--input=" + nonExistentFile,
+			fmt.Sprintf("Failed to open reconfiguration input '%s': No such file or directory", nonExistentFile),
+		},
+		{
+			"Output",
+			"--output=" + nonExistentFile,
+			fmt.Sprintf("Failed to open reconfiguration output '%s': No such file or directory", nonExistentFile),
+		},
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {

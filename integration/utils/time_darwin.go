@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-package sandbox
+package utils
 
 import (
 	"syscall"
@@ -21,15 +21,15 @@ import (
 
 // Atime obtains the access time from a system-specific stat structure.
 func Atime(s *syscall.Stat_t) time.Time {
-	return timespecToTime(s.Atimespec)
+	return time.Unix(int64(s.Atimespec.Sec), int64(s.Atimespec.Nsec))
 }
 
 // Ctime obtains the inode change time from a system-specific stat structure.
 func Ctime(s *syscall.Stat_t) time.Time {
-	return timespecToTime(s.Ctimespec)
+	return time.Unix(int64(s.Ctimespec.Sec), int64(s.Ctimespec.Nsec))
 }
 
 // Mtime obtains the modification time from a system-specific stat structure.
 func Mtime(s *syscall.Stat_t) time.Time {
-	return timespecToTime(s.Mtimespec)
+	return time.Unix(int64(s.Mtimespec.Sec), int64(s.Mtimespec.Nsec))
 }

@@ -13,21 +13,26 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-# This is a shell script and not a Go program because we have to run
-# bazel-gopath, and the bazel-gopath tool invokes Bazel on its own.  So, if
-# this were a Go program and we wanted to tell users to invoke it with "bazel
-# run" as we do for all other tools, bazel-gopath would get stuck because Bazel
-# can only run one command at a time.  It's easier for now to just keep this as
-# a shell-script so that it's impossible to run it from within Bazel.
-#
-# TODO(jmmv): Convert to a Go program once bazel-gopath is fixed to not need
-# to run Bazel.  (E.g. it could be made to read query outputs from a dependency
-# and then have a Bazel genquery rule to supply such data as a dependency.)
-
 set -e
 
 readonly PROGNAME="${0##*/}"
 readonly SRCDIR="$(cd "$(dirname "${0}")" && pwd -P)"
+
+# Settings that end up in the Makefile.
+CARGO=cargo
+CLEANFILES=target
+GOPATH="$(pwd)/.gopath"
+GOROOT=
+IS_BMAKE=
+IS_GNUMAKE=
+PREFIX=
+DISTCLEANFILES="Makefile ${GOPATH}"
+
+# List of variables exposed to the Makefile.
+MK_VARS="CARGO CLEANFILES DISTCLEANFILES GOPATH GOROOT PREFIX"
+
+# List of variables replaced in the Makefile.
+MK_SUBSTS="IS_BMAKE IS_GNUMAKE"
 
 err() {
   echo "${PROGNAME}: E: ${@}" 1>&2
@@ -36,6 +41,53 @@ err() {
 
 info() {
   echo "${PROGNAME}: I: ${@}" 1>&2
+}
+
+find_prog() {
+    local prog="${1}"; shift
+
+    local oldifs="${IFS}"
+    IFS=:
+    set -- ${PATH}
+    IFS="${oldifs}"
+
+    while [ ${#} -gt 0 ]; do
+        if [ -x "${1}/${prog}" ]; then
+            echo "${1}/${prog}"
+            return 0
+        else
+            shift
+        fi
+    done
+    return 1
+}
+
+find_progs() {
+    while [ ${#} -gt 0 ]; do
+        if find_prog "${1}"; then
+            return 0
+        else
+            shift
+        fi
+    done
+    return 1
+}
+
+setup_cargo() {
+    local user_override="${1}"; shift
+
+    if [ -n "${user_override}" ]; then
+        [ -e "${user_override}" ] || err "cargo not found in" \
+            "${user_override}; bogus argument to --cargo?"
+        CARGO="${user_override}"
+    else
+        local cargo="$(find_progs cargo)"
+        [ -n "${cargo}" ] || err "Cannot find cargo in path; pass" \
+            "--cargo=/path/to/cargo to configure"
+        CARGO="${cargo}"
+    fi
+
+    info "Using Cargo from: ${CARGO}"
 }
 
 # Installs git hooks into the git directory provided in git_dir.
@@ -50,44 +102,112 @@ setup_git() {
   cd - >/dev/null 2>&1
 }
 
+setup_go() {
+  local user_override="${1}"; shift
+
+  if [ -n "${user_override}" ]; then
+    GOROOT="${user_override}"
+  else
+    local go="$(find_progs go)"
+    [ -n "${go}" ] && GOROOT="$(dirname "$(dirname "${go}")")"
+  fi
+
+  if [ -z "${GOROOT}" ]; then
+    info "Go not found; cannot run integration tests"
+  else
+    info "Using Go with GOROOT: ${GOROOT}"
+
+    mkdir -p .gopath/src/github.com/bazelbuild
+    rm -f .gopath/src/github.com/bazelbuild/sandboxfs
+    ln -s ../../../.. .gopath/src/github.com/bazelbuild/sandboxfs
+
+    for dep in \
+        bazil.org/fuse \
+        golang.org/x/lint/golint \
+        golang.org/x/net/context \
+        golang.org/x/sys/unix
+    do
+      info "Fetching Go dependency ${dep}"
+      GOPATH="${GOPATH}" "${GOROOT}/bin/go" get "${dep}"
+    done
+  fi
+}
+
+setup_make() {
+  IS_BMAKE=#
+  IS_GNUMAKE=#
+  if make --version >/dev/null 2>&1; then
+    info "make is GNU Make"
+    IS_GNUMAKE=
+  else
+    info "make is bmake"
+    IS_BMAKE=
+  fi
+}
+
+setup_prefix() {
+  local prefix="${1:-/usr/local}"; shift
+
+  info "Installation prefix is ${prefix}"
+  PREFIX="${prefix}"
+}
+
 setup_vscode() {
-  bazel build @bazel_gopath//:bazel-gopath
-
-  # Populate bazel-sandboxfs/ with symlinks to all source files, required later
-  # on as targets for the generated gopath.
-  bazel build //cmd/sandboxfs:sandboxfs
-
-  # The glob below is necessary because of
-  # https://github.com/bazelbuild/rules_go/issues/1239.  Given that we have
-  # done a single build for a single target configuration, we know that the
-  # glob will only match one binary.
-  ./bazel-bin/external/bazel_gopath/*/bazel-gopath --workspace="$(pwd)"
-
   {
     echo '// AUTOMATICALLY GENERATED!!!'
     echo '// EDIT settings.json.in INSTEAD'
     sed \
-        -e "s,__GOPATH__,$(pwd)/.gopath,g" \
-        -e "s,__GOROOT__,$(pwd)/bazel-sandboxfs/external/go_sdk,g" \
+        -e "s,__GOPATH__,${GOPATH},g" \
+        -e "s,__GOROOT__,${GOROOT},g" \
         -e "s,__TOOLS_GOPATH__,$(pwd)/.gopath-tools,g" \
         .vscode/settings.json.in
   } >.vscode/settings.json
 }
 
+generate_makefile() {
+    local src="${1}"; shift
+    local dest="${1}"; shift
+
+    info "Generating ${dest}"
+    echo "# AUTOMATICALLY GENERATED; DO NOT EDIT!" >"${dest}.tmp"
+    for var in ${MK_VARS}; do
+        local value
+        eval "value=\"\$${var}\""
+        echo "${var} = ${value}" >>"${dest}.tmp"
+    done
+    local substs=
+    for var in ${MK_SUBSTS}; do
+        local value
+        eval "value=\"\$${var}\""
+        substs="${substs} -e s,@${var}@,${value},g"
+    done
+    sed ${substs} "${src}" >>"${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
+}
+
 main() {
   cd "${SRCDIR}"
 
-  local enable_vscode=no
+  local cargo=
+  local goroot=
+  local prefix=
   for arg in "${@}"; do
     case "${arg}" in
-      --enable-vscode) enable_vscode=yes ;;
+      --cargo=*) cargo="${arg#*=}" ;;
+      --goroot=*) goroot="${arg#*=}" ;;
+      --prefix=*) prefix="${arg#*=}" ;;
       *) err "Unknown argument ${arg}" ;;
     esac
   done
 
+  setup_cargo "${cargo}"
   [ -d .git ] && setup_git .git
+  setup_go "${goroot}"
+  setup_make
+  setup_prefix "${prefix}"
+  setup_vscode
 
-  [ "${enable_vscode}" = no ] || setup_vscode
+  generate_makefile Makefile.in Makefile
 }
 
 main "${@}"
