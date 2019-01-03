@@ -14,6 +14,11 @@ have to build and install it from a fresh checkout of the GitHub tree.
     1.  The build scripts will use `cargo` from your path but you can set
         a different location by passing the `--cargo=/path/to/cargo` flag.
 
+    1.  The build scripts will use `go` from your path but you can set a
+        different location by passing the `--goroot=/path/to/goroot` flag.
+        You can also use the magic `none` value to disable Go usage, but
+        this will prevent running the integration tests or the code linter.
+
 1.  Run `make release` to download all required dependencies and build the
     final binary.
 

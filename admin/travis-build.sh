@@ -22,7 +22,8 @@ rootenv+=(PATH="${PATH}")
 readonly rootenv
 
 do_install() {
-  ./configure --cargo="${HOME}/.cargo/bin/cargo" --prefix="/opt/sandboxfs"
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --goroot=none \
+      --prefix="/opt/sandboxfs"
   make release
   make install DESTDIR="$(pwd)/destdir"
   test -x destdir/opt/sandboxfs/bin/sandboxfs

@@ -45,18 +45,28 @@ check-unit: Cargo.toml $(RUST_SRCS)
 @IS_BMAKE@GO_SRCS != find integration -name "*.go"
 @IS_GNUMAKE@GO_SRCS = $(shell find integration -name "*.go")
 check-integration: target/debug/sandboxfs $(GO_SRCS)
-	GOPATH=$(GOPATH) GOROOT=$(GOROOT) $(GOROOT)/bin/go test \
-	    -v -timeout=600s \
-	    github.com/bazelbuild/sandboxfs/integration \
-	    -sandboxfs_binary="$$(pwd)/target/debug/sandboxfs" \
-	    $(CHECK_INTEGRATION_FLAGS)
+	@if [ -n "$(GOROOT)" ]; then \
+	    set -x; \
+	    GOPATH=$(GOPATH) GOROOT=$(GOROOT) $(GOROOT)/bin/go test \
+	        -v -timeout=600s \
+	        github.com/bazelbuild/sandboxfs/integration \
+	        -sandboxfs_binary="$$(pwd)/target/debug/sandboxfs" \
+	        $(CHECK_INTEGRATION_FLAGS); \
+	else \
+	    echo "WARNING: Go not enabled; integration tests not run"; \
+	fi
 
 .PHONY: lint
 lint:
 	$(CARGO) clippy -- -D warnings
-	PATH=$(GOPATH)/bin:$${PATH} GOPATH=$(GOPATH) GOROOT=$(GOROOT) \
-            $(GOROOT)/bin/go run \
-	    github.com/bazelbuild/sandboxfs/admin/lint $(LINT_FILES)
+	@if [ -n "$(GOROOT)" ]; then \
+	    set -x; \
+	    PATH=$(GOPATH)/bin:$${PATH} GOPATH=$(GOPATH) GOROOT=$(GOROOT) \
+	        $(GOROOT)/bin/go run \
+	        github.com/bazelbuild/sandboxfs/admin/lint $(LINT_FILES); \
+	else \
+	    echo "WARNING: Go not enabled; linter not run"; \
+	fi
 
 .PHONY: install
 install: target/release/sandboxfs

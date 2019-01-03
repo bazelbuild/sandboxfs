@@ -106,7 +106,7 @@ setup_go() {
   local user_override="${1}"; shift
 
   if [ -n "${user_override}" ]; then
-    GOROOT="${user_override}"
+    [ "${user_override}" = none ] || GOROOT="${user_override}"
   else
     local go="$(find_progs go)"
     [ -n "${go}" ] && GOROOT="$(dirname "$(dirname "${go}")")"
