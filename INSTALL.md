@@ -1,10 +1,42 @@
 # Installation instructions
 
-Given that there have not yet been any formal releases of sandboxfs, there
-currently are no prebuilt binaries available.  To use sandboxfs, you will
-have to build and install it from a fresh checkout of the GitHub tree.
+## Using the macOS installer
 
-1.  [Download and install Rust](https://www.rust-lang.org/).
+1.  [Download and install OSXFUSE](https://osxfuse.github.io/).
+
+1.  Download the `sandboxfs-<release>-<date>.pkg` file attached to the
+    latest release in the
+    [releases page](https://github.com/bazelbuild/sandboxfs/releases).
+
+1.  Double-click the downloaded file and follow the instructions.
+
+Should you want to uninstall sandboxfs at any point, you can run
+`/usr/local/share/sandboxfs/uninstall.sh` to cleanly remove all installed
+files.
+
+## From crates.io
+
+1.  [Download and install Rust](https://www.rust-lang.org/).  If you already
+    had it installed, make sure you are on a new-enough version by running
+    `rustup update`.
+
+1.  Download and install FUSE for your system.  On Linux this will vary
+    on a distribution basis, and on macOS you can [install
+    OSXFUSE](https://osxfuse.github.io/).
+
+1.  Run `cargo install sandboxfs`.
+
+## From a GitHub checkout
+
+1.  [Download and install Rust](https://www.rust-lang.org/).  If you already
+    had it installed, make sure you are on a new-enough version by running
+    `rustup update`.
+
+1.  Download and install FUSE for your system.  On Linux this will vary
+    on a distribution basis, and on macOS you can [install
+    OSXFUSE](https://osxfuse.github.io/).
+
+1.  Download and install `pkg-config` or `pkgconf`.
 
 1.  Run `./configure` to generate the scripts that will allow installation.
 
