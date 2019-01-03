@@ -96,7 +96,7 @@ case "${DO}" in
     install_rust
     ;;
 
-  install|package|test)
+  install|macos_pkg|package|test)
     install_fuse
     install_rust
     if [ "${FEATURES}" = profiling ]; then
