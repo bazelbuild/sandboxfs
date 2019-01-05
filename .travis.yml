@@ -39,6 +39,21 @@ env:
   - DO=lint
   - DO=test
 
+jobs:
+  include:
+    # Validating sandboxfs against a Bazel build is expensive (think over
+    # 25 minutes per job) and doesn't provide full proof that sandboxfs
+    # works.  We had cases where this test passed but sandboxfs had obvious
+    # bugs in it which were only triggered by running Bazel against more
+    # complex projects.  Therefore, it's OK to compromise and run this as a
+    # periodic job only.
+    - if: type = cron
+      env: DO=bazel
+      os: linux
+    - if: type = cron
+      env: DO=bazel
+      os: osx
+
 install: ./admin/travis-install.sh
 script: ./admin/travis-build.sh
 

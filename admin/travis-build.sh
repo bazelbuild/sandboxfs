@@ -21,6 +21,23 @@ rootenv+=(PATH="${PATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
 readonly rootenv
 
+# Verifies that Bazel (our primary customer) integrates well with sandboxfs.
+# This is a simple smoke test that builds Bazel with itself: there is no
+# guarantee that more complex builds wouldn't fail due to sandboxfs bugs.
+do_bazel() {
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --goroot=none
+  make release
+  ( cd bazel && bazel \
+      build \
+      --experimental_use_sandboxfs \
+      --experimental_sandboxfs_path="$(pwd)/../target/release/sandboxfs" \
+      --spawn_strategy=sandboxed \
+      //src:bazel )
+  ./bazel/bazel-bin/src/bazel help
+}
+
+# Verifies that the "make install" procedure works and respects both the
+# user-supplied prefix and destdir.
 do_install() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo" --goroot=none \
       --prefix="/opt/sandboxfs"
@@ -31,11 +48,13 @@ do_install() {
   test -e destdir/opt/sandboxfs/share/doc/sandboxfs/README.md
 }
 
+# Ensures that the source tree is sane according to our coding style.
 do_lint() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo"
   make lint
 }
 
+# Runs sandboxfs' unit and integration tests.
 do_test() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo"
   make debug
@@ -45,7 +64,7 @@ do_test() {
 }
 
 case "${DO}" in
-  install|lint|test)
+  bazel|install|lint|test)
     "do_${DO}"
     ;;
 
