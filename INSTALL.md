@@ -68,3 +68,20 @@ files.
 sandboxfs has optional support for the gperftools profiling tools.  If you have
 that package installed, you can pass `--features=profiling` to the `configure`
 script and sandboxfs's `--cpu_profile` flag will become functional.
+
+## macOS only: Enable "allow other" support in OSXFUSE
+
+In order to run system binaries within a sandboxfs mount point (which is
+the primary goal of using sandboxfs), you must enable OSXFUSE's "allow
+other" support; otherwise, necessary core macOS security services [will deny
+executions](http://julio.meroh.net/2017/10/fighting-execs-sandboxfs-macos.html).
+
+To do this, run the following for a one-time change:
+
+    sudo sysctl -w vfs.generic.osxfuse.tunables.allow_other=1
+
+Note that you cannot do this via `/etc/sysctl.conf` because the OSXFUSE
+kernel extension has not yet been loaded when this file is parsed.
+
+The macOS installer configures your system to do this automatically at
+every boot by using a launch agent.

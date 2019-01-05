@@ -63,13 +63,15 @@ do_macos_pkg() {
   ./admin/make-macos-pkg.sh --cargo="${HOME}/.cargo/bin/cargo"
   local pkg="$(echo sandboxfs-*.*.*-????????-macos.pkg)"
 
-  find /etc /usr/local >before.list
-  sudo installer -pkg "${pkg}" -target /
+  sudo find /Library /etc /usr/local >before.list
+  sudo sysctl -w vfs.generic.osxfuse.tunables.allow_other=0
 
+  sudo installer -pkg "${pkg}" -target /
+  test "$(sysctl -n vfs.generic.osxfuse.tunables.allow_other)" -eq 1
   /usr/local/bin/sandboxfs --version
 
   sudo /usr/local/libexec/sandboxfs/uninstall.sh
-  find /etc /usr/local >after.list
+  sudo find /Library /etc /usr/local >after.list
   if ! cmp -s before.list after.list; then
     echo "Files left behind after installation:"
     diff -u before.list after.list

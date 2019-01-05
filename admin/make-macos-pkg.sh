@@ -45,6 +45,24 @@ info() {
 }
 
 
+# Creates the package scripts.
+#
+# \param dir Directory in which to store the scripts.
+write_scripts() {
+    local dir="${1}"; shift
+
+    mkdir -p "${dir}"
+    cat >"${dir}/postinstall" <<EOF
+#! /bin/sh
+
+# Try to configure OSXFUSE immediately after installation so that things
+# work as intended without having to first go through a reboot.
+/usr/local/libexec/sandboxfs/setup-osxfuse.sh || true
+EOF
+    chmod +x "${dir}/postinstall"
+}
+
+
 # Modifies the fresh sandboxfs installation for our packaging needs.
 #
 # \param root Path to the new file system root used to build the package.
@@ -56,7 +74,12 @@ configure_root() {
 /usr/local/bin
 EOF
 
+    mkdir -p "${root}/Library/LaunchDaemons"
+    cp admin/org.bazelbuild.sandboxfs.setup-osxfuse.plist \
+        "${root}/Library/LaunchDaemons"
+
     mkdir -p "${root}/usr/local/libexec/sandboxfs"
+    cp admin/setup-osxfuse.sh "${root}/usr/local/libexec/sandboxfs"
     cat >"${root}/usr/local/libexec/sandboxfs/uninstall.sh" <<EOF
 #! /bin/sh
 
@@ -113,10 +136,12 @@ main() {
     local pkgfile="sandboxfs-${pkgversion}-macos.pkg"
 
     info "Building package ${pkgfile}"
+    write_scripts "${tempdir}/scripts"
     ( cd "${tempdir}/root" && find . ) | sed 's,^,MANIFEST: ,'
     pkgbuild \
         --identifier com.github.bazelbuild.sandboxfs \
         --root "${tempdir}/root" \
+        --scripts "${tempdir}/scripts" \
         --version "${pkgversion}" \
         "${pkgfile}"
 }
