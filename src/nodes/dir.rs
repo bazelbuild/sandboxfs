@@ -42,6 +42,13 @@ fn split_components<'a>(components: &'a [Component<'a>]) -> (&'a OsStr, &'a [Com
     (name, &components[1..])
 }
 
+/// Contents of a single `fuse::ReplyDirectory` reply; used for pagination.
+struct ReplyEntry {
+    inode: u64,
+    fs_type: fuse::FileType,
+    name: OsString,
+}
+
 /// Handle for an open directory.
 struct OpenDir {
     // These are copies of the fields that also exist in the Dir corresponding to this OpenDir.
@@ -56,16 +63,35 @@ struct OpenDir {
     /// Handle for the open directory file descriptor.  This is `None` if the directory does not
     /// have an underlying path.
     handle: Mutex<Option<rawdir::Dir>>,
+
+    /// Contents of this directory.  This is populated on the first `readdir` request that has an
+    /// offset of zero and reused for all further calls until the contents are consumed.
+    ///
+    /// Doing this means that mutations to the directory won't be visible to `readdir` while a
+    /// "stream" of partial `readdir` calls is in progress.  This is probably a good thing.
+    reply_contents: Mutex<Vec<ReplyEntry>>,
 }
 
-impl Handle for OpenDir {
-    fn readdir(&self, ids: &IdGenerator, cache: &Cache, reply: &mut fuse::ReplyDirectory)
-        -> NodeResult<()> {
+impl OpenDir {
+    /// Reads all directory entries in one go.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when readdir discovers an underlying node that was not yet known.
+    fn readdirall(&self, ids: &IdGenerator, cache: &Cache) -> NodeResult<Vec<ReplyEntry>> {
+        let mut reply = vec!();
+
         let mut state = self.state.lock().unwrap();
 
-        reply.add(self.inode, 0, fuse::FileType::Directory, ".");
-        reply.add(state.parent, 1, fuse::FileType::Directory, "..");
-        let mut pos = 2;
+        reply.push(ReplyEntry {
+            inode: self.inode,
+            fs_type: fuse::FileType::Directory,
+            name: OsString::from(".")
+        });
+        reply.push(ReplyEntry {
+            inode: state.parent,
+            fs_type: fuse::FileType::Directory,
+            name: OsString::from("..")
+        });
 
         // First, return the entries that correspond to explicit mappings performed by the user at
         // either mount time or during a reconfiguration.  Those should clobber any on-disk
@@ -73,8 +99,11 @@ impl Handle for OpenDir {
         // if any.
         for (name, dirent) in &state.children {
             if dirent.explicit_mapping {
-                reply.add(dirent.node.inode(), pos, dirent.node.file_type_cached(), name);
-                pos += 1;
+                reply.push(ReplyEntry {
+                    inode: dirent.node.inode(),
+                    fs_type: dirent.node.file_type_cached(),
+                    name: name.clone()
+                });
             }
         }
 
@@ -82,7 +111,7 @@ impl Handle for OpenDir {
 
         if handle.is_none() {
             debug_assert!(state.underlying_path.is_none());
-            return Ok(());
+            return Ok(reply);
         }
         debug_assert!(state.underlying_path.is_some());
         let handle = handle.as_mut().unwrap();
@@ -91,6 +120,10 @@ impl Handle for OpenDir {
             let name = entry.file_name();
 
             let name = OsStr::from_bytes(name.to_bytes()).to_os_string();
+
+            if name == "." || name == ".." {
+                continue;
+            }
 
             if let Some(dirent) = state.children.get(&name) {
                 if dirent.explicit_mapping {
@@ -113,7 +146,8 @@ impl Handle for OpenDir {
             let fs_type = conv::filetype_fs_to_fuse(&path, fs_attr.file_type());
             let child = cache.get_or_create(ids, &path, &fs_attr, self.writable);
 
-            reply.add(child.inode(), pos, fs_type, &name);
+            reply.push(ReplyEntry { inode: child.inode(), fs_type: fs_type, name: name.clone() });
+
             // Do the insertion into state.children after calling reply.add() to be able to move
             // the name into the key without having to copy it again.
             let dirent = Dirent {
@@ -126,11 +160,36 @@ impl Handle for OpenDir {
             // state.children that correspond to unmapped entries, and any stale entries visited
             // during lookup will result in an ENOENT.
             state.children.insert(name, dirent);
-
-            pos += 1;
         }
         // No need to worry about rewinding handle.iter() for future reads on the same OpenDir:
         // the rawdir::Dir implementation does this for us.
+        Ok(reply)
+    }
+}
+
+impl Handle for OpenDir {
+    fn readdir(&self, ids: &IdGenerator, cache: &Cache, offset: i64,
+        reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
+        let mut offset: usize = offset as usize;
+
+        let mut contents = self.reply_contents.lock().unwrap();
+        if offset == 0 {
+            *contents = self.readdirall(ids, cache)?;
+        } else {
+            // When the kernel asks us to return extra entries from a partially-read directory, it
+            // does so by giving us the offset of the last entry we returned -- not the first one
+            // that we ought to return.  Therefore, advance the offset by one to avoid duplicate
+            // return values and to avoid entering an infinite loop.
+            offset += 1;
+        }
+
+        while offset < contents.len() {
+            let entry = &contents[offset];
+            if reply.add(entry.inode, offset as i64, entry.fs_type, &entry.name) {
+                break;  // Reply buffer is full.
+            }
+            offset += 1;
+        }
         Ok(())
     }
 }
@@ -565,6 +624,7 @@ impl Node for Dir {
             writable: self.writable,
             state: self.state.clone(),
             handle: Mutex::from(handle),
+            reply_contents: Mutex::from(vec!()),
         }))
     }
 
