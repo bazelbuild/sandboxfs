@@ -240,7 +240,11 @@ pub trait Handle {
         panic!("Not implemented")
     }
 
-    /// Reads all directory entries into the given reply object.
+    /// Reads directory entries into the given reply object until it is full.
+    ///
+    /// `_offset` indicates the "identifier" of the *last* entry we returned to the kernel in a past
+    /// `readdir` call, not the index of the first entry to return.  This difference is subtle but
+    /// important, as an offset of zero has to be handled especially.
     ///
     /// While this takes a `fuse::ReplyDirectory` object as a parameter for efficiency reasons, it
     /// is the responsibility of the caller to invoke `reply.ok()` and `reply.error()` on the same
@@ -249,8 +253,8 @@ pub trait Handle {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when readdir discovers an underlying node that was not yet known.
-    fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _reply: &mut fuse::ReplyDirectory)
-        -> NodeResult<()> {
+    fn readdir(&self, _ids: &IdGenerator, _cache: &Cache, _offset: i64,
+        _reply: &mut fuse::ReplyDirectory) -> NodeResult<()> {
         panic!("Not implemented");
     }
 

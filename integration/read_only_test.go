@@ -15,6 +15,8 @@
 package integration
 
 import (
+	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"runtime"
@@ -132,6 +134,42 @@ func TestReadOnly_MoveUnderlyingDirectory(t *testing.T) {
 	}
 	if err := utils.DirEquals(state.RootPath("third"), state.MountPath("third")); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestReadOnly_ReadLargeDir(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=ro:/dir:%ROOT%/dir", "--mapping=ro:/scaffold/abc:%ROOT%/dir")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	wantNames := make(map[string]bool)
+	for i := 0; i < 4096; i++ {
+		name := fmt.Sprintf("this-is-a-long-file-name-%08d", i)
+		utils.MustWriteFile(t, state.RootPath("dir", name), 0644, "")
+		wantNames[name] = true
+	}
+
+	entries, err := ioutil.ReadDir(state.MountPath("dir"))
+	if err != nil {
+		t.Fatalf("readdir failed: %v", err)
+	}
+	names := make(map[string]bool)
+	for _, entry := range entries {
+		if _, ok := names[entry.Name()]; ok {
+			t.Errorf("readdir returned duplicate entry for %s", entry.Name())
+		}
+		names[entry.Name()] = true
+	}
+
+	for wantName := range wantNames {
+		if _, ok := names[wantName]; !ok {
+			t.Errorf("readdir didn't return entry for %s", wantName)
+		}
+	}
+	for name := range names {
+		if _, ok := wantNames[name]; !ok {
+			t.Errorf("readdir returned entry for non-existent entry %s", name)
+		}
 	}
 }
 

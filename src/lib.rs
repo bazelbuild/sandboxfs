@@ -538,19 +538,10 @@ impl fuse::Filesystem for SandboxFS {
 
     fn readdir(&mut self, _req: &fuse::Request, _inode: u64, handle: u64, offset: i64,
                mut reply: fuse::ReplyDirectory) {
-        if offset == 0 {
-            let handle = self.find_handle(handle);
-            match handle.readdir(&self.ids, &self.cache, &mut reply) {
-                Ok(()) => reply.ok(),
-                Err(e) => reply.error(e.errno_as_i32()),
-            }
-        } else {
-            assert!(offset > 0, "Do not know what to do with a negative offset");
-            // Our handle.readdir() implementation reads the whole directory in one go.  Therefore,
-            // if we get an offset different than zero, it's because the kernel has already
-            // completed the first read and is asking us for extra entries -- of which there will
-            // be none.
-            reply.ok();
+        let handle = self.find_handle(handle);
+        match handle.readdir(&self.ids, &self.cache, offset, &mut reply) {
+            Ok(()) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
         }
     }
 
