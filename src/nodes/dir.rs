@@ -428,12 +428,10 @@ impl Dir {
         // because different lookups on different nodes could still race against the cache state.
         // We don't bother for now though: the Rust FUSE library serializes all requests so this
         // situation cannot arise.
-        let node_type = state.children.get(name)
-            .expect("Presence guaranteed by get_writable_path call above").node.file_type_cached();
-        cache.delete(&path, node_type);
-
-        state.children[name].node.delete();
-        state.children.remove(name);
+        let entry = state.children.remove(name)
+            .expect("Presence guaranteed by get_writable_path call above");
+        cache.delete(&path, entry.node.file_type_cached());
+        entry.node.delete();
         Ok(())
     }
 }
