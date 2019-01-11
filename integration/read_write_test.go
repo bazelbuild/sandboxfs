@@ -1014,3 +1014,56 @@ func TestReadWrite_SymlinkAndReadlink(t *testing.T) {
 		t.Errorf("Want symlink target to be %s, got %s", target, gotTarget)
 	}
 }
+
+func TestReadWrite_MmapAfterMovesWorks(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	content := "some contents"
+	utils.MustWriteFile(t, state.RootPath("name1"), 0644, content)
+	utils.MustWriteFile(t, state.RootPath("name2"), 0644, "")
+
+	readViaMmap := func(fd int) {
+		data, err := syscall.Mmap(fd, 0, 8, syscall.PROT_READ, syscall.MAP_FILE|syscall.MAP_PRIVATE)
+		if err != nil {
+			t.Fatalf("Mmap failed: %v", err)
+		}
+		defer syscall.Munmap(data)
+
+		// If sandboxfs confuses the kernel at any point during the file operations we
+		// perform below, this read causes the test to crash.
+		if dummy := data[0]; dummy != content[0] {
+			t.Errorf("Got byte %b, want %b", dummy, content[0])
+		}
+	}
+
+	path1 := state.MountPath("name1")
+	path2 := state.MountPath("name2")
+
+	fd, err := syscall.Open(path1, syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	readViaMmap(fd)
+	syscall.Close(fd)
+
+	fd, err = syscall.Open(path2, syscall.O_WRONLY|syscall.O_TRUNC, 0)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	if _, err := syscall.Write(fd, []byte(content)); err != nil {
+		t.Fatalf("Cannot write: %v", err)
+	}
+	syscall.Close(fd)
+
+	if err := os.Rename(path2, path1); err != nil {
+		t.Fatalf("Rename failed: %v", err)
+	}
+
+	fd, err = syscall.Open(path1, syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	readViaMmap(fd)
+	syscall.Close(fd)
+}

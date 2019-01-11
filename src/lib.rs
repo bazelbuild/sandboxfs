@@ -432,7 +432,7 @@ impl SandboxFS {
         match node.open(flags) {
             Ok(handle) => {
                 let fh = self.insert_handle(handle);
-                reply.opened(fh, flags);
+                reply.opened(fh, 0);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -463,7 +463,7 @@ impl fuse::Filesystem for SandboxFS {
             Ok((node, handle, attr)) => {
                 self.insert_node(node);
                 let fh = self.insert_handle(handle);
-                reply.created(&self.ttl, &attr, IdGenerator::GENERATION, fh, flags);
+                reply.created(&self.ttl, &attr, IdGenerator::GENERATION, fh, 0);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
