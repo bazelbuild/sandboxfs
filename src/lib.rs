@@ -610,18 +610,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        let nix_mode = mode.map(|m| {
-            let sys_mode = m as sys::stat::mode_t;
-            let nix_mode = sys::stat::Mode::from_bits_truncate(sys_mode);
-            if sys_mode != nix_mode.bits() {
-                warn!("setattr on inode {} with mode {} can only apply mode {:?}",
-                    inode, sys_mode, nix_mode);
-            }
-            nix_mode
-        });
-
         let values = nodes::AttrDelta {
-            mode: nix_mode,
+            mode: mode.map(|m| sys::stat::Mode::from_bits_truncate(m as sys::stat::mode_t)),
             uid: uid.map(unistd::Uid::from_raw),
             gid: gid.map(unistd::Gid::from_raw),
             atime: atime.map(nodes::conv::timespec_to_timeval),
