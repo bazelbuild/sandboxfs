@@ -297,9 +297,17 @@ func TestReadWrite_FtruncateOnDeletedFile(t *testing.T) {
 	}
 }
 
+// sameInode compares two os.FileInfo objects and returns true if they refer to the same inode.
+func sameInode(stat1 os.FileInfo, stat2 os.FileInfo) bool {
+	ino1 := stat1.Sys().(*syscall.Stat_t).Ino
+	ino2 := stat2.Sys().(*syscall.Stat_t).Ino
+
+	return ino1 == ino2
+}
+
 // equivalentStats compares two os.FileInfo objects and returns nil if they represent the same
 // file; otherwise returns a descriptive error including the differences between the two.
-// This equivalency is to be used during file move tess, to check if a file was actually moved
+// This equivalency is to be used during file move tests, to check if a file was actually moved
 // instead of recreated.
 func equivalentStats(stat1 os.FileInfo, stat2 os.FileInfo) error {
 	ino1 := stat1.Sys().(*syscall.Stat_t).Ino
@@ -352,6 +360,13 @@ func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInn
 	}
 	if err := utils.FileEquals(newInnerPath, "some content"); err != nil {
 		t.Fatalf("New file name in mount point missing or with bad contents: %s: %v", newInnerPath, err)
+	}
+
+	if !sameInode(oldOuterStat, newOuterStat) {
+		t.Errorf("Inode was not preserved for %s to %s move", oldOuterPath, newOuterPath)
+	}
+	if !sameInode(oldInnerStat, newInnerStat) {
+		t.Errorf("Inode was not preserved for %s to %s move", oldInnerPath, newInnerPath)
 	}
 
 	if err := equivalentStats(oldOuterStat, newOuterStat); err != nil {

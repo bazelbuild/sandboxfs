@@ -626,7 +626,7 @@ impl Node for Dir {
         }))
     }
 
-    fn rename(&self, old_name: &OsStr, new_name: &OsStr) -> NodeResult<()> {
+    fn rename(&self, old_name: &OsStr, new_name: &OsStr, cache: &Cache) -> NodeResult<()> {
         let mut state = self.state.lock().unwrap();
 
         let old_path = Dir::get_writable_path(&mut state, old_name)?;
@@ -637,12 +637,13 @@ impl Node for Dir {
         let dirent = state.children.remove(old_name)
             .expect("get_writable_path call above ensured the child exists");
         dirent.node.set_underlying_path(&new_path);
+        cache.rename(&old_path, new_path, dirent.node.file_type_cached());
         state.children.insert(new_name.to_owned(), dirent);
         Ok(())
     }
 
-    fn rename_and_move_source(&self, old_name: &OsStr, new_dir: ArcNode, new_name: &OsStr)
-        -> NodeResult<()> {
+    fn rename_and_move_source(&self, old_name: &OsStr, new_dir: ArcNode, new_name: &OsStr,
+        cache: &Cache) -> NodeResult<()> {
         debug_assert!(self.inode != new_dir.as_ref().inode(),
             "Same-directory renames have to be done via `rename`");
 
@@ -652,7 +653,7 @@ impl Node for Dir {
 
         let (old_name, dirent) = state.children.remove_entry(old_name)
             .expect("get_writable_path call above ensured the child exists");
-        let result = new_dir.rename_and_move_target(&dirent, &old_path, new_name);
+        let result = new_dir.rename_and_move_target(&dirent, &old_path, new_name, cache);
         if result.is_err() {
             // "Roll back" any changes we did to the current directory because the rename could not
             // be completed on the target.
@@ -661,8 +662,8 @@ impl Node for Dir {
         result
     }
 
-    fn rename_and_move_target(&self, dirent: &Dirent, old_path: &Path, new_name: &OsStr)
-        -> NodeResult<()> {
+    fn rename_and_move_target(&self, dirent: &Dirent, old_path: &Path, new_name: &OsStr,
+        cache: &Cache) -> NodeResult<()> {
         // We are locking the target node while the source node is already locked, so this can
         // deadlock.  The previous Go implementation of this code ordered the locks based on inode
         // numbers so we should do the same thing here, but then this two-phase move implementation
@@ -682,6 +683,7 @@ impl Node for Dir {
         fs::rename(&old_path, &new_path)?;
 
         dirent.node.set_underlying_path(&new_path);
+        cache.rename(&old_path, new_path, dirent.node.file_type_cached());
         state.children.insert(new_name.to_owned(), dirent.clone());
         Ok(())
     }

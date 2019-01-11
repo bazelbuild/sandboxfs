@@ -260,6 +260,21 @@ impl Cache {
             entries.remove(path).expect("Tried to delete unknown path from the cache");
         }
     }
+
+    /// Renames the entry `old_path` to `new_path` in the cache.
+    ///
+    /// The `file_type` corresponds to the type of the mapping that points to the given `old_path`.
+    /// We don't need this information to rename an entry from the cache, but we use it to perform
+    /// consistency checks.
+    pub fn rename(&self, old_path: &Path, new_path: PathBuf, file_type: fuse::FileType) {
+        let mut entries = self.entries.lock().unwrap();
+        if file_type == fuse::FileType::Directory {
+            debug_assert!(!entries.contains_key(old_path), "Directories are not currently cached");
+        } else {
+            let node = entries.remove(old_path).expect("Tried to rename unknown path in the cache");
+            entries.insert(new_path, node);
+        }
+    }
 }
 
 /// FUSE file system implementation of sandboxfs.
@@ -572,14 +587,14 @@ impl fuse::Filesystem for SandboxFS {
         }
 
         let result = if parent == new_parent {
-            dir_node.rename(name, new_name)
+            dir_node.rename(name, new_name, &self.cache)
         } else {
             let new_dir_node = self.find_node(new_parent);
             if !new_dir_node.writable() {
                 reply.error(Errno::EPERM as i32);
                 return;
             }
-            dir_node.rename_and_move_source(name, new_dir_node, new_name)
+            dir_node.rename_and_move_source(name, new_dir_node, new_name, &self.cache)
         };
         match result {
             Ok(()) => reply.ok(),
