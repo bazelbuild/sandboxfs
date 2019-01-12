@@ -260,6 +260,21 @@ impl Cache {
             entries.remove(path).expect("Tried to delete unknown path from the cache");
         }
     }
+
+    /// Renames the entry `old_path` to `new_path` in the cache.
+    ///
+    /// The `file_type` corresponds to the type of the mapping that points to the given `old_path`.
+    /// We don't need this information to rename an entry from the cache, but we use it to perform
+    /// consistency checks.
+    pub fn rename(&self, old_path: &Path, new_path: PathBuf, file_type: fuse::FileType) {
+        let mut entries = self.entries.lock().unwrap();
+        if file_type == fuse::FileType::Directory {
+            debug_assert!(!entries.contains_key(old_path), "Directories are not currently cached");
+        } else {
+            let node = entries.remove(old_path).expect("Tried to rename unknown path in the cache");
+            entries.insert(new_path, node);
+        }
+    }
 }
 
 /// FUSE file system implementation of sandboxfs.
@@ -417,7 +432,7 @@ impl SandboxFS {
         match node.open(flags) {
             Ok(handle) => {
                 let fh = self.insert_handle(handle);
-                reply.opened(fh, flags);
+                reply.opened(fh, 0);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -448,7 +463,7 @@ impl fuse::Filesystem for SandboxFS {
             Ok((node, handle, attr)) => {
                 self.insert_node(node);
                 let fh = self.insert_handle(handle);
-                reply.created(&self.ttl, &attr, IdGenerator::GENERATION, fh, flags);
+                reply.created(&self.ttl, &attr, IdGenerator::GENERATION, fh, 0);
             },
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -572,14 +587,14 @@ impl fuse::Filesystem for SandboxFS {
         }
 
         let result = if parent == new_parent {
-            dir_node.rename(name, new_name)
+            dir_node.rename(name, new_name, &self.cache)
         } else {
             let new_dir_node = self.find_node(new_parent);
             if !new_dir_node.writable() {
                 reply.error(Errno::EPERM as i32);
                 return;
             }
-            dir_node.rename_and_move_source(name, new_dir_node, new_name)
+            dir_node.rename_and_move_source(name, new_dir_node, new_name, &self.cache)
         };
         match result {
             Ok(()) => reply.ok(),
@@ -610,18 +625,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        let nix_mode = mode.map(|m| {
-            let sys_mode = m as sys::stat::mode_t;
-            let nix_mode = sys::stat::Mode::from_bits_truncate(sys_mode);
-            if sys_mode != nix_mode.bits() {
-                warn!("setattr on inode {} with mode {} can only apply mode {:?}",
-                    inode, sys_mode, nix_mode);
-            }
-            nix_mode
-        });
-
         let values = nodes::AttrDelta {
-            mode: nix_mode,
+            mode: mode.map(|m| sys::stat::Mode::from_bits_truncate(m as sys::stat::mode_t)),
             uid: uid.map(unistd::Uid::from_raw),
             gid: gid.map(unistd::Gid::from_raw),
             atime: atime.map(nodes::conv::timespec_to_timeval),

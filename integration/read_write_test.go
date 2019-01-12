@@ -297,9 +297,17 @@ func TestReadWrite_FtruncateOnDeletedFile(t *testing.T) {
 	}
 }
 
+// sameInode compares two os.FileInfo objects and returns true if they refer to the same inode.
+func sameInode(stat1 os.FileInfo, stat2 os.FileInfo) bool {
+	ino1 := stat1.Sys().(*syscall.Stat_t).Ino
+	ino2 := stat2.Sys().(*syscall.Stat_t).Ino
+
+	return ino1 == ino2
+}
+
 // equivalentStats compares two os.FileInfo objects and returns nil if they represent the same
 // file; otherwise returns a descriptive error including the differences between the two.
-// This equivalency is to be used during file move tess, to check if a file was actually moved
+// This equivalency is to be used during file move tests, to check if a file was actually moved
 // instead of recreated.
 func equivalentStats(stat1 os.FileInfo, stat2 os.FileInfo) error {
 	ino1 := stat1.Sys().(*syscall.Stat_t).Ino
@@ -352,6 +360,13 @@ func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInn
 	}
 	if err := utils.FileEquals(newInnerPath, "some content"); err != nil {
 		t.Fatalf("New file name in mount point missing or with bad contents: %s: %v", newInnerPath, err)
+	}
+
+	if !sameInode(oldOuterStat, newOuterStat) {
+		t.Errorf("Inode was not preserved for %s to %s move", oldOuterPath, newOuterPath)
+	}
+	if !sameInode(oldInnerStat, newInnerStat) {
+		t.Errorf("Inode was not preserved for %s to %s move", oldInnerPath, newInnerPath)
 	}
 
 	if err := equivalentStats(oldOuterStat, newOuterStat); err != nil {
@@ -998,4 +1013,57 @@ func TestReadWrite_SymlinkAndReadlink(t *testing.T) {
 	if target != gotTarget {
 		t.Errorf("Want symlink target to be %s, got %s", target, gotTarget)
 	}
+}
+
+func TestReadWrite_MmapAfterMovesWorks(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	content := "some contents"
+	utils.MustWriteFile(t, state.RootPath("name1"), 0644, content)
+	utils.MustWriteFile(t, state.RootPath("name2"), 0644, "")
+
+	readViaMmap := func(fd int) {
+		data, err := syscall.Mmap(fd, 0, 8, syscall.PROT_READ, syscall.MAP_FILE|syscall.MAP_PRIVATE)
+		if err != nil {
+			t.Fatalf("Mmap failed: %v", err)
+		}
+		defer syscall.Munmap(data)
+
+		// If sandboxfs confuses the kernel at any point during the file operations we
+		// perform below, this read causes the test to crash.
+		if dummy := data[0]; dummy != content[0] {
+			t.Errorf("Got byte %b, want %b", dummy, content[0])
+		}
+	}
+
+	path1 := state.MountPath("name1")
+	path2 := state.MountPath("name2")
+
+	fd, err := syscall.Open(path1, syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	readViaMmap(fd)
+	syscall.Close(fd)
+
+	fd, err = syscall.Open(path2, syscall.O_WRONLY|syscall.O_TRUNC, 0)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	if _, err := syscall.Write(fd, []byte(content)); err != nil {
+		t.Fatalf("Cannot write: %v", err)
+	}
+	syscall.Close(fd)
+
+	if err := os.Rename(path2, path1); err != nil {
+		t.Fatalf("Rename failed: %v", err)
+	}
+
+	fd, err = syscall.Open(path1, syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	readViaMmap(fd)
+	syscall.Close(fd)
 }

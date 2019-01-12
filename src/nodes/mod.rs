@@ -400,7 +400,10 @@ pub trait Node {
     ///
     /// This operation is separate from "rename and move" because it acts on a single directory and
     /// therefore we only need to lock one node.
-    fn rename(&self, _name: &OsStr, _new_name: &OsStr) -> NodeResult<()> {
+    ///
+    /// `_cache` is the file system-wide bookkeeping object that caches underlying paths to nodes,
+    /// which needs to be update to account for the node rename.
+    fn rename(&self, _name: &OsStr, _new_name: &OsStr, _cache: &Cache) -> NodeResult<()> {
         panic!("Not implemented");
     }
 
@@ -413,8 +416,11 @@ pub trait Node {
     /// This is the "first half" of the move operation.  This hook locks the source node, extracts
     /// any necessary information from it, and then delegates to the target node to complete the
     /// move.  The source node must remain locked for the duration of the move.
-    fn rename_and_move_source(&self, _old_name: &OsStr, _new_dir: ArcNode, _new_name: &OsStr)
-        -> NodeResult<()> {
+    ///
+    /// `_cache` is the file system-wide bookkeeping object that caches underlying paths to nodes,
+    /// which needs to be update to account for the node rename.
+    fn rename_and_move_source(&self, _old_name: &OsStr, _new_dir: ArcNode, _new_name: &OsStr,
+        _cache: &Cache) -> NodeResult<()> {
         panic!("Not implemented");
     }
 
@@ -429,8 +435,11 @@ pub trait Node {
     ///
     /// If the target node is not a directory, this operation shall fail with `ENOTDIR` (the
     /// default implementation).
-    fn rename_and_move_target(&self, _dirent: &dir::Dirent, _old_path: &Path, _new_name: &OsStr)
-        -> NodeResult<()> {
+    ///
+    /// `_cache` is the file system-wide bookkeeping object that caches underlying paths to nodes,
+    /// which needs to be update to account for the node rename.
+    fn rename_and_move_target(&self, _dirent: &dir::Dirent, _old_path: &Path, _new_name: &OsStr,
+        _cache: &Cache) -> NodeResult<()> {
         Err(KernelError::from_errno(Errno::ENOTDIR))
     }
 
