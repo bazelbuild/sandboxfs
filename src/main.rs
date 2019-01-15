@@ -205,6 +205,8 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     let mut opts = Options::new();
     opts.optopt("", "allow", concat!("specifies who should have access to the file system",
         " (default: self)"), "other|root|self");
+    opts.optopt("", "cpu_profile", "enables CPU profiling and writes a profile to the given path",
+        "PATH");
     opts.optflag("", "help", "prints usage information and exits");
     opts.optflagopt("", "input", "where to read reconfiguration data from (- for stdin)", "PATH");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
@@ -265,6 +267,10 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
+    let _profiler;
+    if let Some(path) = matches.opt_str("cpu_profile") {
+        _profiler = sandboxfs::ScopedProfiler::start(&path).context("Failed to start CPU profile")?;
+    };
     sandboxfs::mount(mount_point, &options, &mappings, ttl, input, output)
         .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())

@@ -32,6 +32,8 @@ Options:
     --allow other|root|self
                         specifies who should have access to the file system
                         (default: self)
+    --cpu_profile PATH  enables CPU profiling and writes a profile to the
+                        given path
     --help              prints usage information and exits
     --input [PATH]      where to read reconfiguration data from (- for stdin)
     --mapping TYPE:PATH:UNDERLYING_PATH

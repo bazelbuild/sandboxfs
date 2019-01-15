@@ -67,6 +67,21 @@ install_fuse() {
   esac
 }
 
+install_gperftools() {
+  case "${TRAVIS_OS_NAME}" in
+    linux)
+      # Assume install_fuse has already run, which updates the packages
+      # repository and also installs pkg-config.
+      sudo apt-get install -qq libgoogle-perftools-dev
+      ;;
+
+    *)
+      echo "Don't know how to install gperftools for OS ${TRAVIS_OS_NAME}" 1>&2
+      exit 1
+      ;;
+  esac
+}
+
 install_rust() {
   # We need to manually install Rust because we can only specify a single
   # language in .travis.yml, and that language is Go for now.
@@ -84,6 +99,9 @@ case "${DO}" in
   install|test)
     install_fuse
     install_rust
+    if [ "${FEATURES}" = profiling ]; then
+      install_gperftools
+    fi
     ;;
 
   lint)
