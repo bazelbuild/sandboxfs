@@ -15,6 +15,9 @@
 
 set -e -u
 
+# Default to no features to avoid cluttering .travis.yml.
+: "${FEATURES:=}"
+
 install_bazel() {
   local osname
   case "${TRAVIS_OS_NAME}" in

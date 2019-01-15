@@ -24,6 +24,7 @@ import (
 )
 
 var (
+	features         = flag.String("features", "", "Whitespace-separated list of features enabled during the build")
 	releaseBuild     = flag.Bool("release_build", true, "Whether the tested binary was built for release or not")
 	sandboxfsBinary  = flag.String("sandboxfs_binary", "", "Path to the sandboxfs binary to test; cannot be empty and must point to an existent binary")
 	unprivilegedUser = flag.String("unprivileged_user", "", "Username of the system user to use for tests that require non-root permissions; can be empty, in which case those tests are skipped")
@@ -34,7 +35,7 @@ func TestMain(m *testing.M) {
 	if len(*sandboxfsBinary) == 0 {
 		log.Fatalf("--sandboxfs_binary must be provided")
 	}
-	if err := utils.SetConfigFromFlags(*releaseBuild, *sandboxfsBinary, *unprivilegedUser); err != nil {
+	if err := utils.SetConfigFromFlags(*features, *releaseBuild, *sandboxfsBinary, *unprivilegedUser); err != nil {
 		log.Fatalf("invalid flags configuration: %v", err)
 	}
 

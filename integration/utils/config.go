@@ -17,10 +17,15 @@ package utils
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
 // Config represents the configuration for the integration tests as provided in the command line.
 type Config struct {
+	// Features contains the set of features enabled during the build.  This represents a set
+	// and therefore the values in the map are meaningless.
+	Features map[string]bool
+
 	// ReleaseBinary is true if the binary provided in SandboxfsBinary was built in release
 	// mode, false otherwise.
 	ReleaseBinary bool
@@ -41,9 +46,14 @@ var globalConfig *Config
 
 // SetConfigFromFlags initializes the test configuration based on the raw values provided by the
 // user on the command line.  Returns an error if any of those values is incorrect.
-func SetConfigFromFlags(releaseBinary bool, rawSandboxfsBinary string, unprivilegedUserName string) error {
+func SetConfigFromFlags(rawFeatures string, releaseBinary bool, rawSandboxfsBinary string, unprivilegedUserName string) error {
 	if globalConfig != nil {
 		panic("SetConfigFromFlags can only be called once")
+	}
+
+	features := make(map[string]bool)
+	for _, feature := range strings.Split(rawFeatures, " ") {
+		features[feature] = true
 	}
 
 	sandboxfsBinary, err := filepath.Abs(rawSandboxfsBinary)
@@ -60,6 +70,7 @@ func SetConfigFromFlags(releaseBinary bool, rawSandboxfsBinary string, unprivile
 	}
 
 	globalConfig = &Config{
+		Features:         features,
 		ReleaseBinary:    releaseBinary,
 		SandboxfsBinary:  sandboxfsBinary,
 		UnprivilegedUser: unprivilegedUser,

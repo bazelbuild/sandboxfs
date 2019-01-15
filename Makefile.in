@@ -15,6 +15,8 @@
 .PHONY: all
 all: Makefile debug
 
+CARGO_FLAGS = --features "$(FEATURES)"
+
 # TODO(jmmv): Should automatically reinvoke configure... but this is difficult
 # because we need to remember the flags originally passed by the user, and
 # we need to tell make to reload the Makefile somehow.
@@ -25,7 +27,7 @@ Makefile: configure Makefile.in
 @IS_BMAKE@RUST_SRCS != find src -name "*.rs"
 @IS_GNUMAKE@RUST_SRCS = $(shell find src -name "*.rs")
 target/debug/sandboxfs: Cargo.toml $(RUST_SRCS)
-	$(CARGO) build
+	$(CARGO) build $(CARGO_FLAGS)
 
 .PHONY: debug
 debug: target/debug/sandboxfs
@@ -34,13 +36,13 @@ debug: target/debug/sandboxfs
 release: target/release/sandboxfs
 
 target/release/sandboxfs: Cargo.toml $(RUST_SRCS)
-	$(CARGO) build --release
+	$(CARGO) build $(CARGO_FLAGS) --release
 
 .PHONY: check
 check: check-unit check-integration
 
 check-unit: Cargo.toml $(RUST_SRCS)
-	$(CARGO) test --verbose
+	$(CARGO) test $(CARGO_FLAGS) --verbose
 
 @IS_BMAKE@GO_SRCS != find integration -name "*.go"
 @IS_GNUMAKE@GO_SRCS = $(shell find integration -name "*.go")
@@ -50,6 +52,7 @@ check-integration: target/debug/sandboxfs $(GO_SRCS)
 	    GOPATH=$(GOPATH) GOROOT=$(GOROOT) $(GOROOT)/bin/go test \
 	        -v -timeout=600s \
 	        github.com/bazelbuild/sandboxfs/integration \
+	        -features="$(FEATURES)" \
 	        -sandboxfs_binary="$$(pwd)/target/debug/sandboxfs" \
 	        $(CHECK_INTEGRATION_FLAGS); \
 	else \
@@ -58,7 +61,7 @@ check-integration: target/debug/sandboxfs $(GO_SRCS)
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy -- -D warnings
+	$(CARGO) clippy $(CARGO_FLAGS) -- -D warnings
 	@if [ -n "$(GOROOT)" ]; then \
 	    set -x; \
 	    PATH=$(GOPATH)/bin:$${PATH} GOPATH=$(GOPATH) GOROOT=$(GOROOT) \

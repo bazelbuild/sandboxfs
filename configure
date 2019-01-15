@@ -21,6 +21,7 @@ readonly SRCDIR="$(cd "$(dirname "${0}")" && pwd -P)"
 # Settings that end up in the Makefile.
 CARGO=cargo
 CLEANFILES=target
+FEATURES=
 GOPATH="$(pwd)/.gopath"
 GOROOT=
 IS_BMAKE=
@@ -29,7 +30,7 @@ PREFIX=
 DISTCLEANFILES="Makefile ${GOPATH}"
 
 # List of variables exposed to the Makefile.
-MK_VARS="CARGO CLEANFILES DISTCLEANFILES GOPATH GOROOT PREFIX"
+MK_VARS="CARGO CLEANFILES DISTCLEANFILES FEATURES GOPATH GOROOT PREFIX"
 
 # List of variables replaced in the Makefile.
 MK_SUBSTS="IS_BMAKE IS_GNUMAKE"
@@ -194,6 +195,7 @@ main() {
   for arg in "${@}"; do
     case "${arg}" in
       --cargo=*) cargo="${arg#*=}" ;;
+      --features=*) FEATURES="${arg#*=}" ;;
       --goroot=*) goroot="${arg#*=}" ;;
       --prefix=*) prefix="${arg#*=}" ;;
       *) err "Unknown argument ${arg}" ;;
