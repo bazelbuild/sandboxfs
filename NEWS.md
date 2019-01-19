@@ -1,5 +1,13 @@
 # Major changes between releases
 
+## Changes in version 0.1.1
+
+**STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
+
+* Switched to the hashbrown implementation of Swiss Tables for hash maps,
+  which brings an up to 1% performance improvement during Bazel builds
+  that use sandboxfs.
+
 ## Changes in version 0.1.0
 
 **Released on 2019-02-05.**
