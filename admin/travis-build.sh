@@ -15,6 +15,9 @@
 
 set -e -u -x
 
+# Default to no features to avoid cluttering .travis.yml.
+: "${FEATURES:=}"
+
 rootenv=()
 rootenv+=(PATH="${PATH}")
 [ "${GOPATH-unset}" = unset ] || rootenv+=(GOPATH="${GOPATH}")
@@ -25,7 +28,8 @@ readonly rootenv
 # This is a simple smoke test that builds Bazel with itself: there is no
 # guarantee that more complex builds wouldn't fail due to sandboxfs bugs.
 do_bazel() {
-  ./configure --cargo="${HOME}/.cargo/bin/cargo" --goroot=none
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}" \
+      --goroot=none
   make release
   ( cd bazel && bazel \
       build \
@@ -39,8 +43,8 @@ do_bazel() {
 # Verifies that the "make install" procedure works and respects both the
 # user-supplied prefix and destdir.
 do_install() {
-  ./configure --cargo="${HOME}/.cargo/bin/cargo" --goroot=none \
-      --prefix="/opt/sandboxfs"
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}" \
+      --goroot=none --prefix="/opt/sandboxfs"
   make release
   make install DESTDIR="$(pwd)/destdir"
   test -x destdir/opt/sandboxfs/bin/sandboxfs
@@ -50,13 +54,13 @@ do_install() {
 
 # Ensures that the source tree is sane according to our coding style.
 do_lint() {
-  ./configure --cargo="${HOME}/.cargo/bin/cargo"
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}"
   make lint
 }
 
 # Runs sandboxfs' unit and integration tests.
 do_test() {
-  ./configure --cargo="${HOME}/.cargo/bin/cargo"
+  ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}"
   make debug
   make check
   sudo -H "${rootenv[@]}" -s make check-integration \

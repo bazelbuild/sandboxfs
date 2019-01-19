@@ -13,6 +13,10 @@ version = "0.1.0"
 [badges]
 travis-ci = { repository = "bazelbuild/sandboxfs", branch = "master" }
 
+[features]
+default = []
+profiling = ["cpuprofiler"]
+
 [dependencies]
 env_logger = "0.5"
 failure = "~0.1.2"
@@ -23,6 +27,13 @@ serde_derive = "1.0"
 serde_json = "1.0"
 signal-hook = "0.1"
 time = "0.1"
+
+[dependencies.cpuprofiler]
+# TODO(https://github.com/AtheMathmo/cpuprofiler/pull/10): Replace this with
+# 0.0.4 or an upstream branch reference once released.
+git = "https://github.com/jmmv/cpuprofiler.git"
+rev = "a852024d6aed7202863dc43a3348e793aa432d54"
+optional = true
 
 [dependencies.fuse]
 # TODO(jmmv): Replace this with 0.4 once released.

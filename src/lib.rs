@@ -28,6 +28,7 @@
 // increases readability.
 #![allow(clippy::redundant_field_names)]
 
+#[cfg(feature = "profiling")] extern crate cpuprofiler;
 #[macro_use] extern crate failure;
 extern crate fuse;
 #[macro_use] extern crate log;
@@ -55,8 +56,11 @@ use time::Timespec;
 
 mod concurrent;
 mod nodes;
+mod profiling;
 mod reconfig;
 #[cfg(test)] mod testutils;
+
+pub use profiling::ScopedProfiler;
 
 /// An error indicating that a mapping specification (coming from the command line or from a
 /// reconfiguration operation) is invalid.

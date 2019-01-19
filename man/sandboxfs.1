@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd January 2, 2019
+.Dd January 15, 2019
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -20,10 +20,11 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl -allow Ar who
-.Op Fl -input Ar file
+.Op Fl -cpu_profile Ar path
+.Op Fl -input Ar path
 .Op Fl -help
 .Op Fl -mapping Ar type:mapping:target
-.Op Fl -output Ar file
+.Op Fl -output Ar path
 .Op Fl -ttl Ar duration
 .Op Fl -version
 .Ar mount_point
@@ -88,6 +89,15 @@ This is because the
 .Xr amfid 8
 daemon, which implements the signature validation, runs as a different user
 and must be able to access the executables.
+.It Fl -cpu_profile Ar path
+Enables CPU profiling and stores the pprof log to the given
+.Ar path .
+This feature is only available if
+.Nm
+was built with gperftools support (i.e. with the compile-time
+.Sq profiler
+feature).
+Passing this flag when support is not enabled results in an error.
 .It Fl -input Ar path
 Points to the file from which to read new configuration requests, or
 .Sq -

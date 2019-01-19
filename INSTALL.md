@@ -30,3 +30,9 @@ have to build and install it from a fresh checkout of the GitHub tree.
 
     *   You will (most likely) need superuser permissions to install
         under `/usr/local`, so run the previous command with `sudo`.
+
+## Profiling support
+
+sandboxfs has optional support for the gperftools profiling tools.  If you have
+that package installed, you can pass `--features=profiling` to the `configure`
+script and sandboxfs's `--cpu_profile` flag will become functional.

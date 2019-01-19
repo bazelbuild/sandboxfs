@@ -38,6 +38,7 @@ env:
   - DO=install
   - DO=lint
   - DO=test
+  - DO=test FEATURES=profiling
 
 jobs:
   include:
@@ -68,4 +69,9 @@ matrix:
     # For code linting, we just need to run this under a single configuration.
     # Trim all but one, and prefer Linux over macOS because it's much faster.
     - env: DO=lint
+      os: osx
+
+    # For the "profiling" feature, just make sure the code works under one
+    # platform.  We don't really inspect the profile results here.
+    - env: DO=test FEATURES=profiling
       os: osx
