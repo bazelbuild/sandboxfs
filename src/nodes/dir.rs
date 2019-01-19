@@ -17,10 +17,10 @@ extern crate time;
 
 use {Cache, IdGenerator};
 use failure::{Fallible, ResultExt};
+use hashbrown::HashMap;
 use nix::{errno, fcntl, sys, unistd};
 use nix::dir as rawdir;
 use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
-use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{self as unix_fs, DirBuilderExt, OpenOptionsExt};
