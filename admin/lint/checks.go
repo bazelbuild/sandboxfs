@@ -93,17 +93,32 @@ func checkNoTabs(workspaceDir string, file string) error {
 	return nil
 }
 
-// runLinter is a helper function to run a linter that prints diagnostics to stdout and returns true
-// even when the given files are not compliant.  The arguments indicate the full command line to
-// run, including the path to the tool as the first argument.  The file to check is expected to
-// appear as the last argument.
-func runLinter(toolName string, arg ...string) error {
+// captureErrorsFromStdout configures the given non-started "cmd" to save its stdout into "output"
+// and to print stderr to this process' stderr.
+func captureErrorsFromStdout(cmd *exec.Cmd, output *bytes.Buffer) {
+	cmd.Stdout = output
+	cmd.Stderr = os.Stderr
+}
+
+// captureErrorsFromStderr configures the given non-started "cmd" to save its stderr into "output"
+// and to silence its stdout.
+func captureErrorsFromStderr(cmd *exec.Cmd, output *bytes.Buffer) {
+	cmd.Stdout = nil
+	cmd.Stderr = output
+}
+
+// runLinter runs a "linting" helper binary that prints diagnostics to some output and whose exit
+// status is always true.  "captureErrors" takes a lambda to configure the command to save its
+// diagnostics to the given buffer, and is used to account for tools that print messages to either
+// stdout or stderr.  The remaining arguments indicate the full command line to run, including the
+// path to the tool as the first argument.  The file to check is expected to appear as the last
+// argument.
+func runLinter(captureErrors func(*exec.Cmd, *bytes.Buffer), toolName string, arg ...string) error {
 	file := arg[len(arg)-1]
 
 	var output bytes.Buffer
 	cmd := exec.Command(toolName, arg...)
-	cmd.Stdout = &output
-	cmd.Stderr = os.Stderr
+	captureErrors(cmd, &output)
 	err := cmd.Run()
 	if err != nil {
 		return fmt.Errorf("%s check failed for %s: %v", toolName, file, err)
@@ -119,7 +134,7 @@ func runLinter(toolName string, arg ...string) error {
 // checkGoFmt checks if the given file is formatted according to gofmt and, if not, prints a diff
 // detailing what's wrong with the file to stdout and returns an error.
 func checkGofmt(workspaceDir string, file string) error {
-	return runLinter("gofmt", "-d", "-e", "-s", file)
+	return runLinter(captureErrorsFromStdout, "gofmt", "-d", "-e", "-s", file)
 }
 
 // checkGoLint checks if the given file passes golint checks and, if not, prints diagnostic messages
@@ -130,7 +145,14 @@ func checkGolint(workspaceDir string, file string) error {
 	// docstring in other packages.
 	minConfidenceFlag := "-min_confidence=0.3"
 
-	return runLinter("golint", minConfidenceFlag, file)
+	return runLinter(captureErrorsFromStdout, "golint", minConfidenceFlag, file)
+}
+
+// checkManpage checks if the given manual page contains any formatting errors by attempting to
+// render it.  The output of the rendering is ignored and any errors are printed to stdout,
+// returning an error.
+func checkManpage(workspaceDir string, file string) error {
+	return runLinter(captureErrorsFromStderr, "man", file)
 }
 
 // checkAll runs all possible checks on a file.  Returns true if all checks pass, and false
@@ -159,6 +181,8 @@ func checkAll(workspaceDir string, file string) bool {
 	if filepath.Ext(file) == ".go" {
 		runCheck(checkGofmt, file)
 		runCheck(checkGolint, file)
+	} else if mustMatch("^\\.[0-9]$", filepath.Ext(file)) {
+		runCheck(checkManpage, file)
 	} else if !isBuildFile {
 		runCheck(checkNoTabs, file)
 	}

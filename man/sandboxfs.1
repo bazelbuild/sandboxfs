@@ -137,7 +137,7 @@ which has priority over this one.
 .Pp
 The first line printed to stdout is machine parseable and follows the following
 structure:
-.Bd -literal -indent
+.Bd -literal -offset indent
 sandboxfs MAJOR.MINOR[.ADDITIONAL OPTIONAL QUALIFIERS]
 .Ed
 .Pp
@@ -312,7 +312,7 @@ The following example configures a sandbox that maps the whole host's
 file system but clears
 .Pa /tmp
 to point into a sandbox-specific writable directory:
-.Bd -literal -indent
+.Bd -literal -offset indent
 sandboxfs --mapping=ro:/:/ --mapping=rw:/tmp:/tmp/fresh-tmp /mnt
 .Ed
 .Pp
@@ -321,7 +321,7 @@ This example modifies an existing sandbox by adding a new mapping for
 and redoing the mapping for
 .Pa /foo
 by pointing it at another location.
-.Bd -literal -indent
+.Bd -literal -offset indent
 [
     {"Map": {"Mapping": "/tmp", "Target": "/tmp/abc", "Writable": true}},
     {"Unmap": "/foo"},
