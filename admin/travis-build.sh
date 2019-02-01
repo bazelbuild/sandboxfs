@@ -58,6 +58,13 @@ do_lint() {
   make lint
 }
 
+# Ensures that we can build a publishable crate and that it is sane.
+do_package() {
+  # Intentionally avoids ./configure to certify that the code is buildable
+  # directly from Cargo.
+  "${HOME}/.cargo/bin/cargo" publish --dry-run
+}
+
 # Runs sandboxfs' unit and integration tests.
 do_test() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}"
@@ -68,7 +75,7 @@ do_test() {
 }
 
 case "${DO}" in
-  bazel|install|lint|test)
+  bazel|install|lint|package|test)
     "do_${DO}"
     ;;
 
