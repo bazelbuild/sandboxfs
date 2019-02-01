@@ -16,7 +16,6 @@
 
 use fuse;
 use nix::{sys, unistd};
-use std::collections::HashMap;
 use std::fs;
 use std::os::unix;
 use std::path::PathBuf;
@@ -29,11 +28,13 @@ pub struct AllFileTypes {
     #[allow(unused)]  // Must retain to delay directory deletion.
     root: TempDir,
 
-    /// Collection of test files keyed by their type.
+    /// Collection of test files.
     ///
-    /// Tests should iterate over this map and consume all entries to ensure all possible file types
-    /// are verified everywhere.  Prefer using `match` on the key to achieve this.
-    pub entries: HashMap<fuse::FileType, PathBuf>,
+    /// Tests should iterate over this vector and consume all entries to ensure all possible file
+    /// types are verified everywhere.  Prefer using `match` on the key to achieve this.
+    // TODO(jmmv): This would be better as a HashMap of fuse::FileType to PathBuf, but we cannot do
+    // so until FileTypes are comparable (which will happen with rust-fuse 0.4).
+    pub entries: Vec<(fuse::FileType, PathBuf)>,
 }
 
 impl AllFileTypes {
@@ -41,41 +42,41 @@ impl AllFileTypes {
     pub fn new() -> Self {
         let root = tempdir().unwrap();
 
-        let mut entries: HashMap<fuse::FileType, PathBuf> = HashMap::new();
+        let mut entries: Vec<(fuse::FileType, PathBuf)> = vec!();
 
         if unistd::getuid().is_root() {
             let block_device = root.path().join("block_device");
             sys::stat::mknod(
                 &block_device, sys::stat::SFlag::S_IFBLK, sys::stat::Mode::S_IRUSR, 50).unwrap();
-            entries.insert(fuse::FileType::BlockDevice, block_device);
+            entries.push((fuse::FileType::BlockDevice, block_device));
 
             let char_device = root.path().join("char_device");
             sys::stat::mknod(
                 &char_device, sys::stat::SFlag::S_IFCHR, sys::stat::Mode::S_IRUSR, 50).unwrap();
-            entries.insert(fuse::FileType::CharDevice, char_device);
+            entries.push((fuse::FileType::CharDevice, char_device));
         } else {
             warn!("Not running as root; cannot create block/char devices");
         }
 
         let directory = root.path().join("dir");
         fs::create_dir(&directory).unwrap();
-        entries.insert(fuse::FileType::Directory, directory);
+        entries.push((fuse::FileType::Directory, directory));
 
         let named_pipe = root.path().join("named_pipe");
         unistd::mkfifo(&named_pipe, sys::stat::Mode::S_IRUSR).unwrap();
-        entries.insert(fuse::FileType::NamedPipe, named_pipe);
+        entries.push((fuse::FileType::NamedPipe, named_pipe));
 
         let regular = root.path().join("regular");
         drop(fs::File::create(&regular).unwrap());
-        entries.insert(fuse::FileType::RegularFile, regular);
+        entries.push((fuse::FileType::RegularFile, regular));
 
         let socket = root.path().join("socket");
         drop(unix::net::UnixListener::bind(&socket).unwrap());
-        entries.insert(fuse::FileType::Socket, socket);
+        entries.push((fuse::FileType::Socket, socket));
 
         let symlink = root.path().join("symlink");
         unix::fs::symlink("irrelevant", &symlink).unwrap();
-        entries.insert(fuse::FileType::Symlink, symlink);
+        entries.push((fuse::FileType::Symlink, symlink));
 
         AllFileTypes { root, entries }
     }

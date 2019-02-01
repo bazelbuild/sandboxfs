@@ -227,7 +227,7 @@ pub fn setattr(path: Option<&PathBuf>, attr: &fuse::FileAttr, delta: &AttrDelta)
         // doing so on a node type basis.  Plus, who knows, if the kernel asked us to change the
         // size of anything other than a file, maybe we have to obey and try to do it.
         .and(setattr_size(&mut new_attr, path, delta.size));
-    if *attr != new_attr {
+    if !conv::fileattrs_eq(attr, &new_attr) {
         new_attr.ctime = updated_ctime;
     }
     result.and(Ok(new_attr))
