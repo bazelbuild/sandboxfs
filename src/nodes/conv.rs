@@ -190,6 +190,26 @@ pub fn flags_to_openoptions(flags: u32, allow_writes: bool) -> NodeResult<fs::Op
     Ok(options)
 }
 
+/// Asserts that two FUSE file attributes are equal.
+//
+// TODO(jmmv): Remove once rust-fuse 0.4 is released as it will derive Eq for FileAttr.
+pub fn fileattrs_eq(attr1: &fuse::FileAttr, attr2: &fuse::FileAttr) -> bool {
+    attr1.ino == attr2.ino
+        && attr1.kind == attr2.kind
+        && attr1.nlink == attr2.nlink
+        && attr1.size == attr2.size
+        && attr1.blocks == attr2.blocks
+        && attr1.atime == attr2.atime
+        && attr1.mtime == attr2.mtime
+        && attr1.ctime == attr2.ctime
+        && attr1.crtime == attr2.crtime
+        && attr1.perm == attr2.perm
+        && attr1.uid == attr2.uid
+        && attr1.gid == attr2.gid
+        && attr1.rdev == attr2.rdev
+        && attr1.flags == attr2.flags
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,7 +313,7 @@ mod tests {
         // modified and may not be queryable, so stub them out.
         attr.ctime = BAD_TIME;
         attr.crtime = BAD_TIME;
-        assert_eq!(&exp_attr, &attr);
+        assert!(fileattrs_eq(&exp_attr, &attr));
     }
 
     #[test]
@@ -330,7 +350,7 @@ mod tests {
         // modified and may not be queryable, so stub them out.
         attr.ctime = BAD_TIME;
         attr.crtime = BAD_TIME;
-        assert_eq!(&exp_attr, &attr);
+        assert!(fileattrs_eq(&exp_attr, &attr));
     }
 
     #[test]

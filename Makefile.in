@@ -61,7 +61,8 @@ check-integration: target/debug/sandboxfs $(GO_SRCS)
 
 .PHONY: lint
 lint:
-	$(CARGO) clippy $(CARGO_FLAGS) -- -D warnings
+	$(CARGO) clippy $(CARGO_FLAGS) --all-features --all-targets \
+	    -- -D warnings
 	@if [ -n "$(GOROOT)" ]; then \
 	    set -x; \
 	    PATH=$(GOPATH)/bin:$${PATH} GOPATH=$(GOPATH) GOROOT=$(GOROOT) \
