@@ -174,7 +174,7 @@ func checkAll(workspaceDir string, file string) bool {
 		}
 	}
 
-	if !isDocumentation && filepath.Base(file) != "settings.json.in" {
+	if !isDocumentation && filepath.Base(file) != "settings.json.in" && filepath.Ext(file) != ".plist" {
 		runCheck(checkLicense, file)
 	}
 

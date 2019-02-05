@@ -58,6 +58,27 @@ do_lint() {
   make lint
 }
 
+# Builds the macOS installer and verifies that it works.
+do_macos_pkg() {
+  ./admin/make-macos-pkg.sh --cargo="${HOME}/.cargo/bin/cargo"
+  local pkg="$(echo sandboxfs-*.*.*-????????-macos.pkg)"
+
+  sudo find /Library /etc /usr/local >before.list
+  sudo sysctl -w vfs.generic.osxfuse.tunables.allow_other=0
+
+  sudo installer -pkg "${pkg}" -target /
+  test "$(sysctl -n vfs.generic.osxfuse.tunables.allow_other)" -eq 1
+  /usr/local/bin/sandboxfs --version
+
+  sudo /usr/local/libexec/sandboxfs/uninstall.sh
+  sudo find /Library /etc /usr/local >after.list
+  if ! cmp -s before.list after.list; then
+    echo "Files left behind after installation:"
+    diff -u before.list after.list
+    false
+  fi
+}
+
 # Ensures that we can build a publishable crate and that it is sane.
 do_package() {
   # Intentionally avoids ./configure to certify that the code is buildable
@@ -75,7 +96,7 @@ do_test() {
 }
 
 case "${DO}" in
-  bazel|install|lint|package|test)
+  bazel|install|lint|macos_pkg|package|test)
     "do_${DO}"
     ;;
 
