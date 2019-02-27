@@ -58,6 +58,24 @@ do_lint() {
   make lint
 }
 
+# Builds the Linux binary distribution and verifies that it works.
+do_linux_pkg() {
+  ./admin/make-linux-pkg.sh --cargo="${HOME}/.cargo/bin/cargo"
+  local pkg="$(echo sandboxfs-*.*.*-????????-linux-*.tgz)"
+
+  sudo find /usr/local >before.list
+  sudo tar xzv -C /usr/local -f "${pkg}"
+  /usr/local/bin/sandboxfs --version
+
+  sudo /usr/local/libexec/sandboxfs/uninstall.sh
+  sudo find /usr/local >after.list
+  if ! cmp -s before.list after.list; then
+    echo "Files left behind after installation:"
+    diff -u before.list after.list
+    false
+  fi
+}
+
 # Builds the macOS installer and verifies that it works.
 do_macos_pkg() {
   ./admin/make-macos-pkg.sh --cargo="${HOME}/.cargo/bin/cargo"
@@ -96,7 +114,7 @@ do_test() {
 }
 
 case "${DO}" in
-  bazel|install|lint|macos_pkg|package|test)
+  bazel|install|lint|linux_pkg|macos_pkg|package|test)
     "do_${DO}"
     ;;
 
