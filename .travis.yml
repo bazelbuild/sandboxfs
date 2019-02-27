@@ -37,6 +37,7 @@ go_import_path: github.com/bazelbuild/sandboxfs
 env:
   - DO=install
   - DO=lint
+  - DO=linux_pkg
   - DO=macos_pkg
   - DO=package
   - DO=test
@@ -80,6 +81,9 @@ matrix:
     - env: DO=test FEATURES=profiling
       os: osx
 
+    # For the Linux packaging tests, don't do macOS; it makes no sense.
+    - env: DO=linux_pkg
+      os: osx
     # For the macOS packaging tests, don't do Linux; it makes no sense.
     - env: DO=macos_pkg
       os: linux

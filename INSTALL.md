@@ -4,7 +4,7 @@
 
 1.  [Download and install OSXFUSE](https://osxfuse.github.io/).
 
-1.  Download the `sandboxfs-<release>-<date>.pkg` file attached to the
+1.  Download the `sandboxfs-<release>-<date>-macos.pkg` file attached to the
     latest release in the
     [releases page](https://github.com/bazelbuild/sandboxfs/releases).
 
@@ -14,15 +14,56 @@ Should you want to uninstall sandboxfs at any point, you can run
 `/usr/local/share/sandboxfs/uninstall.sh` to cleanly remove all installed
 files.
 
+## Using the generic Linux pre-built binaries
+
+If your Linux distribution does not provide sandboxfs packages on its own,
+you can try using the prebuilt versions we supply.  These assume that you
+have certain versions of shared libraries in the right location, so your
+mileage may vary when attempting to use these.  If the binaries do not
+work, you'll have to build sandboxfs from the sources as described later on.
+
+1.  Install FUSE.  The specific steps will depend on your distribution but
+    here are some common examples:
+
+    *   Debian, Ubuntu: `apt install libfuse2`.
+    *   Fedora: `dnf install fuse-libs`.
+
+1.  Download the `sandboxfs-<release>-<date>-linux-<arch>.tgz` file attached
+    to the latest release in the
+    [releases page](https://github.com/bazelbuild/sandboxfs/releases).
+
+1.  Extract the downloaded file in the prefix where you want sandboxfs to
+    be available.  The most common location for a system-wide installation
+    is `/usr/local` so do:
+
+    ```
+    tar xzv -C /usr/local -f .../path/to/downloaded.tgz
+    ```
+
+    You can also install sandboxfs under your home directory if you do not
+    have administrator privileges, for example under `~/local`.
+
+1.  Verify that the binary can start by running it at least once.  If it
+    does start (because it can find all required shared libraries), you can
+    be fairly confident that it will work.
+
+Should you want to uninstall sandboxfs at any point, you can run
+`.../share/sandboxfs/uninstall.sh` from the prefix in which you unpacked the
+pre-built binaries to cleanly remove all installed files.
+
 ## From crates.io
 
 1.  [Download and install Rust](https://www.rust-lang.org/).  If you already
     had it installed, make sure you are on a new-enough version by running
     `rustup update`.
 
-1.  Download and install FUSE for your system.  On Linux this will vary
-    on a distribution basis, and on macOS you can [install
-    OSXFUSE](https://osxfuse.github.io/).
+1.  Install FUSE and pkg-config.  The specific steps will depend on your
+    system but here are some common examples:
+
+    *   Debian, Ubuntu: `apt install libfuse-dev pkg-config`.
+    *   Fedora: `dnf install fuse-devel pkgconf-pkg-config`.
+    *   macOS: Visit the [OSXFUSE](https://osxfuse.github.io/) homepage and
+        try `brew install pkg-config`.
 
 1.  Run `cargo install sandboxfs`.
 
