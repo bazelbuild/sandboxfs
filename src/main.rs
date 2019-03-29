@@ -208,9 +208,9 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     opts.optopt("", "cpu_profile", "enables CPU profiling and writes a profile to the given path",
         "PATH");
     opts.optflag("", "help", "prints usage information and exits");
-    opts.optflagopt("", "input", "where to read reconfiguration data from (- for stdin)", "PATH");
+    opts.optopt("", "input", "where to read reconfiguration data from (- for stdin)", "PATH");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
-    opts.optflagopt("", "output", "where to write the reconfiguration status to (- for stdout)",
+    opts.optopt("", "output", "where to write the reconfiguration status to (- for stdout)",
         "PATH");
     opts.optopt("", "ttl",
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
