@@ -15,6 +15,9 @@
   treated as an argument and `--foo` to use its default value, which meant
   that these two flags would be ignored when supplied under this syntax.
 
+* Fixed `--input` and `--output` to handle stdin and stdout correctly when
+  running e.g. under `sudo`.
+
 ## Changes in version 0.1.0
 
 **Released on 2019-02-05.**

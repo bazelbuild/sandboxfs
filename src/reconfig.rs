@@ -15,7 +15,10 @@
 use {flatten_causes, Mapping};
 use failure::Fallible;
 use serde_derive::Deserialize;
+use nix::unistd;
+use std::fs;
 use std::io::{self, Read, Write};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::{Path, PathBuf};
 
 /// A shareable view into a reconfigurable file system.
@@ -149,6 +152,32 @@ pub fn run_loop(mut reader: io::BufReader<impl Read>, mut writer: io::BufWriter<
         }
     }
     info!("Reached end of reconfiguration input; file system mappings are now frozen");
+}
+
+/// Opens the input file for the reconfiguration loop.
+///
+/// If `path` is None, this reopens stdin.
+#[allow(unsafe_code)]
+pub fn open_input<P: AsRef<Path>>(path: Option<P>) -> Fallible<fs::File> {
+    match path.as_ref() {
+        Some(path) => Ok(fs::File::open(&path)?),
+        None => unsafe {
+            Ok(fs::File::from_raw_fd(unistd::dup(io::stdin().as_raw_fd())?))
+        },
+    }
+}
+
+/// Opens the output file for the reconfiguration loop.
+///
+/// If `path` is None, this reopen stdout.
+#[allow(unsafe_code)]
+pub fn open_output<P: AsRef<Path>>(path: Option<P>) -> Fallible<fs::File> {
+    match path.as_ref() {
+        Some(path) => Ok(fs::OpenOptions::new().write(true).open(&path)?),
+        None => unsafe {
+            Ok(fs::File::from_raw_fd(unistd::dup(io::stdout().as_raw_fd())?))
+        },
+    }
 }
 
 #[cfg(test)]
