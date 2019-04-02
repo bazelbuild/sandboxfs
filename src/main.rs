@@ -28,11 +28,13 @@ extern crate time;
 use failure::{Fallible, ResultExt};
 use getopts::Options;
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::result::Result;
 use time::Timespec;
+
+/// Default value of the `--input` and `--output` flags.
+static DEFAULT_INOUT: &str = "-";
 
 /// Default value of the `--ttl` flag.
 ///
@@ -167,22 +169,14 @@ fn program_name(args: &[String], default: &'static str) -> String {
 /// Parses the value of a flag specifying a file for I/O.
 ///
 /// `value` contains the textual value of the flag, which is returned as a path if present.
-/// Otherwise, if `value` is missing or if it matches `-`, then returns `default`.
+/// Otherwise, if `value` is missing or if it matches `DEFAULT_INOUT`, then returns None.
 ///
 /// Note that, for simplicity, this will reopen any of the standard streams if provided as a path
-/// to `/dev/std*`.  We cannot prevent the user from supplying those paths, and handling them as
-/// any other makes things much easier than trying to special-case those via the objects exposed
-/// by `std::io`.
-fn file_flag(value: Option<String>, default: &'static str) -> PathBuf {
-    let default = PathBuf::from(default);
-    match value {
-        Some(path) => if path == "-" {
-            default
-        } else {
-            PathBuf::from(path)
-        },
-        None => default,
-    }
+/// to `/dev/std*`.  Even though that's discouraged (because reopening these devices under `sudo` is
+/// not possible), we cannot reliably prevent the user from supplying those paths.
+fn file_flag(value: &Option<String>) -> Option<PathBuf> {
+    value.as_ref().and_then(
+        |path| if path == DEFAULT_INOUT { None } else { Some(PathBuf::from(path) )})
 }
 
 /// Prints program usage information to stdout.
@@ -208,9 +202,12 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     opts.optopt("", "cpu_profile", "enables CPU profiling and writes a profile to the given path",
         "PATH");
     opts.optflag("", "help", "prints usage information and exits");
-    opts.optflagopt("", "input", "where to read reconfiguration data from (- for stdin)", "PATH");
+    opts.optopt("", "input",
+        &format!("where to read reconfiguration data from ({} for stdin)", DEFAULT_INOUT),
+        "PATH");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
-    opts.optflagopt("", "output", "where to write the reconfiguration status to (- for stdout)",
+    opts.optopt("", "output",
+        &format!("where to write the reconfiguration status to ({} for stdout)", DEFAULT_INOUT),
         "PATH");
     opts.optopt("", "ttl",
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
@@ -246,19 +243,17 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     };
 
     let input = {
-        // TODO(jmmv): Reopening /dev/stdin is not possible because its permissions don't allow it
-        // when using "su" to change the current user.  We should use io::stdin() instead.
-        let path = file_flag(matches.opt_str("input"), "/dev/stdin");
-        fs::File::open(&path).context(
-            format!("Failed to open reconfiguration input '{}'", path.display()))?
+        let input_flag = matches.opt_str("input");
+        sandboxfs::open_input(file_flag(&input_flag))
+            .context(format!("Failed to open reconfiguration input '{}'",
+                input_flag.unwrap_or_else(|| DEFAULT_INOUT.to_owned())))?
     };
 
     let output = {
-        // TODO(jmmv): Reopening /dev/stdout is not possible because its permissions don't allow it
-        // when using "su" to change the current user.  We should use io::stdout() instead.
-        let path = file_flag(matches.opt_str("output"), "/dev/stdout");
-        fs::OpenOptions::new().write(true).open(&path).context(
-            format!("Failed to open reconfiguration output '{}'", path.display()))?
+        let output_flag = matches.opt_str("output");
+        sandboxfs::open_output(file_flag(&output_flag))
+            .context(format!("Failed to open reconfiguration output '{}'",
+                output_flag.unwrap_or_else(|| DEFAULT_INOUT.to_owned())))?
     };
 
     let mount_point = if matches.free.len() == 1 {

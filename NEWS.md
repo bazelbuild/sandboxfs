@@ -8,6 +8,16 @@
   which brings an up to 1% performance improvement during Bazel builds
   that use sandboxfs.
 
+* Fixed the definition of `--input` and `--output` to require an argument,
+  which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to
+  break backwards compatibility but, in reality, it does not.  The previous
+  behavior was just broken: specifying `--foo bar` would cause `bar` to be
+  treated as an argument and `--foo` to use its default value, which meant
+  that these two flags would be ignored when supplied under this syntax.
+
+* Fixed `--input` and `--output` to handle stdin and stdout correctly when
+  running e.g. under `sudo`.
+
 ## Changes in version 0.1.0
 
 **Released on 2019-02-05.**

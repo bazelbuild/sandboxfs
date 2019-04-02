@@ -62,6 +62,7 @@ mod reconfig;
 #[cfg(test)] mod testutils;
 
 pub use profiling::ScopedProfiler;
+pub use reconfig::{open_input, open_output};
 
 /// An error indicating that a mapping specification (coming from the command line or from a
 /// reconfiguration operation) is invalid.

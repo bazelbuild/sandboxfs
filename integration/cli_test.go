@@ -35,10 +35,10 @@ Options:
     --cpu_profile PATH  enables CPU profiling and writes a profile to the
                         given path
     --help              prints usage information and exits
-    --input [PATH]      where to read reconfiguration data from (- for stdin)
+    --input PATH        where to read reconfiguration data from (- for stdin)
     --mapping TYPE:PATH:UNDERLYING_PATH
                         type and locations of a mapping
-    --output [PATH]     where to write the reconfiguration status to (- for
+    --output PATH       where to write the reconfiguration status to (- for
                         stdout)
     --ttl TIMEs         how long the kernel is allowed to keep file metadata
                         (default: 60s)
