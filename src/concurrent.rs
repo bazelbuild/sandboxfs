@@ -22,9 +22,8 @@ use std::io::{self, Read};
 use std::os::unix::io as unix_io;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::time;
 use std::thread;
 
@@ -337,6 +336,64 @@ impl SignalsHandler {
     }
 }
 
+/// Sets a global ID of type `T` and restores the previous value when dropped.
+///
+/// This wrapper over the global ID makes no provisions to deal with concurrent modifications to
+/// such value, so it is unsafe to use this in concurrent code without external synchronization.
+struct IdSetter<T: Copy + Eq> {
+    /// The value of the global ID to restore if it was modified during construction.
+    previous: Option<T>,
+
+    /// The system function to modify the desired global ID.
+    setter: fn(T) -> nix::Result<()>,
+}
+
+#[allow(unused)]  // TODO(jmmv): Remove once used.
+impl<T> IdSetter<T> where T: Copy + Eq {
+    /// Sets a global ID of type `T` to `desired` using the `setter` function.
+    ///
+    /// Does nothing if the given ID matches the return value of `getter`.
+    #[allow(unused)]  // TODO(jmmv): Remove once used.
+    #[allow(unsafe_code)]
+    unsafe fn set(desired: T, getter: fn() -> T, setter: fn(T) -> nix::Result<()>)
+        -> nix::Result<IdSetter<T>> {
+        let current = getter();
+        if current == desired {
+            Ok(IdSetter { previous: None, setter: setter })
+        } else {
+            setter(desired)?;
+            Ok(IdSetter { previous: Some(current), setter: setter })
+        }
+    }
+}
+
+impl<T> Drop for IdSetter<T> where T: Copy + Eq {
+    /// Restores the previous value of the global ID if it was set at construction time.
+    fn drop(&mut self) {
+        if let Some(id) = self.previous {
+            (self.setter)(id).unwrap();
+        }
+    }
+}
+
+lazy_static! {
+    /// Global lock to protect modifications to the effective UID and GID of the process.
+    pub static ref USER_LOCK: Mutex<()> = Mutex::new(());
+}
+
+/// Runs the arbitrary `code` closure under the desired UID/GID pair.
+#[allow(unused)]  // TODO(jmmv): Remove once used.
+pub fn do_as<T, Code: Fn() -> T>(
+    desired_uid: unistd::Uid, desired_gid: unistd::Gid, code: Code) -> Result<T, nix::Error> {
+    #[allow(unsafe_code)]
+    unsafe {
+        let _guard = USER_LOCK.lock().unwrap();
+        let _gid_setter = IdSetter::set(desired_gid, unistd::getegid, unistd::setegid)?;
+        let _uid_setter = IdSetter::set(desired_uid, unistd::geteuid, unistd::seteuid)?;
+        Ok(code())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use nix::sys;
@@ -344,6 +401,7 @@ mod tests {
     use std::thread;
     use super::*;
     use tempfile;
+    use testutils;
 
     #[test]
     fn test_shareable_file_clones_share_descriptor_and_only_one_owns() {
@@ -418,5 +476,58 @@ mod tests {
         for _ in 0..10 {
             try_shareable_file_close_unblocks_reads_without_error()
         }
+    }
+
+    fn do_as_common(uid: unistd::Uid, gid: unistd::Gid) {
+        let (outer_uid, outer_gid) = (unistd::getuid(), unistd::getgid());
+
+        if (uid != outer_uid || gid != outer_gid) && !outer_uid.is_root() {
+            warn!("Test requires root; skipping");
+            return;
+        }
+
+        let ret = do_as(uid, gid, || {
+            assert_eq!((uid, gid), (unistd::geteuid(), unistd::getegid()));
+            "return value"
+        });
+        assert_eq!("return value", ret.unwrap());
+
+        assert_eq!((outer_uid, outer_gid), (unistd::geteuid(), unistd::getegid()));
+        assert_eq!((outer_uid, outer_gid), (unistd::getuid(), unistd::getgid()));
+    }
+
+    #[test]
+    fn test_do_as_do_nothing() {
+        do_as_common(unistd::geteuid(), unistd::getegid());
+    }
+
+    #[test]
+    fn test_do_as_change_gid() {
+        let config = testutils::Config::get();
+        if config.unprivileged_gid.is_none() {
+            warn!("UNPRIVILEGED_USER not set");
+            return;
+        }
+        do_as_common(unistd::geteuid(), config.unprivileged_gid.unwrap());
+    }
+
+    #[test]
+    fn test_do_as_change_uid() {
+        let config = testutils::Config::get();
+        if config.unprivileged_uid.is_none() {
+            warn!("UNPRIVILEGED_USER not set");
+            return;
+        }
+        do_as_common(config.unprivileged_uid.unwrap(), unistd::getegid());
+    }
+
+    #[test]
+    fn test_do_as_change_uid_and_gid() {
+        let config = testutils::Config::get();
+        if config.unprivileged_uid.is_none() {
+            warn!("UNPRIVILEGED_USER not set");
+            return;
+        }
+        do_as_common(config.unprivileged_uid.unwrap(), config.unprivileged_gid.unwrap());
     }
 }

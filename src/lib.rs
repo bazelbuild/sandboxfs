@@ -32,12 +32,14 @@
 #[macro_use] extern crate failure;
 extern crate fuse;
 extern crate hashbrown;
+#[macro_use] extern crate lazy_static;
 #[macro_use] extern crate log;
 extern crate nix;
 extern crate serde_derive;
 extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 extern crate time;
+#[cfg(test)] extern crate users;
 
 use failure::{Fallible, Error, ResultExt};
 use hashbrown::HashMap;
