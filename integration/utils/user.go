@@ -150,4 +150,5 @@ func SetCredential(cmd *exec.Cmd, user *UnixUser) {
 		panic("SetCredential invoked on a cmd object that already includes user credentials")
 	}
 	cmd.SysProcAttr.Credential = user.ToCredential()
+	cmd.SysProcAttr.Credential.NoSetGroups = true
 }

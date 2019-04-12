@@ -131,6 +131,40 @@ func FileEquals(path string, wantContents string) error {
 	return nil
 }
 
+// runAs starts the given command as the given user.
+func runAs(user *UnixUser, arg ...string) error {
+	cmd := exec.Command(arg[0], arg[1:]...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	SetCredential(cmd, user)
+	return cmd.Run()
+}
+
+// CreateFileAsUser creates the given file, running the operation as the given user.
+func CreateFileAsUser(path string, user *UnixUser) error {
+	return runAs(user, "touch", path)
+}
+
+// MkdirAsUser creates the given directory, running the operation as the given user.
+func MkdirAsUser(path string, user *UnixUser) error {
+	return runAs(user, "mkdir", path)
+}
+
+// MkfifoAsUser creates the given named pipe, running the operation as the given user.
+func MkfifoAsUser(path string, user *UnixUser) error {
+	return runAs(user, "mkfifo", path)
+}
+
+// MoveAsUser moves the given file, running the operation as the given user.
+func MoveAsUser(source string, target string, user *UnixUser) error {
+	return runAs(user, "mv", source, target)
+}
+
+// SymlinkAsUser creates the given symlink, running the operation as the given user.
+func SymlinkAsUser(target string, path string, user *UnixUser) error {
+	return runAs(user, "ln", "-s", target, path)
+}
+
 // FileExistsAsUser checks if the given path is accessible by the given user.  The user may be nil,
 // in which case the current user is assumed.
 func FileExistsAsUser(path string, user *UnixUser) error {
@@ -143,9 +177,7 @@ func FileExistsAsUser(path string, user *UnixUser) error {
 	// not been granted access through the allow_other/allow_root options.  Therefore, we must
 	// read file contents to really validate the access control.  Note that this might be a bug
 	// in OSXFUSE.
-	cmd := exec.Command("cat", path)
-	SetCredential(cmd, user)
-	return cmd.Run()
+	return runAs(user, "cat", path)
 }
 
 // MatchesRegexp returns true if the given string s matches the pattern.

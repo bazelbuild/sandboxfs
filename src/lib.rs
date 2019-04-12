@@ -458,8 +458,16 @@ impl SandboxFS {
     }
 }
 
+fn nix_uid(req: &fuse::Request) -> unistd::Uid {
+    unistd::Uid::from_raw(req.uid() as u32)
+}
+
+fn nix_gid(req: &fuse::Request) -> unistd::Gid {
+    unistd::Gid::from_raw(req.gid() as u32)
+}
+
 impl fuse::Filesystem for SandboxFS {
-    fn create(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
+    fn create(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
         reply: fuse::ReplyCreate) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -467,7 +475,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.create(name, mode, flags, &self.ids, &self.cache) {
+        match dir_node.create(name, nix_uid(req), nix_gid(req), mode, flags, &self.ids,
+            &self.cache) {
             Ok((node, handle, attr)) => {
                 self.insert_node(node);
                 let fh = self.insert_handle(handle);
@@ -507,7 +516,7 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn mkdir(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32,
+    fn mkdir(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32,
         reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -515,7 +524,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.mkdir(name, mode, &self.ids, &self.cache) {
+        match dir_node.mkdir(name, nix_uid(req), nix_gid(req), mode, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -524,7 +533,7 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn mknod(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, rdev: u32,
+    fn mknod(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, rdev: u32,
         reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -532,7 +541,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.mknod(name, mode, rdev, &self.ids, &self.cache) {
+        match dir_node.mknod(name, nix_uid(req), nix_gid(req), mode, rdev, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -647,7 +656,7 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn symlink(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, link: &Path,
+    fn symlink(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, link: &Path,
         reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -655,7 +664,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.symlink(name, link, &self.ids, &self.cache) {
+        match dir_node.symlink(name, link, nix_uid(req), nix_gid(req), &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);

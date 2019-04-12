@@ -114,7 +114,7 @@ do_test() {
   # where those are and rerun them as root.  Note that we cannot simply
   # call cargo as sudo because it won't work with the user-specific
   # installation we performed.
-  local tests="$(find target/debug -maxdepth 1 -type f -name sandboxfs-*
+  local tests="$(find target/debug -maxdepth 1 -type f -name sandboxfs-* \
       -perm -0100)"
   if [ -z "${tests}" ]; then
     echo "Cannot find already-built unit tests"

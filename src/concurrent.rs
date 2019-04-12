@@ -348,12 +348,10 @@ struct IdSetter<T: Copy + Eq> {
     setter: fn(T) -> nix::Result<()>,
 }
 
-#[allow(unused)]  // TODO(jmmv): Remove once used.
 impl<T> IdSetter<T> where T: Copy + Eq {
     /// Sets a global ID of type `T` to `desired` using the `setter` function.
     ///
     /// Does nothing if the given ID matches the return value of `getter`.
-    #[allow(unused)]  // TODO(jmmv): Remove once used.
     #[allow(unsafe_code)]
     unsafe fn set(desired: T, getter: fn() -> T, setter: fn(T) -> nix::Result<()>)
         -> nix::Result<IdSetter<T>> {
@@ -382,7 +380,6 @@ lazy_static! {
 }
 
 /// Runs the arbitrary `code` closure under the desired UID/GID pair.
-#[allow(unused)]  // TODO(jmmv): Remove once used.
 pub fn do_as<T, Code: Fn() -> T>(
     desired_uid: unistd::Uid, desired_gid: unistd::Gid, code: Code) -> Result<T, nix::Error> {
     #[allow(unsafe_code)]

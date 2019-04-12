@@ -16,6 +16,7 @@ extern crate fuse;
 extern crate time;
 
 use {Cache, IdGenerator};
+use concurrent::do_as;
 use failure::{Fallible, ResultExt};
 use hashbrown::HashMap;
 use nix::{errno, fcntl, sys, unistd};
@@ -526,8 +527,8 @@ impl Node for Dir {
     }
 
     #[allow(clippy::type_complexity)]
-    fn create(&self, name: &OsStr, mode: u32, flags: u32, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
+    fn create(&self, name: &OsStr, uid: unistd::Uid, gid: unistd::Gid, mode: u32, flags: u32,
+        ids: &IdGenerator, cache: &Cache) -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
@@ -535,7 +536,7 @@ impl Node for Dir {
         options.create(true);
         options.mode(mode);
 
-        let file = options.open(&path)?;
+        let file = do_as(uid, gid, || options.open(&path))??;
         let (node, attr) = Dir::post_create_lookup(self.writable, &mut state, &path, name,
             fuse::FileType::RegularFile, ids, cache)?;
         Ok((node, Arc::from(file), attr))
@@ -552,18 +553,18 @@ impl Node for Dir {
         Dir::lookup_locked(self.writable, &mut state, name, ids, cache)
     }
 
-    fn mkdir(&self, name: &OsStr, mode: u32, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(ArcNode, fuse::FileAttr)> {
+    fn mkdir(&self, name: &OsStr, uid: unistd::Uid, gid: unistd::Gid, mode: u32, ids: &IdGenerator,
+        cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
-        fs::DirBuilder::new().mode(mode).create(&path)?;
+        do_as(uid, gid, || fs::DirBuilder::new().mode(mode).create(&path))??;
         Dir::post_create_lookup(self.writable, &mut state, &path, name,
             fuse::FileType::Directory, ids, cache)
     }
 
-    fn mknod(&self, name: &OsStr, mode: u32, rdev: u32, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(ArcNode, fuse::FileAttr)> {
+    fn mknod(&self, name: &OsStr, uid: unistd::Uid, gid: unistd::Gid, mode: u32, rdev: u32,
+        ids: &IdGenerator, cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
@@ -600,7 +601,7 @@ impl Node for Dir {
         };
 
         #[allow(clippy::cast_lossless)]
-        sys::stat::mknod(&path, sflag, perm, rdev as sys::stat::dev_t)?;
+        do_as(uid, gid, || sys::stat::mknod(&path, sflag, perm, rdev as sys::stat::dev_t))??;
         Dir::post_create_lookup(self.writable, &mut state, &path, name, exp_filetype, ids, cache)
     }
 
@@ -700,12 +701,12 @@ impl Node for Dir {
         Ok(state.attr)
     }
 
-    fn symlink(&self, name: &OsStr, link: &Path, ids: &IdGenerator, cache: &Cache)
-        -> NodeResult<(ArcNode, fuse::FileAttr)> {
+    fn symlink(&self, name: &OsStr, link: &Path, uid: unistd::Uid, gid: unistd::Gid,
+        ids: &IdGenerator, cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
         let path = Dir::get_writable_path(&mut state, name)?;
 
-        unix_fs::symlink(link, &path)?;
+        do_as(uid, gid, || unix_fs::symlink(link, &path))??;
         Dir::post_create_lookup(self.writable, &mut state, &path, name,
             fuse::FileType::Symlink, ids, cache)
     }
