@@ -707,7 +707,7 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
     input: fs::File, output: fs::File) -> Fallible<()> {
-    let mut os_options = options.iter().map(|o| o.as_ref()).collect::<Vec<&OsStr>>();
+    let mut os_options = options.iter().map(std::convert::AsRef::as_ref).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
     // them on our own.
