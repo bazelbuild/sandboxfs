@@ -239,7 +239,7 @@ impl Dir {
         };
 
         let state = MutableDir {
-            parent: parent.map_or(inode, |node| node.inode()),
+            parent: parent.map_or(inode, Node::inode),
             underlying_path: None,
             attr: attr,
             children: HashMap::new(),
