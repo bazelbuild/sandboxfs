@@ -16,10 +16,12 @@
 
 use fuse;
 use nix::{sys, unistd};
+use std::env;
 use std::fs;
 use std::os::unix;
 use std::path::PathBuf;
 use tempfile::{TempDir, tempdir};
+use users;
 
 /// Holds a temporary directory and files of all possible kinds within it.
 ///
@@ -79,5 +81,20 @@ impl AllFileTypes {
         entries.push((fuse::FileType::Symlink, symlink));
 
         AllFileTypes { root, entries }
+    }
+}
+
+/// Holds user-provided configuration details for the tests.
+pub struct Config {
+    /// The unprivileged user for tests that need to drop privileges.  None if unset.
+    pub unprivileged_user: Option<users::User>,
+}
+
+impl Config {
+    /// Queries the test configuration.
+    pub fn get() -> Config {
+        let unprivileged_user = env::var("UNPRIVILEGED_USER")
+            .map(|name| users::get_user_by_name(&name)).unwrap_or(None);
+        Config { unprivileged_user }
     }
 }

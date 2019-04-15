@@ -340,9 +340,9 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
-    #[allow(clippy::type_complexity)]
-    fn create(&self, _name: &OsStr, _mode: u32, _flags: u32, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn create(&self, _name: &OsStr, _uid: unistd::Uid, _gid: unistd::Gid, _mode: u32, _flags: u32,
+        _ids: &IdGenerator, _cache: &Cache) -> NodeResult<(ArcNode, ArcHandle, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
@@ -369,8 +369,9 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
-    fn mkdir(&self, _name: &OsStr, _mode: u32, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(ArcNode, fuse::FileAttr)> {
+    #[allow(clippy::too_many_arguments)]
+    fn mkdir(&self, _name: &OsStr, _uid: unistd::Uid, _gid: unistd::Gid, _mode: u32,
+        _ids: &IdGenerator, _cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
@@ -381,8 +382,9 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
-    fn mknod(&self, _name: &OsStr, _mode: u32, _rdev: u32, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(ArcNode, fuse::FileAttr)> {
+    #[allow(clippy::too_many_arguments)]
+    fn mknod(&self, _name: &OsStr, _uid: unistd::Uid, _gid: unistd::Gid, _mode: u32, _rdev: u32,
+        _ids: &IdGenerator, _cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 
@@ -461,8 +463,8 @@ pub trait Node {
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when create has to instantiate a new node.
-    fn symlink(&self, _name: &OsStr, _link: &Path, _ids: &IdGenerator, _cache: &Cache)
-        -> NodeResult<(ArcNode, fuse::FileAttr)> {
+    fn symlink(&self, _name: &OsStr, _link: &Path, _uid: unistd::Uid, _gid: unistd::Gid,
+        _ids: &IdGenerator, _cache: &Cache) -> NodeResult<(ArcNode, fuse::FileAttr)> {
         panic!("Not implemented")
     }
 

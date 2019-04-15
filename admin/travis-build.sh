@@ -109,6 +109,22 @@ do_test() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}"
   make debug
   make check
+
+  # Now that we have built all of our unit tests (via "make check"), find
+  # where those are and rerun them as root.  Note that we cannot simply
+  # call cargo as sudo because it won't work with the user-specific
+  # installation we performed.
+  local tests="$(find target/debug -maxdepth 1 -type f -name sandboxfs-* \
+      -perm -0100)"
+  if [ -z "${tests}" ]; then
+    echo "Cannot find already-built unit tests"
+    find target
+    false
+  fi
+  for t in ${tests}; do
+    sudo -H "${rootenv[@]}" UNPRIVILEGED_USER="${USER}" "${t}"
+  done
+
   sudo -H "${rootenv[@]}" -s make check-integration \
       CHECK_INTEGRATION_FLAGS=-unprivileged_user="${USER}"
 }
