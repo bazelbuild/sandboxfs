@@ -37,6 +37,7 @@ extern crate nix;
 extern crate serde_derive;
 extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
+#[cfg(test)] extern crate users;
 extern crate time;
 
 use failure::{Fallible, Error, ResultExt};
@@ -456,8 +457,54 @@ impl SandboxFS {
     }
 }
 
+/// Creates a file `path` with the given `uid`/`gid` pair.
+///
+/// The file is created via the `create` lambda, which can create any type of file it wishes.  The
+/// `delete` lambda should match this creation and allow the deletion of the file, and this is used
+/// as a cleanup function when the ownership cannot be successfully changed.
+fn create_as<T, E: From<Errno> + fmt::Display, P: AsRef<Path>>(
+    path: &P, uid: unistd::Uid, gid: unistd::Gid,
+    create: impl Fn(&P) -> Result<T, E>,
+    delete: impl Fn(&P) -> Result<(), E>)
+    -> Result<T, E> {
+
+    let result = create(path)?;
+
+    unistd::fchownat(
+        None, path.as_ref(), Some(uid), Some(gid), unistd::FchownatFlags::NoFollowSymlink)
+        .map_err(|e| {
+            let chown_errno = match e {
+                nix::Error::Sys(chown_errno) => chown_errno,
+                unknown_chown_error => {
+                    warn!("fchownat({}) failed with unexpected non-errno error: {:?}",
+                          path.as_ref().display(), unknown_chown_error);
+                    Errno::EIO
+                },
+            };
+
+            if let Err(e) = delete(path) {
+                warn!("Cannot delete created file {} after failing to change ownership: {}",
+                      path.as_ref().display(), e);
+            }
+
+            chown_errno
+        })?;
+
+    Ok(result)
+}
+
+/// Returns a `unistd::Uid` representation of the UID in a `fuse::Request`.
+fn nix_uid(req: &fuse::Request) -> unistd::Uid {
+    unistd::Uid::from_raw(req.uid() as u32)
+}
+
+/// Returns a `unistd::Gid` representation of the GID in a `fuse::Request`.
+fn nix_gid(req: &fuse::Request) -> unistd::Gid {
+    unistd::Gid::from_raw(req.gid() as u32)
+}
+
 impl fuse::Filesystem for SandboxFS {
-    fn create(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
+    fn create(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
         reply: fuse::ReplyCreate) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -465,7 +512,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.create(name, mode, flags, &self.ids, &self.cache) {
+        match dir_node.create(name, nix_uid(req), nix_gid(req), mode, flags, &self.ids,
+            &self.cache) {
             Ok((node, handle, attr)) => {
                 self.insert_node(node);
                 let fh = self.insert_handle(handle);
@@ -505,7 +553,7 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn mkdir(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32,
+    fn mkdir(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32,
         reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -513,7 +561,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.mkdir(name, mode, &self.ids, &self.cache) {
+        match dir_node.mkdir(name, nix_uid(req), nix_gid(req), mode, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -522,7 +570,7 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn mknod(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, rdev: u32,
+    fn mknod(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, rdev: u32,
         reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -530,7 +578,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.mknod(name, mode, rdev, &self.ids, &self.cache) {
+        match dir_node.mknod(name, nix_uid(req), nix_gid(req), mode, rdev, &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -645,7 +693,7 @@ impl fuse::Filesystem for SandboxFS {
         }
     }
 
-    fn symlink(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, link: &Path,
+    fn symlink(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, link: &Path,
         reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
         if !dir_node.writable() {
@@ -653,7 +701,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.symlink(name, link, &self.ids, &self.cache) {
+        match dir_node.symlink(name, link, nix_uid(req), nix_gid(req), &self.ids, &self.cache) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -707,7 +755,7 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
     input: fs::File, output: fs::File) -> Fallible<()> {
-    let mut os_options = options.iter().map(std::convert::AsRef::as_ref).collect::<Vec<&OsStr>>();
+    let mut os_options = options.iter().map(AsRef::as_ref).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
     // them on our own.
@@ -752,6 +800,7 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::MetadataExt;
     use tempfile::tempdir;
 
     #[test]
@@ -889,5 +938,65 @@ mod tests {
             // what we are testing.
             cache.get_or_create(&ids, &path, &fs_attr, false);
         }
+    }
+
+    fn do_create_as_ok_test(uid: unistd::Uid, gid: unistd::Gid) {
+        let root = tempdir().unwrap();
+        let file = root.path().join("dir");
+        create_as(&file, uid, gid, |p| fs::create_dir(&p), |p| fs::remove_dir(&p)).unwrap();
+        let fs_attr = fs::symlink_metadata(&file).unwrap();
+        assert_eq!((uid.as_raw(), gid.as_raw()), (fs_attr.uid(), fs_attr.gid()));
+    }
+
+    #[test]
+    fn create_as_self() {
+        do_create_as_ok_test(unistd::Uid::current(), unistd::Gid::current());
+    }
+
+    #[test]
+    fn create_as_other() {
+        if !unistd::Uid::current().is_root() {
+            info!("Test requires root privileges; skipping");
+            return;
+        }
+
+        let config = testutils::Config::get();
+        match config.unprivileged_user {
+            Some(user) => {
+                let uid = unistd::Uid::from_raw(user.uid());
+                let gid = unistd::Gid::from_raw(user.primary_group_id());
+                do_create_as_ok_test(uid, gid);
+            },
+            None => {
+                panic!("UNPRIVILEGED_USER must be set when running as root for this test to run");
+            }
+        }
+    }
+
+    #[test]
+    fn create_as_create_error_wins_over_delete_error() {
+        let path = PathBuf::from("irrelevant");
+        let err = create_as(
+            &path, unistd::Uid::current(), unistd::Gid::current(),
+            |_| Err::<(), nix::Error>(nix::Error::from_errno(Errno::EPERM)),
+            |_| Err::<(), nix::Error>(nix::Error::from_errno(Errno::ENOENT))).unwrap_err();
+        assert_eq!(nix::Error::from_errno(Errno::EPERM), err);
+    }
+
+    #[test]
+    fn create_as_file_deleted_if_chown_fails() {
+        if unistd::Uid::current().is_root() {
+            info!("Test requires non-root privileges; skipping");
+            return;
+        }
+
+        let other_uid = unistd::Uid::from_raw(unistd::Uid::current().as_raw() + 1);
+        let gid = unistd::Gid::current();
+
+        let root = tempdir().unwrap();
+        let file = root.path().join("dir");
+        create_as(&file, other_uid, gid, |p| fs::create_dir(&p), |p| fs::remove_dir(&p))
+            .unwrap_err();
+        fs::symlink_metadata(&file).unwrap_err();
     }
 }

@@ -49,6 +49,63 @@ func openAndDelete(path string, mode int) (int, error) {
 	return fd, nil
 }
 
+// createAsDifferentUser implements a generic test that creates entries within the mount point
+// as a different user than the one running sandboxfs and checks that the created entries in the
+// underlying tree has the right owner:group settings.
+//
+// The createAsUser lambda is a function responsible for creating the desired type of entry at the
+// given path with the given credentials.
+func createAsDifferentUserTest(t *testing.T, createAsUser func(string, *utils.UnixUser) error) {
+	root := utils.RequireRoot(t, "Requires root privileges")
+
+	user := utils.GetConfig().UnprivilegedUser
+	if user == nil {
+		t.Skipf("unprivileged user not set; must contain the name of an unprivileged user with FUSE access")
+	}
+	t.Logf("Using primary unprivileged user: %v", user)
+
+	state := utils.MountSetupWithUser(t, root, "--mapping=rw:/:%ROOT%", "--allow=other")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0777)
+	if err := os.Chown(state.RootPath("dir"), user.UID, user.GID); err != nil {
+		t.Fatalf("Cannot create unprivileged work directory: %v", err)
+	}
+
+	wantFiles := []struct {
+		path string
+		user *utils.UnixUser
+	}{
+		{path: "dir/unprivileged", user: user},
+		{path: "privileged", user: root},
+	}
+	for _, wantFile := range wantFiles {
+		if err := createAsUser(state.MountPath(wantFile.path), wantFile.user); err != nil {
+			t.Fatalf("Cannot create %s as %v: %v", wantFile.path, wantFile.user, err)
+		}
+	}
+
+	// Now that all files were created, make sure they have the right ownerships.
+	for _, wantFile := range wantFiles {
+		// Check that the underlying file has the right ownership, and also check that the
+		// node we recorded in sandboxfs' memory agrees.
+		for _, path := range []string{state.MountPath(wantFile.path), state.RootPath(wantFile.path)} {
+			fileInfo, err := os.Lstat(path)
+			if err != nil {
+				t.Fatalf("Cannot stat %s: %v", path, err)
+			}
+			stat := fileInfo.Sys().(*syscall.Stat_t)
+			if int(stat.Uid) != wantFile.user.UID || int(stat.Gid) != wantFile.user.GID {
+				t.Errorf("%s has wrong ownership; got %v:%v, want %v:%v", path, stat.Uid, stat.Gid, wantFile.user.UID, wantFile.user.GID)
+			}
+		}
+	}
+}
+
+func TestReadWrite_MkdirAsDifferentUser(t *testing.T) {
+	createAsDifferentUserTest(t, utils.MkdirAsUser)
+}
+
 func TestReadWrite_CreateFile(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
@@ -63,6 +120,10 @@ func TestReadWrite_CreateFile(t *testing.T) {
 	if err := utils.FileEquals(state.MountPath("subdir/file"), "new content"); err != nil {
 		t.Error(err)
 	}
+}
+
+func TestReadWrite_CreateFileAsDifferentUser(t *testing.T) {
+	createAsDifferentUserTest(t, utils.CreateFileAsUser)
 }
 
 func TestReadWrite_Remove(t *testing.T) {
@@ -326,8 +387,6 @@ func equivalentStats(stat1 os.FileInfo, stat2 os.FileInfo) error {
 // Tests calling this function should only start a sandboxfs instance with the desired configuration
 // and then immediately call this function.
 func doRenameTest(t *testing.T, oldOuterPath, newOuterPath, oldInnerPath, newInnerPath string) {
-	t.Helper()
-
 	utils.MustMkdirAll(t, filepath.Dir(oldOuterPath), 0755)
 	utils.MustMkdirAll(t, filepath.Dir(newOuterPath), 0755)
 	utils.MustMkdirAll(t, filepath.Dir(oldInnerPath), 0755)
@@ -493,6 +552,15 @@ func TestReadWrite_MoveRace(t *testing.T) {
 	}
 }
 
+func TestReadWrite_MoveAsDifferentUser(t *testing.T) {
+	createAsDifferentUserTest(t, func(path string, user *utils.UnixUser) error {
+		if err := utils.CreateFileAsUser(path+".old", user); err != nil {
+			return err
+		}
+		return utils.MoveAsUser(path+".old", path, user)
+	})
+}
+
 func TestReadWrite_Mknod(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to create arbitrary nodes")
 
@@ -595,6 +663,9 @@ func TestReadWrite_Mknod(t *testing.T) {
 			}
 		})
 	}
+}
+func TestReadWrite_MknodAsDifferentUser(t *testing.T) {
+	createAsDifferentUserTest(t, utils.MkfifoAsUser)
 }
 
 func TestReadWrite_Chmod(t *testing.T) {
@@ -1013,6 +1084,11 @@ func TestReadWrite_SymlinkAndReadlink(t *testing.T) {
 	if target != gotTarget {
 		t.Errorf("Want symlink target to be %s, got %s", target, gotTarget)
 	}
+}
+func TestReadWrite_SymlinkAsDifferentUser(t *testing.T) {
+	createAsDifferentUserTest(t, func(path string, user *utils.UnixUser) error {
+		return utils.SymlinkAsUser("/non-existent/target", path, user)
+	})
 }
 
 func TestReadWrite_MmapAfterMovesWorks(t *testing.T) {
