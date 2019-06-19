@@ -69,7 +69,7 @@ pub fn timeval_to_timespec(val: sys::time::TimeVal) -> Timespec {
     } else {
         val.tv_usec() as i32
     };
-    Timespec::new(val.tv_sec() as sys::time::time_t, usec)
+    Timespec::new((val.tv_sec() as sys::time::time_t).into(), usec)
 }
 
 /// Converts a file type as returned by the file system to a FUSE file type.
