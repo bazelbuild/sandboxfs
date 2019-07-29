@@ -768,7 +768,7 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
 
     let (signals, mut session) = {
         let installer = concurrent::SignalsInstaller::prepare();
-        let mut session = fuse::Session::new(fs, &mount_point, &os_options)?;
+        let session = fuse::Session::new(fs, &mount_point, &os_options)?;
         let signals = installer.install(PathBuf::from(mount_point))?;
         (signals, session)
     };
