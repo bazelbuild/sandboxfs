@@ -44,9 +44,7 @@ install_fuse() {
   case "${TRAVIS_OS_NAME}" in
     linux)
       sudo apt-get update
-      sudo apt-get install -qq fuse libfuse-dev pkg-config user-mode-linux
-
-      sudo usermod -a -G fuse "${USER}"
+      sudo apt-get install -qq fuse libfuse-dev pkg-config
 
       sudo /bin/sh -c 'echo user_allow_other >>/etc/fuse.conf'
       sudo chmod 644 /etc/fuse.conf
