@@ -265,7 +265,7 @@ pub trait Handle {
 }
 
 /// A reference-counted `Handle` that's safe to send across threads.
-pub type ArcHandle = Arc<Handle + Send + Sync>;
+pub type ArcHandle = Arc<dyn Handle + Send + Sync>;
 
 /// Abstract representation of a file system node.
 ///
@@ -478,4 +478,4 @@ pub trait Node {
 }
 
 /// A reference-counted `Node` that's safe to send across threads.
-pub type ArcNode = Arc<Node + Send + Sync>;
+pub type ArcNode = Arc<dyn Node + Send + Sync>;

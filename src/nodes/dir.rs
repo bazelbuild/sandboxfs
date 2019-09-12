@@ -220,7 +220,7 @@ impl Dir {
     /// Creates a new scaffold directory to represent an in-memory directory.
     ///
     /// The directory's timestamps are set to `now` and the ownership is set to the current user.
-    pub fn new_empty(inode: u64, parent: Option<&Node>, now: time::Timespec) -> ArcNode {
+    pub fn new_empty(inode: u64, parent: Option<&dyn Node>, now: time::Timespec) -> ArcNode {
         let attr = fuse::FileAttr {
             ino: inode,
             kind: fuse::FileType::Directory,
