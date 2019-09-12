@@ -322,7 +322,7 @@ struct ReconfigurableSandboxFS {
 ///
 /// This code is shared by the application of `--mapping` flags and by the application of new
 /// mappings as part of a reconfiguration operation.  We want both processes to behave identically.
-fn apply_mapping(mapping: &Mapping, root: &nodes::Node, ids: &IdGenerator, cache: &Cache)
+fn apply_mapping(mapping: &Mapping, root: &dyn nodes::Node, ids: &IdGenerator, cache: &Cache)
     -> Fallible<()> {
     let all = mapping.path.components().collect::<Vec<_>>();
     debug_assert_eq!(Component::RootDir, all[0], "Paths in mappings are always absolute");
