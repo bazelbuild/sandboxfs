@@ -352,7 +352,8 @@ func TestReconfiguration_Errors(t *testing.T) {
 	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
-	checkBadConfig := func(config string, wantError string) {
+	checkBadConfig := func(t *testing.T, config string, wantError string) {
+		t.Helper()
 		message, err := tryReconfigure(state.Stdin, output, state.RootPath(), config)
 		if err != nil {
 			t.Fatalf("want reconfiguration of / to fail; got success")
@@ -427,7 +428,7 @@ func TestReconfiguration_Errors(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			checkBadConfig(d.config, d.wantError)
+			checkBadConfig(t, d.config, d.wantError)
 		})
 	}
 
@@ -446,7 +447,7 @@ func TestReconfiguration_Errors(t *testing.T) {
 			t.Fatalf("Failed to stat just-created file subdir2/inner-subdir/inner-file: %v", err)
 		}
 
-		checkBadConfig(`[{"Unmap": "/subdir2/inner-subdir/inner-file"}]`, "inner-file.*is not a mapping")
+		checkBadConfig(t, `[{"Unmap": "/subdir2/inner-subdir/inner-file"}]`, "inner-file.*is not a mapping")
 	})
 }
 
