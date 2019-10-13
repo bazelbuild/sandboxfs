@@ -126,11 +126,10 @@ func TestReconfiguration_Streams(t *testing.T) {
 	// artificial construct and makes our testing quite complex.
 	t.Run("Default", func(t *testing.T) {
 		stdoutReader, stdoutWriter := io.Pipe()
-		defer stdoutReader.Close() // Just in case the test fails half-way through.
-		defer stdoutWriter.Close() // Just in case the test fails half-way through.
-
 		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
+		defer stdoutReader.Close() // Just in case the test fails half-way through.
 		defer state.TearDown(t)
+		defer stdoutWriter.Close() // Just in case the test fails half-way through.
 		reconfigureAndCheck(t, state, state.Stdin, stdoutReader)
 	})
 
@@ -172,12 +171,11 @@ func TestReconfiguration_Streams(t *testing.T) {
 
 func TestReconfiguration_Steps(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=rw:/initial:%ROOT%/initial")
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
-
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=rw:/initial:%ROOT%/initial")
-	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("some/read-only-dir"), 0755)
 	utils.MustMkdirAll(t, state.RootPath("some/read-write-dir"), 0755)
@@ -231,12 +229,11 @@ func TestReconfiguration_Steps(t *testing.T) {
 
 func TestReconfiguration_Unmap(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=ro:/root-mapping:%ROOT%/foo", "--mapping=ro:/nested/mapping:%ROOT%/foo", "--mapping=ro:/deep/a/b/c/d:%ROOT%/foo")
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
-
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=ro:/root-mapping:%ROOT%/foo", "--mapping=ro:/nested/mapping:%ROOT%/foo", "--mapping=ro:/deep/a/b/c/d:%ROOT%/foo")
-	defer state.TearDown(t)
 
 	config := `[
 		{"Unmap": "/root-mapping"},
@@ -268,12 +265,11 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	}
 
 	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
-
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
-	defer state.TearDown(t)
 
 	checkMountPoint := func(wantExist string, wantNotExist string, wantFileContents string, wantLink string) {
 		for _, subdir := range []string{"", "/z"} {
@@ -345,12 +341,11 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 
 func TestReconfiguration_Errors(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 	output := bufio.NewScanner(stdoutReader)
-
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
-	defer state.TearDown(t)
 
 	checkBadConfig := func(t *testing.T, config string, wantError string) {
 		t.Helper()
@@ -468,21 +463,22 @@ func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 
 	oneShot := func() error {
 		stdoutReader, stdoutWriter := io.Pipe()
-		defer stdoutReader.Close()
-		defer stdoutWriter.Close()
-		output := bufio.NewScanner(stdoutReader)
-
 		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
-		// state.TearDown not deferred here because we want to explicitly control for any
-		// possible error it may report and abort the whole test early in that case.
+		defer stdoutReader.Close()
+		output := bufio.NewScanner(stdoutReader)
+		// state.TearDown and stdoutWriter.Close not deferred here because we want to
+		// explicitly control for any possible error it may report and abort the whole test
+		// early in that case.
 
 		utils.MustWriteFile(t, state.RootPath("first"), 0644, "First")
 
 		firstConfig := `[{"Map": {"Mapping": "/first", "Target": "%ROOT%/first", "Writable": false}}]`
 		if err := reconfigure(state.Stdin, output, state.RootPath(), firstConfig); err != nil {
+			stdoutWriter.Close()
 			state.TearDown(t)
 			return err
 		}
+		stdoutWriter.Close()
 		return state.TearDown(t)
 	}
 
@@ -514,12 +510,11 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
 			stdoutReader, stdoutWriter := io.Pipe()
+			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 			defer stdoutReader.Close()
+			defer state.TearDown(t)
 			defer stdoutWriter.Close()
 			output := bufio.NewScanner(stdoutReader)
-
-			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
-			defer state.TearDown(t)
 
 			utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 			utils.MustWriteFile(t, state.RootPath("dir1/first"), 0644, "First")
@@ -574,12 +569,11 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	}
 
 	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 	defer stdoutReader.Close()
+	defer state.TearDown(t)
 	defer stdoutWriter.Close()
 	output := bufio.NewScanner(stdoutReader)
-
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
-	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 	utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
@@ -648,12 +642,11 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 	}
 
 	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
 	defer stdoutReader.Close()
+	defer state.TearDown(t)
 	defer stdoutWriter.Close()
 	output := bufio.NewScanner(stdoutReader)
-
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
-	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 
@@ -687,6 +680,7 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	grepStderr := func(stderr io.Reader, pattern string, found chan<- bool) {
 		scanner := bufio.NewScanner(stderr)
 
+		match := false
 		for {
 			if !scanner.Scan() {
 				if err := scanner.Err(); err != io.EOF && err != io.ErrClosedPipe {
@@ -698,22 +692,25 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 			fmt.Fprintln(os.Stderr, scanner.Text())
 
 			if utils.MatchesRegexp(pattern, scanner.Text()) {
+				match = true
 				found <- true
 			}
 		}
+		if !match {
+			found <- false
+		}
 	}
-
-	stdoutReader, stdoutWriter := io.Pipe()
-	defer stdoutReader.Close()
-	defer stdoutWriter.Close()
-	output := bufio.NewScanner(stdoutReader)
 
 	stderrReader, stderrWriter := io.Pipe()
 	defer stderrReader.Close()
 	defer stderrWriter.Close()
 
+	stdoutReader, stdoutWriter := io.Pipe()
 	state := utils.MountSetupWithOutputs(t, stdoutWriter, stderrWriter)
+	defer stdoutReader.Close()
 	defer state.TearDown(t)
+	defer stdoutWriter.Close()
+	output := bufio.NewScanner(stdoutReader)
 
 	gotEOF := make(chan bool)
 	go grepStderr(stderrReader, `Reached end of reconfiguration input`, gotEOF)
@@ -728,7 +725,10 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 		t.Fatalf("Failed to close stdin: %v", err)
 	}
 	state.Stdin = nil // Tell state.TearDown that we cleaned up ourselves.
-	<-gotEOF
+	match := <-gotEOF
+	if !match {
+		t.Errorf("EOF not detected by sandboxfs")
+	}
 
 	// sandboxfs stopped listening for reconfiguration requests but the file system should
 	// continue to be functional.  Make sure that's the case.
