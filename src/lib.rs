@@ -47,7 +47,6 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
-use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
@@ -801,10 +800,13 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
 
     let config_handler = {
         let mut input = concurrent::ShareableFile::from(input);
-        let reader = io::BufReader::new(input.reader()?);
-        let writer = io::BufWriter::new(output);
+        let reader = input.reader()?;
         let handler = thread::spawn(move || {
-            reconfig::run_loop(reader, writer, &reconfigurable_fs);
+            match reconfig::run_loop(reader, output, &reconfigurable_fs) {
+                Ok(()) => info!(
+                    "Reached end of reconfiguration input; file system mappings are now frozen"),
+                Err(e) => warn!("Reconfigurations stopped due to internal error: {}", e),
+            }
         });
 
         session.run()?;
@@ -812,8 +814,8 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
     };
     // The input must be closed to let the reconfiguration thread to exit, which then lets the join
     // operation below complete, hence the scope above.
-
     if let Some(signo) = signals.caught() {
+        info!("Caught signal {}", signo);
         return Err(format_err!("Caught signal {}", signo));
     }
 

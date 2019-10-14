@@ -232,7 +232,7 @@ While a mount point is live,
 .Nm
 listens for reconfiguration requests on the file specified by
 .Fl -input
-and writes confirmations to the file specified by
+and writes reconfiguration responses to the file specified by
 .Fl -output .
 These two files essentially implement a rudimentary RPC system subject to
 change.
@@ -258,9 +258,8 @@ will not deadlock nor crash).
 As a result, it is highly recommended that you only send reconfiguration
 requests when you know that the file system is quiescent.
 .Pp
-Configuration requests are formatted as a JSON map followed by a single blank
-line.
-A configuration request is an ordered sequence of
+Configuration requests are provided as a stream of JSON objects.
+Each request is an ordered sequence of
 .Em steps .
 A step is a dictionary with keys
 .Sq Map
@@ -290,12 +289,12 @@ unmapping the leaf of such path does
 cause those intermediate components to be unmapped: it is the responsibility of
 the caller to do so, for simplicity reasons.
 .Pp
-Once
-.Nm
-accepts a valid reconfiguration request and the file system is fully
-reconfigured, the single line
-.Sq Done
-is written to the output file.
+Each configuration request is paired with a response, which are also provided
+as a stream of JSON objects.
+Each response is a map with an optional
+.Sq error
+field, which is empty if the request was successful and contains an error
+message otherwise.
 .Sh EXIT STATUS
 .Nm
 exits with 0 if the file system was both mounted and unmounted cleanly; 1 on a
@@ -357,6 +356,11 @@ by pointing it at another location.
     {"Unmap": "/foo"},
     {"Map": {"Mapping": "/foo/bar", "Target": "/", "Writable": false}}
 ]
+.Ed
+.Pp
+The previous example results in the following response:
+.Bd -literal -offset indent
+{"error": null}
 .Ed
 .Sh AUTHORS
 .An -nosplit

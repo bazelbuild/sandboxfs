@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "sandboxfs"
 readme = "README.md"
 repository = "https://github.com/bazelbuild/sandboxfs"
-version = "0.1.1"
+version = "0.2.0"
 
 [badges]
 travis-ci = { repository = "bazelbuild/sandboxfs", branch = "master" }

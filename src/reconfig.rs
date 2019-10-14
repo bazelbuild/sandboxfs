@@ -14,8 +14,8 @@
 
 use {flatten_causes, Mapping};
 use failure::Fallible;
-use serde_derive::Deserialize;
 use nix::unistd;
+use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd};
@@ -36,7 +36,7 @@ pub trait ReconfigurableFS {
 /// field names used in its structures leaked to the JSON format.  We must handle those same names
 /// here for drop-in compatibility.
 #[allow(non_snake_case)]
-#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JsonMapping {
     Mapping: PathBuf,
     Target: PathBuf,
@@ -46,112 +46,77 @@ pub struct JsonMapping {
 /// External representation of a reconfiguration step in the JSON reconfiguration data.
 ///
 /// This exists to wrap the `JsonMapping` artifact and for the same reasons described there.
-#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum JsonStep {
     Map(JsonMapping),
     Unmap(PathBuf),
 }
 
-/// A valid reconfiguration step.
-#[derive(Debug, Eq, PartialEq)]
-enum Step {
-    /// Indicates that a new path has to be mapped within the sandbox.
-    Map(Mapping),
-
-    /// Indicates that a path (and its descendents, if any) has to be unmapped from the sandbox.
-    Unmap(PathBuf),
+/// External representation of a response to a reconfiguration request.
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct Response {
+    /// Contains the error, if any, for a failed reconfiguration request.
+    error: Option<String>,
 }
 
-/// Extracts a reconfiguration chunk from the input.
-///
-/// Reconfiguration chunks are delimited by an empty blank line between them or EOF.  Returns `None`
-/// after the last chunk has been read and upon encountering EOF.
-fn read_chunk<R: io::BufRead>(input: &mut R) -> Fallible<Option<String>> {
-    let mut chunk = String::new();
-    loop {
-        let n = input.read_line(&mut chunk)?;
-        if n == 0 {  // EOF
-            if chunk.is_empty() {
-                return Ok(None);
-            } else {
-                return Ok(Some(chunk));
-            }
-        } else if chunk.ends_with("\n\n") {
-            chunk.pop().expect("Chunk should have had two trailing newlines");
-            return Ok(Some(chunk));
+/// Applies a reconfiguration request to the given file system.
+fn handle_request<F: ReconfigurableFS>(steps: Vec<JsonStep>, fs: &F) -> Fallible<()> {
+    for step in steps {
+        match step {
+            JsonStep::Map(mapping) => {
+                let mapping = Mapping::from_parts(
+                    mapping.Mapping, mapping.Target, mapping.Writable)?;
+                fs.map(&mapping)?
+            },
+            JsonStep::Unmap(path) => fs.unmap(&path)?,
         }
     }
+    Ok(())
 }
 
-/// Parses the contents of a JSON reconfiguration chunk and returns it as a list of valid steps.
-fn parse_chunk(chunk: &str) -> Fallible<Vec<Step>> {
-    let json: Vec<JsonStep> = serde_json::from_str(chunk)?;
-
-    let mut steps: Vec<Step> = Vec::with_capacity(json.len());
-    for json_step in json {
-        match json_step {
-            JsonStep::Map(m) => steps.push(
-                Step::Map(Mapping::from_parts(m.Mapping, m.Target, m.Writable)?)),
-            JsonStep::Unmap(path) => steps.push(Step::Unmap(path)),
-        }
-    }
-    Ok(steps)
-}
-
-/// Reads and handles the next reconfiguration request.
-///
-/// Returns true upon reaching the end of the input and false if there may be more requests to
-/// process.  The caller is responsible for communicating the result of the request into the output
-/// writer.
-fn handle_request<I: io::BufRead, F: ReconfigurableFS>(reader: &mut I, fs: &F) -> Fallible<bool> {
-    match read_chunk(reader)? {
-        None => Ok(true),
-        Some(chunk) => {
-            let steps = parse_chunk(&chunk)?;
-            for step in steps {
-                match step {
-                    Step::Map(mapping) => fs.map(&mapping)?,
-                    Step::Unmap(path) => fs.unmap(&path)?,
-                }
-            }
-            Ok(false)
-        },
-    }
+/// Responds to a reconfiguration request with the details contained in a result object.
+fn respond(writer: &mut impl Write, result: &Fallible<()>) -> Fallible<()> {
+    let response = Response {
+        error: result.as_ref().err().map(|e| flatten_causes(&e)),
+    };
+    serde_json::to_writer(writer.by_ref(), &response)?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    Ok(())
 }
 
 /// Runs the reconfiguration loop on the given file system `fs`.
 ///
-/// The reconfiguration loop terminates once there is no more input in `reader` (which denotes that
-/// the user froze the configuration), or once the the input is closed by a different thread.
+/// The reconfiguration loop terminates under these conditions:
+/// * there is no more input in `reader`, which denotes that the user froze the configuration),
+/// * once the the input is closed by a different thread (returning success), or
+/// * once parsing stops abruptly due to an error in the input stream (returning such details).
 ///
-/// Writes reconfiguration responses to `output`, which contain details about any error that occurs
-/// during the process.
-pub fn run_loop(mut reader: io::BufReader<impl Read>, mut writer: io::BufWriter<impl Write>,
-    fs: &impl ReconfigurableFS) {
-    // TODO(jmmv): This essentially implements an RPC system, and in a rather poor way.  Investigate
-    // whether we can replace this with local gRPC; must be careful about the performance
-    // implications of that as any changes here can noticeably influence the cost of a sandboxed
-    // Bazel build.
+/// Writes reconfiguration responses to `output`, which either acknolwedge the request or contain
+/// details about any semantical errors that occur during the process.
+pub fn run_loop(reader: impl Read, writer: impl Write, fs: &impl ReconfigurableFS) -> Fallible<()> {
+    let mut reader = io::BufReader::new(reader);
+    let mut writer = io::BufWriter::new(writer);
+    let mut stream =
+        serde_json::Deserializer::from_reader(&mut reader).into_iter::<Vec<JsonStep>>();
+
     loop {
-        match handle_request(&mut reader, fs) {
-            Ok(true) => break,  // EOF
-            Ok(false) => {
-                if let Err(e) = writer.write_fmt(format_args!("Done\n")) {
-                    warn!("Failed to write to reconfiguration output: {}", e);
-                }
+        match stream.next() {
+            Some(Ok(steps)) => respond(&mut writer, &handle_request(steps, fs))?,
+            Some(Err(e)) => {
+                assert!(!e.is_eof());  // Handled below.
+                let result = Err(e.into());
+                respond(&mut writer, &result)?;
+                // Parsing failed due to invalid JSON data.  Would be nice to recover from this by
+                // advancing the stream to the next valid request, but this is currently not
+                // possible; see https://github.com/serde-rs/json/issues/70.
+                return result;
             },
-            Err(e) => {
-                if let Err(e) = writer.write_fmt(format_args!("Reconfig failed: {}\n",
-                    flatten_causes(&e))) {
-                    warn!("Failed to write to reconfiguration output: {}", e);
-                }
-            },
+            None => {
+                return Ok(());
+            }
         };
-        if let Err(e) = writer.flush() {
-            warn!("Failed to flush reconfiguration output: {}", e);
-        }
     }
-    info!("Reached end of reconfiguration input; file system mappings are now frozen");
 }
 
 /// Opens the input file for the reconfiguration loop.
@@ -186,110 +151,18 @@ mod tests {
     use std::sync::Mutex;
     use super::*;
 
-    #[test]
-    fn test_read_chunk_empty() {
-        let mut reader = io::BufReader::new(b"" as &[u8]);
-        assert!(read_chunk(&mut reader).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_read_chunk_one() {
-        let mut reader = io::BufReader::new(b"this is\none chunk\n" as &[u8]);
-        assert_eq!("this is\none chunk\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert!(read_chunk(&mut reader).unwrap().is_none());
-
-        let mut reader = io::BufReader::new(b"this is\none chunk without newline" as &[u8]);
-        assert_eq!("this is\none chunk without newline", read_chunk(&mut reader).unwrap().unwrap());
-        assert!(read_chunk(&mut reader).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_read_chunk_many() {
-        let mut reader = io::BufReader::new(b"first\nchunk\n\nsecond chunk\n\nthird\n" as &[u8]);
-        assert_eq!("first\nchunk\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert_eq!("second chunk\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert_eq!("third\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert!(read_chunk(&mut reader).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_read_chunk_empty_in_between_is_not_eof() {
-        let mut reader = io::BufReader::new(b"first\n\n\n\nsecond" as &[u8]);
-        assert_eq!("first\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert_eq!("\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert_eq!("second", read_chunk(&mut reader).unwrap().unwrap());
-        assert!(read_chunk(&mut reader).unwrap().is_none());
-    }
-
-    #[test]
-    fn test_read_chunk_empty_spurious_newlines() {
-        let mut reader = io::BufReader::new(b"first\n\n\nsecond" as &[u8]);
-        assert_eq!("first\n", read_chunk(&mut reader).unwrap().unwrap());
-        assert_eq!("\nsecond", read_chunk(&mut reader).unwrap().unwrap());
-        assert!(read_chunk(&mut reader).unwrap().is_none());
-    }
-
-    /// Syntactic sugar to instantiate a new `Step::Map` for testing purposes only.
-    fn new_map_step<P: AsRef<Path>>(path: P, underlying_path: P, writable: bool) -> Step {
-        Step::Map(Mapping {
-            path: PathBuf::from(path.as_ref()),
-            underlying_path: PathBuf::from(underlying_path.as_ref()),
-            writable: writable,
+    /// Syntactic sugar to instantiate a new `JsonStep::Map` for testing purposes only.
+    fn new_map_step<P: AsRef<Path>>(path: P, underlying_path: P, writable: bool) -> JsonStep {
+        JsonStep::Map(JsonMapping {
+            Mapping: PathBuf::from(path.as_ref()),
+            Target: PathBuf::from(underlying_path.as_ref()),
+            Writable: writable,
         })
     }
 
-    /// Syntactic sugar to instantiate a new `Step::Unmap` for testing purposes only.
-    fn new_unmap_step<P: AsRef<Path>>(path: P) -> Step {
-        Step::Unmap(PathBuf::from(path.as_ref()))
-    }
-
-    #[test]
-    fn test_parse_chunk_ok() {
-        let chunk = r#"[
-            {"Map": {"Mapping": "/foo/./bar", "Target": "/bin", "Writable": false}},
-            {"Unmap": "/baz"},
-            {"Map": {"Mapping": "/", "Target": "/c/d/e", "Writable": true}}
-        ]"#;
-
-        let exp_steps = vec![
-            new_map_step("/foo/bar", "/bin", false),
-            new_unmap_step("/baz"),
-            new_map_step("/", "/c/d/e", true),
-        ];
-        assert_eq!(exp_steps, parse_chunk(&chunk).unwrap());
-    }
-
-    #[test]
-    fn test_parse_chunk_syntax_error() {
-        let chunk = r#"[{"Unmap": "/"},]"#;
-
-        let error = format!("{}", parse_chunk(&chunk).unwrap_err());
-        assert!(error.contains("trailing comma"), "Did not find JSON error in '{}'", error);
-    }
-
-    #[test]
-    fn test_parse_chunk_bad_json_layout() {
-        let chunk = r#"[
-            {"Map": {"Mapping": "/foo/bar", "Target": "/bin", "Writable": false}},
-            {"UnmapFoo": "/baz"},
-        ]"#;
-
-        let error = format!("{}", parse_chunk(&chunk).unwrap_err());
-        assert!(error.contains("UnmapFoo"), "Did not find 'UnmapFoo' in '{}'", error);
-    }
-
-
-    #[test]
-    fn test_parse_chunk_bad_mapping() {
-        let chunk = r#"[
-            {"Map": {"Mapping": "foo/bar", "Target": "/bin", "Writable": false}}
-        ]"#;
-
-        let error = format!("{}", parse_chunk(&chunk).unwrap_err());
-        // Make sure the construction of mappings from the configuration steps goes through the
-        // same Mapping::from_parts() function that we use to parse the command-line steps.
-        assert!(error.contains("path \"foo/bar\" is not absolute"),
-            "Did not find Mapping::from_parts() error in '{}'", error);
+    /// Syntactic sugar to instantiate a new `JsonStep::Unmap` for testing purposes only.
+    fn new_unmap_step<P: AsRef<Path>>(path: P) -> JsonStep {
+        JsonStep::Unmap(PathBuf::from(path.as_ref()))
     }
 
     /// A reconfigurable file system that tracks map and unmap operations.
@@ -321,77 +194,91 @@ mod tests {
         }
     }
 
-    fn do_run_loop_test(input: &str, exp_output: &str, exp_log: Vec<String>) {
+    fn do_run_loop_test(
+        requests: &[&[JsonStep]], exp_responses: &[Response], exp_log: &[String]) {
         let fs: MockFS = Default::default();
 
-        let mut output: Vec<u8> = Vec::new();
-        {
+        let responses = {
+            let input = {
+                let mut input = String::new();
+                for request in requests {
+                    input += &serde_json::to_string(&request).unwrap();
+                }
+                input
+            };
             let reader = io::BufReader::new(input.as_bytes());
-            let writer = io::BufWriter::new(&mut output);
-            run_loop(reader, writer, &fs);
-        }
 
-        assert_eq!(exp_output, String::from_utf8(output).unwrap());
-        assert_eq!(exp_log, fs.get_log());
+            let mut output: Vec<u8> = Vec::new();
+            let writer = io::BufWriter::new(&mut output);
+
+            run_loop(reader, writer, &fs).unwrap();
+
+            let mut output: io::BufReader<&[u8]> = io::BufReader::new(output.as_ref());
+            let stream = serde_json::Deserializer::from_reader(&mut output).into_iter::<Response>();
+            let mut responses = vec!();
+            for response in stream {
+                responses.push(response.unwrap());
+            }
+            responses
+        };
+
+        assert_eq!(exp_responses, responses.as_slice());
+        assert_eq!(exp_log, fs.get_log().as_slice());
     }
 
     #[test]
     fn test_run_loop_empty() {
-        let input = r#""#;
-        let exp_output = "";
-        let exp_log = vec![];
-        do_run_loop_test(&input, &exp_output, exp_log);
+        do_run_loop_test(&[], &[], &[]);
     }
 
     #[test]
     fn test_run_loop_one() {
-        let input = r#"[
-            {"Map": {"Mapping": "/foo/bar", "Target": "/bin", "Writable": false}}
-        ]"#;
-        let exp_output = "Done\n";
-        let exp_log = vec![
+        let requests: &[&[JsonStep]] = &[
+            &[new_map_step("/foo/bar", "/bin", false)],
+        ];
+        let exp_responses = &[
+            Response{ error: None },
+        ];
+        let exp_log = &[
             String::from("map /foo/bar"),
         ];
-        do_run_loop_test(&input, &exp_output, exp_log);
+        do_run_loop_test(requests, exp_responses, exp_log);
     }
 
     #[test]
     fn test_run_loop_many() {
-        let input = r#"[
-            {"Map": {"Mapping": "/foo/bar", "Target": "/bin", "Writable": false}},
-            {"Unmap": "/a"}
-        ]
-
-        [
-            {"Map": {"Mapping": "/z", "Target": "/b", "Writable": false}}
-        ]"#;
-        let exp_output = "Done\nDone\n";
-        let exp_log = vec![
+        let requests: &[&[JsonStep]] = &[
+            &[new_map_step("/foo/bar", "/bin", false), new_unmap_step("/a")],
+            &[new_map_step("/z", "/b", false)],
+        ];
+        let exp_responses = &[
+            Response{ error: None },
+            Response{ error: None },
+        ];
+        let exp_log = &[
             String::from("map /foo/bar"),
             String::from("unmap /a"),
             String::from("map /z"),
         ];
-        do_run_loop_test(&input, &exp_output, exp_log);
+        do_run_loop_test(requests, exp_responses, exp_log);
     }
 
     #[test]
     fn test_run_loop_errors() {
-        let input = r#"[
-            {"Map": {"Mapping": "/foo", "Target": "/bin", "Writable": false}}
-        ]
-
-        [
-            {"Map": {"Mapping": "bar", "Target": "/b", "Writable": false}}
-        ]
-
-        [
-            {"Map": {"Mapping": "/z", "Target": "/b", "Writable": false}}
-        ]"#;
-        let exp_output = "Done\nReconfig failed: path \"bar\" is not absolute\nDone\n";
-        let exp_log = vec![
+        let requests: &[&[JsonStep]] = &[
+            &[new_map_step("/foo", "/bin", false)],
+            &[new_map_step("bar", "/b", false)],
+            &[new_map_step("/z", "/b", false)],
+        ];
+        let exp_responses = &[
+            Response{ error: None },
+            Response{ error: Some("path \"bar\" is not absolute".to_owned()) },
+            Response{ error: None },
+        ];
+        let exp_log = &[
             String::from("map /foo"),
             String::from("map /z"),
         ];
-        do_run_loop_test(&input, &exp_output, exp_log);
+        do_run_loop_test(requests, exp_responses, exp_log);
     }
 }

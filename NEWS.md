@@ -4,6 +4,10 @@
 
 **STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
 
+*   Changed the reconfiguration protocol to use JSON streams for both the
+    requests and the responses, instead of the previous ad-hoc line-oriented
+    protocol.
+
 *   Issue #92: Fixed a bug in `readdir` where we would regenerate inodes for
     directory entries, causing later confusion when trying to access those
     directories.

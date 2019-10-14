@@ -16,6 +16,7 @@ package integration
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -30,36 +31,69 @@ import (
 
 const invalidationsWork = false
 
-// tryReconfigure pushes a new configuration to the sandboxfs process and returns the response from
-// the process.
-func tryReconfigure(input io.Writer, output *bufio.Scanner, root string, config string) (string, error) {
-	config = strings.Replace(config, "%ROOT%", root, -1) + "\n\n"
+// mapping represents a mapping entry in the reconfiguration protocol.
+type mapping struct {
+	Mapping  string `json:"Mapping"`
+	Target   string `json:"Target"`
+	Writable bool   `json:"Writable"`
+}
+
+// step represents a map or unmap operation in the reconfiguration protocol. Only one of these
+// fields can be used at a time.
+type step struct {
+	Map   *mapping `json:"Map,omitempty"`
+	Unmap string   `json:"Unmap,omitempty"`
+}
+
+// request represents a single reconfiguration request.
+type request []step
+
+// response represents the result of a reconfiguration request.
+type response struct {
+	Error *string `json:"error,omitempty"`
+}
+
+// tryRawReconfigure pushes a new configuration to the sandboxfs process and waits for
+// acknowledgement. The reconfiguration request is provided as a string, which may be invalid (to
+// verify error cases). Returns the error message from the server, which might be nil.
+func tryRawReconfigure(input io.Writer, output io.Reader, root string, config string) (*string, error) {
+	config = strings.Replace(string(config), "%ROOT%", root, -1) + "\n"
 	n, err := io.WriteString(input, config)
 	if err != nil {
-		return "", fmt.Errorf("failed to send new configuration to sandboxfs: %v", err)
+		return nil, fmt.Errorf("failed to send new configuration to sandboxfs: %v", err)
 	}
 	if n != len(config) {
-		return "", fmt.Errorf("failed to send full configuration to sandboxfs: got %d bytes, want %d bytes", n, len(config))
+		return nil, fmt.Errorf("failed to send full configuration to sandboxfs: got %d bytes, want %d bytes", n, len(config))
 	}
 
-	if !output.Scan() {
-		if err := output.Err(); err != nil {
-			return "", fmt.Errorf("failed to read from sandboxfs's output: %v", err)
-		}
-		return "", fmt.Errorf("no data available in sandboxfs's output")
+	decoder := json.NewDecoder(output)
+	r := response{}
+	if err := decoder.Decode(&r); err != nil {
+		return nil, fmt.Errorf("failed to read from sandboxfs's output: %v", err)
 	}
-	return output.Text(), nil
+	return r.Error, nil
+}
+
+// tryReconfigure pushes a new configuration to the sandboxfs process and waits for
+// acknowledgement. The reconfiguration request is provided as a sequence of objects, which is
+// assumed to be valid (except for semantical errors). Returns the error message from the server,
+// which might be nil.
+func tryReconfigure(input io.Writer, output io.Reader, root string, config request) (*string, error) {
+	configBytes, err := json.Marshal(config)
+	if err != nil {
+		panic(fmt.Sprintf("Bad configuration request in test: %v", err))
+	}
+	return tryRawReconfigure(input, output, root, string(configBytes))
 }
 
 // reconfigure pushes a new configuration to the sandboxfs process and waits for acknowledgement.
-func reconfigure(input io.Writer, output *bufio.Scanner, root string, config string) error {
+func reconfigure(input io.Writer, output io.Reader, root string, config request) error {
 	message, err := tryReconfigure(input, output, root, config)
 	if err != nil {
 		return err
 	}
-	doneMarker := "Done"
-	if message != doneMarker {
-		return fmt.Errorf("sandboxfs did not ack configuration: got %s, want %s", output.Text(), doneMarker)
+	if message != nil {
+		return fmt.Errorf("sandboxfs did not ack configuration: %s", *message)
 	}
 	return nil
 }
@@ -108,11 +142,11 @@ func errorIfNotUnmapped(t *testing.T, dir string, name string) {
 }
 
 func TestReconfiguration_Streams(t *testing.T) {
-	reconfigureAndCheck := func(t *testing.T, state *utils.MountState, input io.Writer, outputReader io.Reader) {
-		output := bufio.NewScanner(outputReader)
-
+	reconfigureAndCheck := func(t *testing.T, state *utils.MountState, input io.Writer, output io.Reader) {
 		utils.MustMkdirAll(t, state.RootPath("a/b"), 0755)
-		config := `[{"Map": {"Mapping": "/ro", "Target": "%ROOT%/a", "Writable": false}}]`
+		config := request{
+			{Map: &mapping{Mapping: "/ro", Target: "%ROOT%/a", Writable: false}},
+		}
 		if err := reconfigure(input, output, state.RootPath(), config); err != nil {
 			t.Fatal(err)
 		}
@@ -175,16 +209,15 @@ func TestReconfiguration_Steps(t *testing.T) {
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
-	output := bufio.NewScanner(stdoutReader)
 
 	utils.MustMkdirAll(t, state.RootPath("some/read-only-dir"), 0755)
 	utils.MustMkdirAll(t, state.RootPath("some/read-write-dir"), 0755)
-	config := `[
-		{"Map": {"Mapping": "/ro", "Target": "%ROOT%/some/read-only-dir", "Writable": false}},
-		{"Map": {"Mapping": "/ro/rw", "Target": "%ROOT%/some/read-write-dir", "Writable": true}},
-		{"Map": {"Mapping": "/nested/dup", "Target": "%ROOT%/some/read-only-dir", "Writable": false}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config := request{
+		{Map: &mapping{Mapping: "/ro", Target: "%ROOT%/some/read-only-dir", Writable: false}},
+		{Map: &mapping{Mapping: "/ro/rw", Target: "%ROOT%/some/read-write-dir", Writable: true}},
+		{Map: &mapping{Mapping: "/nested/dup", Target: "%ROOT%/some/read-only-dir", Writable: false}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,11 +240,11 @@ func TestReconfiguration_Steps(t *testing.T) {
 		t.Errorf("Mkdir succeeded in read-only root mapping")
 	}
 
-	config = `[
-		{"Unmap": "/ro"},
-		{"Map": {"Mapping": "/rw/dir", "Target": "%ROOT%/some/read-write-dir", "Writable": true}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config = request{
+		{Unmap: "/ro"},
+		{Map: &mapping{Mapping: "/rw/dir", Target: "%ROOT%/some/read-write-dir", Writable: true}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 
@@ -233,14 +266,13 @@ func TestReconfiguration_Unmap(t *testing.T) {
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
-	output := bufio.NewScanner(stdoutReader)
 
-	config := `[
-		{"Unmap": "/root-mapping"},
-		{"Unmap": "/nested/mapping"},
-		{"Unmap": "/deep/a"}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config := request{
+		{Unmap: "/root-mapping"},
+		{Unmap: "/nested/mapping"},
+		{Unmap: "/deep/a"},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/root-mapping", "/nested/mapping", "/deep/a/b/c/d", "/deep/a/b/c", "/deep/a/b"} {
@@ -252,8 +284,8 @@ func TestReconfiguration_Unmap(t *testing.T) {
 		}
 	}
 
-	config = `[{"Unmap": "/nested"}]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config = request{{Unmap: "/nested"}}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 	errorIfNotUnmapped(t, state.MountPath(), "nested")
@@ -269,7 +301,6 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
-	output := bufio.NewScanner(stdoutReader)
 
 	checkMountPoint := func(wantExist string, wantNotExist string, wantFileContents string, wantLink string) {
 		for _, subdir := range []string{"", "/z"} {
@@ -297,15 +328,15 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "original file contents")
 	utils.MustSymlink(t, "/non-existent", state.RootPath("symlink"))
 
-	config := `[
-		{"Map": {"Mapping": "/dir", "Target": "%ROOT%/dir", "Writable": false}},
-		{"Map": {"Mapping": "/file", "Target": "%ROOT%/file", "Writable": false}},
-		{"Map": {"Mapping": "/symlink", "Target": "%ROOT%/symlink", "Writable": false}},
-		{"Map": {"Mapping": "/z/dir", "Target": "%ROOT%/dir", "Writable": false}},
-		{"Map": {"Mapping": "/z/file", "Target": "%ROOT%/file", "Writable": false}},
-		{"Map": {"Mapping": "/z/symlink", "Target": "%ROOT%/symlink", "Writable": false}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config := request{
+		{Map: &mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: false}},
+		{Map: &mapping{Mapping: "/file", Target: "%ROOT%/file", Writable: false}},
+		{Map: &mapping{Mapping: "/symlink", Target: "%ROOT%/symlink", Writable: false}},
+		{Map: &mapping{Mapping: "/z/dir", Target: "%ROOT%/dir", Writable: false}},
+		{Map: &mapping{Mapping: "/z/file", Target: "%ROOT%/file", Writable: false}},
+		{Map: &mapping{Mapping: "/z/symlink", Target: "%ROOT%/symlink", Writable: false}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 	checkMountPoint("dir/original-entry", "", "original file contents", "/non-existent")
@@ -319,42 +350,43 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new file contents")
 	utils.MustSymlink(t, "/non-existent-other", state.RootPath("symlink"))
 
-	config = `[
-		{"Unmap": "/dir"},
-		{"Map": {"Mapping": "/dir", "Target": "%ROOT%/dir", "Writable": false}},
-		{"Unmap": "/file"},
-		{"Map": {"Mapping": "/file", "Target": "%ROOT%/file", "Writable": false}},
-		{"Unmap": "/symlink"},
-		{"Map": {"Mapping": "/symlink", "Target": "%ROOT%/symlink", "Writable": false}},
-		{"Unmap": "/z/dir"},
-		{"Map": {"Mapping": "/z/dir", "Target": "%ROOT%/dir", "Writable": false}},
-		{"Unmap": "/z/file"},
-		{"Map": {"Mapping": "/z/file", "Target": "%ROOT%/file", "Writable": false}},
-		{"Unmap": "/z/symlink"},
-		{"Map": {"Mapping": "/z/symlink", "Target": "%ROOT%/symlink", "Writable": false}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config = request{
+		{Unmap: "/dir"},
+		{Map: &mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: false}},
+		{Unmap: "/file"},
+		{Map: &mapping{Mapping: "/file", Target: "%ROOT%/file", Writable: false}},
+		{Unmap: "/symlink"},
+		{Map: &mapping{Mapping: "/symlink", Target: "%ROOT%/symlink", Writable: false}},
+		{Unmap: "/z/dir"},
+		{Map: &mapping{Mapping: "/z/dir", Target: "%ROOT%/dir", Writable: false}},
+		{Unmap: "/z/file"},
+		{Map: &mapping{Mapping: "/z/file", Target: "%ROOT%/file", Writable: false}},
+		{Unmap: "/z/symlink"},
+		{Map: &mapping{Mapping: "/z/symlink", Target: "%ROOT%/symlink", Writable: false}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 	checkMountPoint("dir/new-entry", "dir/original-entry", "new file contents", "/non-existent-other")
 }
 
-func TestReconfiguration_Errors(t *testing.T) {
+func TestReconfiguration_RecoverableErrors(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
 	defer stdoutReader.Close() // Just in case the test fails half-way through.
 	defer state.TearDown(t)
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
-	output := bufio.NewScanner(stdoutReader)
 
-	checkBadConfig := func(t *testing.T, config string, wantError string) {
+	checkBadConfig := func(t *testing.T, config request, wantError string) {
 		t.Helper()
-		message, err := tryReconfigure(state.Stdin, output, state.RootPath(), config)
+		message, err := tryReconfigure(state.Stdin, stdoutReader, state.RootPath(), config)
 		if err != nil {
 			t.Fatalf("want reconfiguration of / to fail; got success")
 		}
-		if !utils.MatchesRegexp(wantError, message) {
-			t.Errorf("want reconfiguration to respond with %s; got %s", wantError, message)
+		if message == nil {
+			t.Errorf("want reconfiguration to respond with %s; got OK", wantError)
+		} else if !utils.MatchesRegexp(wantError, *message) {
+			t.Errorf("want reconfiguration to respond with %s; got %s", wantError, *message)
 		}
 		if _, err := os.Lstat(state.MountPath("file")); err != nil {
 			t.Errorf("want file to still exist after failed reconfiguration; got %v", err)
@@ -367,57 +399,42 @@ func TestReconfiguration_Errors(t *testing.T) {
 	testData := []struct {
 		name string
 
-		config    string
+		config    request
 		wantError string
 	}{
 		{
-			"InvalidSyntax",
-			`this is not in the correct format`,
-			"expected ident",
-		},
-		{
 			"InvalidMapping",
-			`[{"Map": {"Mapping": "foo/../.", "Target": "%ROOT%/subdir", "Writable": false}}]`,
+			request{{Map: &mapping{Mapping: "foo/../.", Target: "%ROOT%/subdir", Writable: false}}},
 			"path.*not absolute",
 		},
 		{
-			"EmptyStep",
-			`[{}]`,
-			"expected value",
-		},
-		{
-			"MapAndUnmapInSameStep",
-			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]`,
-			"expected value",
-		},
-		{
 			"RemapRoot",
-			`[{"Map": {"Mapping": "/", "Target": "%ROOT%/subdir", "Writable": false}}]`,
+			request{{Map: &mapping{Mapping: "/", Target: "%ROOT%/subdir", Writable: false}}},
 			"Root can be mapped at most once",
 		},
 		{
 			"MapTwice",
-			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%/subdir", "Writable": false}}, {"Map": {"Mapping": "/foo", "Target": "%ROOT%/file", "Writable": false}}]`,
+			request{{Map: &mapping{Mapping: "/foo", Target: "%ROOT%/subdir", Writable: false}}, {Map: &mapping{Mapping: "/foo", Target: "%ROOT%/file", Writable: false}}},
 			"Already mapped",
 		},
 		{
 			"UnmapRoot",
-			`[{"Unmap": "/"}]`,
+			request{{Unmap: "/"}},
 			"Root cannot be unmapped",
 		},
 		{
 			"UnmapMissingEntryInMapping",
-			`[{"Map": {"Mapping": "/subdir", "Target": "%ROOT%/subdir", "Writable": false}}, {"Unmap": "/subdir/foo"}]`,
+			request{{Map: &mapping{Mapping: "/subdir", Target: "%ROOT%/subdir", Writable: false}}, {Unmap: "/subdir/foo"}},
 			"Unknown entry",
 		},
 		{
 			"UnmapMissingEntryInRealUnmappedDirectory",
-			`[{"Unmap": "/subdir/foo"}]`,
+			request{{Unmap: "/subdir/foo"}},
 			"Unknown entry",
 		},
 		{
 			"UnmapPathWithMissingComponents",
-			`[{"Unmap": "/missing/long/path"}]`,
+			request{{Unmap: "/missing/long/path"}},
 			"Unknown component in entry",
 		},
 	}
@@ -431,8 +448,7 @@ func TestReconfiguration_Errors(t *testing.T) {
 		utils.MustMkdirAll(t, state.RootPath("subdir/inner-subdir"), 0755)
 		utils.MustWriteFile(t, state.RootPath("subdir/inner-subdir/inner-file"), 0644, "")
 
-		if err := reconfigure(state.Stdin, output, state.RootPath(),
-			`[{"Map": {"Mapping": "/subdir2", "Target": "%ROOT%/subdir", "Writable": false}}]`); err != nil {
+		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), request{{Map: &mapping{Mapping: "/subdir2", Target: "%ROOT%/subdir", Writable: false}}}); err != nil {
 			t.Fatalf("Failed to map /subdir2: %v", err)
 		}
 
@@ -442,8 +458,57 @@ func TestReconfiguration_Errors(t *testing.T) {
 			t.Fatalf("Failed to stat just-created file subdir2/inner-subdir/inner-file: %v", err)
 		}
 
-		checkBadConfig(t, `[{"Unmap": "/subdir2/inner-subdir/inner-file"}]`, "inner-file.*is not a mapping")
+		checkBadConfig(t, request{{Unmap: "/subdir2/inner-subdir/inner-file"}}, "inner-file.*is not a mapping")
 	})
+}
+
+func TestReconfiguration_FatalErrors(t *testing.T) {
+	checkBadConfig := func(t *testing.T, state *utils.MountState, stdoutReader io.Reader, config string, wantError string) {
+		t.Helper()
+		message, err := tryRawReconfigure(state.Stdin, stdoutReader, state.RootPath(), config)
+		if err != nil {
+			t.Fatalf("want reconfiguration of / to fail; got success")
+		}
+		if message == nil {
+			t.Errorf("want reconfiguration to respond with %s; got OK", wantError)
+		} else if !utils.MatchesRegexp(wantError, *message) {
+			t.Errorf("want reconfiguration to respond with %s; got %s", wantError, *message)
+		}
+	}
+
+	testData := []struct {
+		name string
+
+		config    string
+		wantError string
+	}{
+		{
+			"InvalidSyntax",
+			`this is not in the correct format`,
+			"expected ident",
+		},
+		{
+			"EmptyStep",
+			`[{}]`,
+			"expected value",
+		},
+		{
+			"MapAndUnmapInSameStep",
+			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]`,
+			"expected value",
+		},
+	}
+	for _, d := range testData {
+		t.Run(d.name, func(t *testing.T) {
+			stdoutReader, stdoutWriter := io.Pipe()
+			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
+			defer stdoutReader.Close() // Just in case the test fails half-way through.
+			defer state.TearDown(t)
+			defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+			checkBadConfig(t, state, stdoutReader, d.config, d.wantError)
+		})
+	}
 }
 
 func TestReconfiguration_RaceSystemComponents(t *testing.T) {
@@ -465,15 +530,14 @@ func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 		stdoutReader, stdoutWriter := io.Pipe()
 		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
 		defer stdoutReader.Close()
-		output := bufio.NewScanner(stdoutReader)
 		// state.TearDown and stdoutWriter.Close not deferred here because we want to
-		// explicitly control for any possible error it may report and abort the whole test
-		// early in that case.
+		// explicitly control for any possible error they may report and abort the whole
+		// test early in that case.
 
 		utils.MustWriteFile(t, state.RootPath("first"), 0644, "First")
 
-		firstConfig := `[{"Map": {"Mapping": "/first", "Target": "%ROOT%/first", "Writable": false}}]`
-		if err := reconfigure(state.Stdin, output, state.RootPath(), firstConfig); err != nil {
+		firstConfig := request{{Map: &mapping{Mapping: "/first", Target: "%ROOT%/first", Writable: false}}}
+		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 			stdoutWriter.Close()
 			state.TearDown(t)
 			return err
@@ -514,15 +578,14 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 			defer stdoutReader.Close()
 			defer state.TearDown(t)
 			defer stdoutWriter.Close()
-			output := bufio.NewScanner(stdoutReader)
 
 			utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 			utils.MustWriteFile(t, state.RootPath("dir1/first"), 0644, "First")
 			utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
 			utils.MustWriteFile(t, state.RootPath("dir2/second"), 0644, "Second")
 
-			firstConfig := fmt.Sprintf(`[{"Map": {"Mapping": "%s", "Target": "%s", "Writable": false}}]`, filepath.Join(d.dir, "first"), state.RootPath(d.firstConfigTarget))
-			if err := reconfigure(state.Stdin, output, state.RootPath(), firstConfig); err != nil {
+			firstConfig := request{{Map: &mapping{Mapping: filepath.Join(d.dir, "first"), Target: state.RootPath(d.firstConfigTarget), Writable: false}}}
+			if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 				t.Fatalf("First configuration failed: %v", err)
 			}
 			if err := utils.DirEntryNamesEqual(state.MountPath(d.dir), []string{"first"}); err != nil {
@@ -540,11 +603,11 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 				defer handle.Close()
 			}
 
-			secondConfig := fmt.Sprintf(`[
-				{"Unmap": "%s"},
-				{"Map": {"Mapping": "%s", "Target": "%s", "Writable": false}}
-			]`, filepath.Join(d.dir, "first"), filepath.Join(d.dir, "second"), state.RootPath(d.secondConfigTarget))
-			if err := reconfigure(state.Stdin, output, state.RootPath(), secondConfig); err != nil {
+			secondConfig := request{
+				{Unmap: filepath.Join(d.dir, "first")},
+				{Map: &mapping{Mapping: filepath.Join(d.dir, "second"), Target: state.RootPath(d.secondConfigTarget), Writable: false}},
+			}
+			if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), secondConfig); err != nil {
 				t.Fatalf("Second configuration failed: %v", err)
 			}
 			if err := utils.DirEntryNamesEqual(state.MountPath(d.dir), []string{"second"}); err != nil {
@@ -573,7 +636,6 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	defer stdoutReader.Close()
 	defer state.TearDown(t)
 	defer stdoutWriter.Close()
-	output := bufio.NewScanner(stdoutReader)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 	utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
@@ -584,11 +646,11 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 
 	wantInodes := make(map[string]uint64)
 
-	firstConfig := `[
-		{"Map": {"Mapping": "/dir1", "Target": "%ROOT%/dir1", "Writable": false}},
-		{"Map": {"Mapping": "/dir3", "Target": "%ROOT%/dir3", "Writable": false}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), firstConfig); err != nil {
+	firstConfig := request{
+		{Map: &mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: false}},
+		{Map: &mapping{Mapping: "/dir3", Target: "%ROOT%/dir3", Writable: false}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 		t.Fatalf("First configuration failed: %v", err)
 	}
 	wantInodes["dir1"] = inodeOf(state.MountPath("dir1"))
@@ -596,18 +658,18 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	wantInodes["dir3"] = inodeOf(state.MountPath("dir3"))
 	wantInodes["dir3/file"] = inodeOf(state.MountPath("dir3/file"))
 
-	secondConfig := `[
-		{"Unmap": "/dir1"},
-		{"Unmap": "/dir3"},
-		{"Map": {"Mapping": "/dir2", "Target": "%ROOT%/dir2", "Writable": false}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), secondConfig); err != nil {
+	secondConfig := request{
+		{Unmap: "/dir1"},
+		{Unmap: "/dir3"},
+		{Map: &mapping{Mapping: "/dir2", Target: "%ROOT%/dir2", Writable: false}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), secondConfig); err != nil {
 		t.Fatalf("Failed to replace all mappings with new configuration: %v", err)
 	}
 	wantInodes["dir2"] = inodeOf(state.MountPath("dir2"))
 	wantInodes["dir2/file"] = inodeOf(state.MountPath("dir2/file"))
 
-	if err := reconfigure(state.Stdin, output, state.RootPath(), firstConfig); err != nil {
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 		t.Fatalf("Failed to restore all mappings from first configuration: %v", err)
 	}
 
@@ -646,12 +708,11 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 	defer stdoutReader.Close()
 	defer state.TearDown(t)
 	defer stdoutWriter.Close()
-	output := bufio.NewScanner(stdoutReader)
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 
-	config := `[{"Map": {"Mapping": "/dir1", "Target": "%ROOT%/dir1", "Writable": true}}]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config := request{{Map: &mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: true}}}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 
@@ -659,11 +720,11 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 		t.Errorf("Failed to create entry in writable directory: %v", err)
 	}
 
-	config = `[
-		{"Unmap": "/dir1"},
-		{"Map": {"Mapping": "/dir1", "Target": "%ROOT%/dir1", "Writable": false}}
-	]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config = request{
+		{Unmap: "/dir1"},
+		{Map: &mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: false}},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 
@@ -710,14 +771,13 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	defer stdoutReader.Close()
 	defer state.TearDown(t)
 	defer stdoutWriter.Close()
-	output := bufio.NewScanner(stdoutReader)
 
 	gotEOF := make(chan bool)
 	go grepStderr(stderrReader, `Reached end of reconfiguration input`, gotEOF)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
-	config := `[{"Map": {"Mapping": "/dir", "Target": "%ROOT%/dir", "Writable": true}}]`
-	if err := reconfigure(state.Stdin, output, state.RootPath(), config); err != nil {
+	config := request{{Map: &mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: true}}}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
 
