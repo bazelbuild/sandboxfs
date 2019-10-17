@@ -31,16 +31,11 @@ pub trait ReconfigurableFS {
 }
 
 /// External representation of a mapping in the JSON reconfiguration data.
-///
-/// This exists mostly because the original implementation of sandboxfs was in Go and the internal
-/// field names used in its structures leaked to the JSON format.  We must handle those same names
-/// here for drop-in compatibility.
-#[allow(non_snake_case)]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct JsonMapping {
-    Mapping: PathBuf,
-    Target: PathBuf,
-    Writable: bool,
+    path: PathBuf,
+    underlying_path: PathBuf,
+    writable: bool,
 }
 
 /// External representation of a reconfiguration map step in the JSON reconfiguration data.
@@ -96,8 +91,9 @@ fn handle_request<F: ReconfigurableFS>(steps: Vec<JsonStep>, fs: &F) -> Fallible
         match step {
             JsonStep::Map(request) => {
                 for mapping in request.mappings {
-                    let path = make_path(&request.root, &mapping.Mapping)?;
-                    let mapping = Mapping::from_parts(path, mapping.Target, mapping.Writable)?;
+                    let path = make_path(&request.root, &mapping.path)?;
+                    let mapping = Mapping::from_parts(
+                        path, mapping.underlying_path, mapping.writable)?;
                     fs.map(&mapping)?
                 }
             },
@@ -192,9 +188,9 @@ mod tests {
     /// Syntactic sugar to instantiate a new `JsonStep::Map` for testing purposes only.
     fn new_mapping<P: AsRef<Path>>(path: P, underlying_path: P, writable: bool) -> JsonMapping {
         JsonMapping {
-            Mapping: PathBuf::from(path.as_ref()),
-            Target: PathBuf::from(underlying_path.as_ref()),
-            Writable: writable,
+            path: PathBuf::from(path.as_ref()),
+            underlying_path: PathBuf::from(underlying_path.as_ref()),
+            writable: writable,
         }
     }
 
@@ -441,7 +437,7 @@ mod tests {
             [{
                 "Map": {
                     "root": "/",
-                    "mappings": [{"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}]
+                    "mappings": [{"path": "/foo", "underlying_path": "/foo", "writable": false}]
                 },
                 "Unmap": {
                     "root": "/",
@@ -467,7 +463,7 @@ mod tests {
             [
                 {"Map": {
                     "root": "/",
-                    "mappings": [{"Mapping": "/bar"}]
+                    "mappings": [{"path": "/bar"}]
                 }}
             ]
             [

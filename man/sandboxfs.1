@@ -276,11 +276,11 @@ which provides the path where all the mappings apply, and
 .Sq mappings ,
 which provides an array of mappings to apply.
 Then, each mapping entry is a dictionary with the following keys:
-.Sq Mapping
+.Sq path
 and
-.Sq Target ,
+.Sq underlying_path ,
 which define the mapping paths, and
-.Sq Writable ,
+.Sq writable ,
 which if set to true indicates a read/write mapping.
 The mapping must not yet exist in the file system.
 .Pp
@@ -365,7 +365,7 @@ by pointing it at another location.
     {"Map": {
         "root": "/",
         "mappings": [
-            {"Mapping": "/tmp", "Target": "/tmp/abc", "Writable": true}
+            {"path": "/tmp", "underlying_path": "/tmp/abc", "writable": true}
         ]
     }},
     {"Unmap":
@@ -377,7 +377,7 @@ by pointing it at another location.
     {"Map": {
         "root": "/",
         "mappings": [
-            {"Mapping": "/foo/bar", "Target": "/", "Writable": false}
+            {"path": "/foo/bar", "underlying_path": "/", "writable": false}
         ]
     }}
 ]
