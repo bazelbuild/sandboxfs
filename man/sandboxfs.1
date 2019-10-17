@@ -271,6 +271,11 @@ Map operations add new mappings to the file system and unmap operations remove
 existing mappings.
 .Pp
 A map operation is specified as a dictionary with the following keys:
+.Sq root ,
+which provides the path where all the mappings apply, and
+.Sq mappings ,
+which provides an array of mappings to apply.
+Then, each mapping entry is a dictionary with the following keys:
 .Sq Mapping
 and
 .Sq Target ,
@@ -279,7 +284,12 @@ which define the mapping paths, and
 which if set to true indicates a read/write mapping.
 The mapping must not yet exist in the file system.
 .Pp
-An unmap operation is specified as a non-empty string containing the path of
+An unmap operation is specified as a dictionary with the following keys:
+.Sq root ,
+which provides the path where all the unmappings apply, and
+.Sq mappings ,
+which provides an array of mappings to apply.
+Then, each mapping entry is a non-empty string containing the path of
 the mapping to remove.
 The path must exist in the file system and must represent a mapping (not a file
 from an underlying file system).
@@ -352,9 +362,24 @@ and redoing the mapping for
 by pointing it at another location.
 .Bd -literal -offset indent
 [
-    {"Map": {"Mapping": "/tmp", "Target": "/tmp/abc", "Writable": true}},
-    {"Unmap": "/foo"},
-    {"Map": {"Mapping": "/foo/bar", "Target": "/", "Writable": false}}
+    {"Map": {
+        "root": "/",
+        "mappings": [
+            {"Mapping": "/tmp", "Target": "/tmp/abc", "Writable": true}
+        ]
+    }},
+    {"Unmap":
+        "root": "/",
+        "mappings": [
+            "/foo"
+        ]
+    }},
+    {"Map": {
+        "root": "/",
+        "mappings": [
+            {"Mapping": "/foo/bar", "Target": "/", "Writable": false}
+        ]
+    }}
 ]
 .Ed
 .Pp

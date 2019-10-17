@@ -38,11 +38,23 @@ type mapping struct {
 	Writable bool   `json:"Writable"`
 }
 
+// mapStep represents a map operation in the reconfiguration protocol.
+type mapStep struct {
+	Root     string    `json:"root"`
+	Mappings []mapping `json:"mappings"`
+}
+
+// unmapStep represents an unmap operation in the reconfiguration protocol.
+type unmapStep struct {
+	Root     string   `json:"root"`
+	Mappings []string `json:"mappings"`
+}
+
 // step represents a map or unmap operation in the reconfiguration protocol. Only one of these
 // fields can be used at a time.
 type step struct {
-	Map   *mapping `json:"Map,omitempty"`
-	Unmap string   `json:"Unmap,omitempty"`
+	Map   *mapStep   `json:"Map,omitempty"`
+	Unmap *unmapStep `json:"Unmap,omitempty"`
 }
 
 // request represents a single reconfiguration request.
@@ -51,6 +63,16 @@ type request []step
 // response represents the result of a reconfiguration request.
 type response struct {
 	Error *string `json:"error,omitempty"`
+}
+
+// makeMapStep is a convenience function to instantiate a single map step.
+func makeMapStep(root string, mapping1 mapping, mappingN ...mapping) step {
+	return step{Map: &mapStep{Root: root, Mappings: append([]mapping{mapping1}, mappingN...)}}
+}
+
+// makeUnmapStep is a convenience function to instantiate a single unmap step.
+func makeUnmapStep(root string, mapping1 string, mappingN ...string) step {
+	return step{Unmap: &unmapStep{Root: root, Mappings: append([]string{mapping1}, mappingN...)}}
 }
 
 // tryRawReconfigure pushes a new configuration to the sandboxfs process and waits for
@@ -145,7 +167,7 @@ func TestReconfiguration_Streams(t *testing.T) {
 	reconfigureAndCheck := func(t *testing.T, state *utils.MountState, input io.Writer, output io.Reader) {
 		utils.MustMkdirAll(t, state.RootPath("a/b"), 0755)
 		config := request{
-			{Map: &mapping{Mapping: "/ro", Target: "%ROOT%/a", Writable: false}},
+			makeMapStep("/", mapping{Mapping: "/ro", Target: "%ROOT%/a", Writable: false}),
 		}
 		if err := reconfigure(input, output, state.RootPath(), config); err != nil {
 			t.Fatal(err)
@@ -213,9 +235,9 @@ func TestReconfiguration_Steps(t *testing.T) {
 	utils.MustMkdirAll(t, state.RootPath("some/read-only-dir"), 0755)
 	utils.MustMkdirAll(t, state.RootPath("some/read-write-dir"), 0755)
 	config := request{
-		{Map: &mapping{Mapping: "/ro", Target: "%ROOT%/some/read-only-dir", Writable: false}},
-		{Map: &mapping{Mapping: "/ro/rw", Target: "%ROOT%/some/read-write-dir", Writable: true}},
-		{Map: &mapping{Mapping: "/nested/dup", Target: "%ROOT%/some/read-only-dir", Writable: false}},
+		makeMapStep("/", mapping{Mapping: "/ro", Target: "%ROOT%/some/read-only-dir", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/ro/rw", Target: "%ROOT%/some/read-write-dir", Writable: true}),
+		makeMapStep("/", mapping{Mapping: "/nested/dup", Target: "%ROOT%/some/read-only-dir", Writable: false}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
@@ -241,8 +263,8 @@ func TestReconfiguration_Steps(t *testing.T) {
 	}
 
 	config = request{
-		{Unmap: "/ro"},
-		{Map: &mapping{Mapping: "/rw/dir", Target: "%ROOT%/some/read-write-dir", Writable: true}},
+		makeUnmapStep("/", "/ro"),
+		makeMapStep("/", mapping{Mapping: "/rw/dir", Target: "%ROOT%/some/read-write-dir", Writable: true}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
@@ -268,9 +290,9 @@ func TestReconfiguration_Unmap(t *testing.T) {
 	defer stdoutWriter.Close() // Just in case the test fails half-way through.
 
 	config := request{
-		{Unmap: "/root-mapping"},
-		{Unmap: "/nested/mapping"},
-		{Unmap: "/deep/a"},
+		makeUnmapStep("/", "/root-mapping"),
+		makeUnmapStep("/", "/nested/mapping"),
+		makeUnmapStep("/", "/deep/a"),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
@@ -284,7 +306,7 @@ func TestReconfiguration_Unmap(t *testing.T) {
 		}
 	}
 
-	config = request{{Unmap: "/nested"}}
+	config = request{makeUnmapStep("/", "/nested")}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
@@ -329,12 +351,12 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	utils.MustSymlink(t, "/non-existent", state.RootPath("symlink"))
 
 	config := request{
-		{Map: &mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: false}},
-		{Map: &mapping{Mapping: "/file", Target: "%ROOT%/file", Writable: false}},
-		{Map: &mapping{Mapping: "/symlink", Target: "%ROOT%/symlink", Writable: false}},
-		{Map: &mapping{Mapping: "/z/dir", Target: "%ROOT%/dir", Writable: false}},
-		{Map: &mapping{Mapping: "/z/file", Target: "%ROOT%/file", Writable: false}},
-		{Map: &mapping{Mapping: "/z/symlink", Target: "%ROOT%/symlink", Writable: false}},
+		makeMapStep("/", mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/file", Target: "%ROOT%/file", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/symlink", Target: "%ROOT%/symlink", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/z/dir", Target: "%ROOT%/dir", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/z/file", Target: "%ROOT%/file", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/z/symlink", Target: "%ROOT%/symlink", Writable: false}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
@@ -351,18 +373,18 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 	utils.MustSymlink(t, "/non-existent-other", state.RootPath("symlink"))
 
 	config = request{
-		{Unmap: "/dir"},
-		{Map: &mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: false}},
-		{Unmap: "/file"},
-		{Map: &mapping{Mapping: "/file", Target: "%ROOT%/file", Writable: false}},
-		{Unmap: "/symlink"},
-		{Map: &mapping{Mapping: "/symlink", Target: "%ROOT%/symlink", Writable: false}},
-		{Unmap: "/z/dir"},
-		{Map: &mapping{Mapping: "/z/dir", Target: "%ROOT%/dir", Writable: false}},
-		{Unmap: "/z/file"},
-		{Map: &mapping{Mapping: "/z/file", Target: "%ROOT%/file", Writable: false}},
-		{Unmap: "/z/symlink"},
-		{Map: &mapping{Mapping: "/z/symlink", Target: "%ROOT%/symlink", Writable: false}},
+		makeUnmapStep("/", "/dir"),
+		makeMapStep("/", mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: false}),
+		makeUnmapStep("/", "/file"),
+		makeMapStep("/", mapping{Mapping: "/file", Target: "%ROOT%/file", Writable: false}),
+		makeUnmapStep("/", "/symlink"),
+		makeMapStep("/", mapping{Mapping: "/symlink", Target: "%ROOT%/symlink", Writable: false}),
+		makeUnmapStep("/", "/z/dir"),
+		makeMapStep("/", mapping{Mapping: "/z/dir", Target: "%ROOT%/dir", Writable: false}),
+		makeUnmapStep("/", "/z/file"),
+		makeMapStep("/", mapping{Mapping: "/z/file", Target: "%ROOT%/file", Writable: false}),
+		makeUnmapStep("/", "/z/symlink"),
+		makeMapStep("/", mapping{Mapping: "/z/symlink", Target: "%ROOT%/symlink", Writable: false}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
@@ -404,37 +426,53 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 	}{
 		{
 			"InvalidMapping",
-			request{{Map: &mapping{Mapping: "foo/../.", Target: "%ROOT%/subdir", Writable: false}}},
+			request{
+				makeMapStep("/", mapping{Mapping: "foo/../.", Target: "%ROOT%/subdir", Writable: false}),
+			},
 			"path.*not absolute",
 		},
 		{
 			"RemapRoot",
-			request{{Map: &mapping{Mapping: "/", Target: "%ROOT%/subdir", Writable: false}}},
+			request{
+				makeMapStep("/", mapping{Mapping: "/", Target: "%ROOT%/subdir", Writable: false}),
+			},
 			"Root can be mapped at most once",
 		},
 		{
 			"MapTwice",
-			request{{Map: &mapping{Mapping: "/foo", Target: "%ROOT%/subdir", Writable: false}}, {Map: &mapping{Mapping: "/foo", Target: "%ROOT%/file", Writable: false}}},
+			request{
+				makeMapStep("/", mapping{Mapping: "/foo", Target: "%ROOT%/subdir", Writable: false}),
+				makeMapStep("/", mapping{Mapping: "/foo", Target: "%ROOT%/file", Writable: false}),
+			},
 			"Already mapped",
 		},
 		{
 			"UnmapRoot",
-			request{{Unmap: "/"}},
+			request{
+				makeUnmapStep("/", "/"),
+			},
 			"Root cannot be unmapped",
 		},
 		{
 			"UnmapMissingEntryInMapping",
-			request{{Map: &mapping{Mapping: "/subdir", Target: "%ROOT%/subdir", Writable: false}}, {Unmap: "/subdir/foo"}},
+			request{
+				makeMapStep("/", mapping{Mapping: "/subdir", Target: "%ROOT%/subdir", Writable: false}),
+				makeUnmapStep("/", "/subdir/foo"),
+			},
 			"Unknown entry",
 		},
 		{
 			"UnmapMissingEntryInRealUnmappedDirectory",
-			request{{Unmap: "/subdir/foo"}},
+			request{
+				makeUnmapStep("/", "/subdir/foo"),
+			},
 			"Unknown entry",
 		},
 		{
 			"UnmapPathWithMissingComponents",
-			request{{Unmap: "/missing/long/path"}},
+			request{
+				makeUnmapStep("/", "/missing/long/path"),
+			},
 			"Unknown component in entry",
 		},
 	}
@@ -448,7 +486,7 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 		utils.MustMkdirAll(t, state.RootPath("subdir/inner-subdir"), 0755)
 		utils.MustWriteFile(t, state.RootPath("subdir/inner-subdir/inner-file"), 0644, "")
 
-		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), request{{Map: &mapping{Mapping: "/subdir2", Target: "%ROOT%/subdir", Writable: false}}}); err != nil {
+		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), request{makeMapStep("/", mapping{Mapping: "/subdir2", Target: "%ROOT%/subdir", Writable: false})}); err != nil {
 			t.Fatalf("Failed to map /subdir2: %v", err)
 		}
 
@@ -458,7 +496,7 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 			t.Fatalf("Failed to stat just-created file subdir2/inner-subdir/inner-file: %v", err)
 		}
 
-		checkBadConfig(t, request{{Unmap: "/subdir2/inner-subdir/inner-file"}}, "inner-file.*is not a mapping")
+		checkBadConfig(t, request{makeUnmapStep("/", "/subdir2/inner-subdir/inner-file")}, "inner-file.*is not a mapping")
 	})
 }
 
@@ -487,7 +525,7 @@ func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 
 		utils.MustWriteFile(t, state.RootPath("first"), 0644, "First")
 
-		firstConfig := request{{Map: &mapping{Mapping: "/first", Target: "%ROOT%/first", Writable: false}}}
+		firstConfig := request{makeMapStep("/", mapping{Mapping: "/first", Target: "%ROOT%/first", Writable: false})}
 		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 			stdoutWriter.Close()
 			state.TearDown(t)
@@ -535,7 +573,7 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 			utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
 			utils.MustWriteFile(t, state.RootPath("dir2/second"), 0644, "Second")
 
-			firstConfig := request{{Map: &mapping{Mapping: filepath.Join(d.dir, "first"), Target: state.RootPath(d.firstConfigTarget), Writable: false}}}
+			firstConfig := request{makeMapStep("/", mapping{Mapping: filepath.Join(d.dir, "first"), Target: state.RootPath(d.firstConfigTarget), Writable: false})}
 			if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 				t.Fatalf("First configuration failed: %v", err)
 			}
@@ -555,8 +593,8 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 			}
 
 			secondConfig := request{
-				{Unmap: filepath.Join(d.dir, "first")},
-				{Map: &mapping{Mapping: filepath.Join(d.dir, "second"), Target: state.RootPath(d.secondConfigTarget), Writable: false}},
+				makeUnmapStep("/", filepath.Join(d.dir, "first")),
+				makeMapStep("/", mapping{Mapping: filepath.Join(d.dir, "second"), Target: state.RootPath(d.secondConfigTarget), Writable: false}),
 			}
 			if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), secondConfig); err != nil {
 				t.Fatalf("Second configuration failed: %v", err)
@@ -598,8 +636,8 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	wantInodes := make(map[string]uint64)
 
 	firstConfig := request{
-		{Map: &mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: false}},
-		{Map: &mapping{Mapping: "/dir3", Target: "%ROOT%/dir3", Writable: false}},
+		makeMapStep("/", mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: false}),
+		makeMapStep("/", mapping{Mapping: "/dir3", Target: "%ROOT%/dir3", Writable: false}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
 		t.Fatalf("First configuration failed: %v", err)
@@ -610,9 +648,9 @@ func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
 	wantInodes["dir3/file"] = inodeOf(state.MountPath("dir3/file"))
 
 	secondConfig := request{
-		{Unmap: "/dir1"},
-		{Unmap: "/dir3"},
-		{Map: &mapping{Mapping: "/dir2", Target: "%ROOT%/dir2", Writable: false}},
+		makeUnmapStep("/", "/dir1"),
+		makeUnmapStep("/", "/dir3"),
+		makeMapStep("/", mapping{Mapping: "/dir2", Target: "%ROOT%/dir2", Writable: false}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), secondConfig); err != nil {
 		t.Fatalf("Failed to replace all mappings with new configuration: %v", err)
@@ -662,7 +700,7 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 
 	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
 
-	config := request{{Map: &mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: true}}}
+	config := request{makeMapStep("/", mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: true})}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}
@@ -672,8 +710,8 @@ func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
 	}
 
 	config = request{
-		{Unmap: "/dir1"},
-		{Map: &mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: false}},
+		makeUnmapStep("/", "/dir1"),
+		makeMapStep("/", mapping{Mapping: "/dir1", Target: "%ROOT%/dir1", Writable: false}),
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
@@ -727,7 +765,7 @@ func TestReconfiguration_FileSystemStillWorksAfterInputEOF(t *testing.T) {
 	go grepStderr(stderrReader, `Reached end of reconfiguration input`, gotEOF)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
-	config := request{{Map: &mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: true}}}
+	config := request{makeMapStep("/", mapping{Mapping: "/dir", Target: "%ROOT%/dir", Writable: true})}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
 		t.Fatal(err)
 	}

@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-use {flatten_causes, Mapping};
+use {flatten_causes, Mapping, MappingError};
 use failure::Fallible;
 use nix::unistd;
 use serde_derive::{Deserialize, Serialize};
@@ -36,20 +36,32 @@ pub trait ReconfigurableFS {
 /// field names used in its structures leaked to the JSON format.  We must handle those same names
 /// here for drop-in compatibility.
 #[allow(non_snake_case)]
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct JsonMapping {
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct JsonMapping {
     Mapping: PathBuf,
     Target: PathBuf,
     Writable: bool,
 }
 
+/// External representation of a reconfiguration map step in the JSON reconfiguration data.
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct MapStep {
+    root: PathBuf,
+    mappings: Vec<JsonMapping>,
+}
+
+/// External representation of a reconfiguration unmap step in the JSON reconfiguration data.
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct UnmapStep {
+    root: PathBuf,
+    mappings: Vec<PathBuf>,
+}
+
 /// External representation of a reconfiguration step in the JSON reconfiguration data.
-///
-/// This exists to wrap the `JsonMapping` artifact and for the same reasons described there.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum JsonStep {
-    Map(JsonMapping),
-    Unmap(PathBuf),
+    Map(MapStep),
+    Unmap(UnmapStep),
 }
 
 /// External representation of a response to a reconfiguration request.
@@ -59,16 +71,42 @@ struct Response {
     error: Option<String>,
 }
 
+/// Joins the root path of a mapping request with a mapping-specific path from that request.
+fn make_path<P: AsRef<Path>>(root: P, abs_path: P) -> Result<PathBuf, MappingError> {
+    let root = root.as_ref();
+    let abs_path = abs_path.as_ref();
+
+    if !root.is_absolute() {
+        return Err(MappingError::PathNotAbsolute { path: root.to_owned() });
+    }
+    if !abs_path.is_absolute() {
+        return Err(MappingError::PathNotAbsolute { path: abs_path.to_owned() });
+    }
+    let rel_path = abs_path.strip_prefix("/").unwrap();
+    if rel_path == Path::new("") {
+        Ok(root.to_owned())
+    } else {
+        Ok(root.join(rel_path))
+    }
+}
+
 /// Applies a reconfiguration request to the given file system.
 fn handle_request<F: ReconfigurableFS>(steps: Vec<JsonStep>, fs: &F) -> Fallible<()> {
     for step in steps {
         match step {
-            JsonStep::Map(mapping) => {
-                let mapping = Mapping::from_parts(
-                    mapping.Mapping, mapping.Target, mapping.Writable)?;
-                fs.map(&mapping)?
+            JsonStep::Map(request) => {
+                for mapping in request.mappings {
+                    let path = make_path(&request.root, &mapping.Mapping)?;
+                    let mapping = Mapping::from_parts(path, mapping.Target, mapping.Writable)?;
+                    fs.map(&mapping)?
+                }
             },
-            JsonStep::Unmap(path) => fs.unmap(&path)?,
+            JsonStep::Unmap(request) => {
+                for mapping in request.mappings {
+                    let path = make_path(&request.root, &mapping)?;
+                    fs.unmap(&path)?
+                }
+            },
         }
     }
     Ok(())
@@ -152,17 +190,55 @@ mod tests {
     use super::*;
 
     /// Syntactic sugar to instantiate a new `JsonStep::Map` for testing purposes only.
-    fn new_map_step<P: AsRef<Path>>(path: P, underlying_path: P, writable: bool) -> JsonStep {
-        JsonStep::Map(JsonMapping {
+    fn new_mapping<P: AsRef<Path>>(path: P, underlying_path: P, writable: bool) -> JsonMapping {
+        JsonMapping {
             Mapping: PathBuf::from(path.as_ref()),
             Target: PathBuf::from(underlying_path.as_ref()),
             Writable: writable,
+        }
+    }
+
+    /// Syntactic sugar to instantiate a new `JsonStep::Map` for testing purposes only.
+    fn new_map_step<P: AsRef<Path>>(root: P, mappings: &[JsonMapping]) -> JsonStep {
+        JsonStep::Map(MapStep {
+            root: root.as_ref().to_owned(),
+            mappings: mappings.to_owned(),
         })
     }
 
     /// Syntactic sugar to instantiate a new `JsonStep::Unmap` for testing purposes only.
-    fn new_unmap_step<P: AsRef<Path>>(path: P) -> JsonStep {
-        JsonStep::Unmap(PathBuf::from(path.as_ref()))
+    fn new_unmap_step<P: AsRef<Path>>(root: P, mappings: &[P]) -> JsonStep {
+        JsonStep::Unmap(UnmapStep {
+            root: root.as_ref().to_owned(),
+            mappings: mappings.iter().map(|p| p.as_ref().to_owned()).collect(),
+        })
+    }
+
+    #[test]
+    fn test_make_path() {
+        assert_eq!(PathBuf::from("/"), make_path(&"/", &"/").unwrap());
+        assert_eq!(PathBuf::from("/a/b"), make_path(&"/a/b", &"/").unwrap());
+        assert_eq!(PathBuf::from("/a/b"), make_path(&"/", &"/a/b").unwrap());
+
+        assert_eq!(
+            "/no/trailing/slash",
+            make_path(&"/no/trailing/slash", &"/").unwrap().to_str().unwrap());
+
+        assert_eq!(
+            MappingError::PathNotAbsolute { path: PathBuf::from("") },
+            make_path(&"", &"/root/is/empty").unwrap_err());
+
+        assert_eq!(
+            MappingError::PathNotAbsolute { path: PathBuf::from("") },
+            make_path(&"/sub/path/is/empty", &"").unwrap_err());
+
+        assert_eq!(
+            MappingError::PathNotAbsolute { path: PathBuf::from("root") },
+            make_path(&"root", &"/").unwrap_err());
+
+        assert_eq!(
+            MappingError::PathNotAbsolute { path: PathBuf::from("sub/path") },
+            make_path(&"/", &"sub/path").unwrap_err());
     }
 
     /// A reconfigurable file system that tracks map and unmap operations.
@@ -275,7 +351,7 @@ mod tests {
     #[test]
     fn test_run_loop_one() {
         let requests: &[&[JsonStep]] = &[
-            &[new_map_step("/foo/bar", "/bin", false)],
+            &[new_map_step("/foo", &[new_mapping("/bar", "/bin", false)])],
         ];
         let exp_responses = &[
             Response{ error: None },
@@ -289,8 +365,11 @@ mod tests {
     #[test]
     fn test_run_loop_many() {
         let requests: &[&[JsonStep]] = &[
-            &[new_map_step("/foo/bar", "/bin", false), new_unmap_step("/a")],
-            &[new_map_step("/z", "/b", false)],
+            &[
+                new_map_step("/", &[new_mapping("/foo/bar", "/bin", false)]),
+                new_unmap_step("/", &["/a"]),
+            ],
+            &[new_map_step("/", &[new_mapping("/z", "/b", false)])],
         ];
         let exp_responses = &[
             Response{ error: None },
@@ -305,11 +384,35 @@ mod tests {
     }
 
     #[test]
+    fn test_run_loop_roots() {
+        let requests: &[&[JsonStep]] = &[
+            &[
+                new_map_step("/sandbox", &[
+                    new_mapping("/", "/the-root", false),
+                    new_mapping("/foo/bar", "/bin", false),
+                ]),
+                new_unmap_step("/somewhere/else", &["/a", "/b", "/c/d"]),
+            ],
+        ];
+        let exp_responses = &[
+            Response{ error: None },
+        ];
+        let exp_log = &[
+            String::from("map /sandbox"),
+            String::from("map /sandbox/foo/bar"),
+            String::from("unmap /somewhere/else/a"),
+            String::from("unmap /somewhere/else/b"),
+            String::from("unmap /somewhere/else/c/d"),
+        ];
+        do_run_loop_test(requests, exp_responses, exp_log);
+    }
+
+    #[test]
     fn test_run_loop_errors() {
         let requests: &[&[JsonStep]] = &[
-            &[new_map_step("/foo", "/bin", false)],
-            &[new_map_step("bar", "/b", false)],
-            &[new_map_step("/z", "/b", false)],
+            &[new_map_step("/", &[new_mapping("/foo", "/bin", false)])],
+            &[new_map_step("/", &[new_mapping("bar", "/b", false)])],
+            &[new_map_step("/", &[new_mapping("/z", "/b", false)])],
         ];
         let exp_responses = &[
             Response{ error: None },
@@ -335,7 +438,16 @@ mod tests {
     #[test]
     fn test_run_loop_fatal_syntax_error_due_to_conflicting_requests() {
         let requests = r#"
-            [{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]
+            [{
+                "Map": {
+                    "root": "/",
+                    "mappings": [{"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}]
+                },
+                "Unmap": {
+                    "root": "/",
+                    "mappings": ["/bar"]
+                }
+            }]
         "#;
         let exp_responses = &[
             Response{ error: Some("expected value".to_string()) },
@@ -346,9 +458,24 @@ mod tests {
     #[test]
     fn test_run_loop_fatal_syntax_error_stops_processing() {
         let requests = r#"
-            [{"Unmap": "/foo"}]
-            [{"Map": {"Mapping": "/bar"}}]
-            [{"Unmap": "/baz"}]
+            [
+                {"Unmap": {
+                    "root": "/",
+                    "mappings": ["/foo"]
+                }}
+            ]
+            [
+                {"Map": {
+                    "root": "/",
+                    "mappings": [{"Mapping": "/bar"}]
+                }}
+            ]
+            [
+                {"Unmap": {
+                    "root": "/",
+                    "mappings": ["/baz"]
+                }
+            ]
         "#;
         let exp_responses = &[
             Response{ error: None },

@@ -8,9 +8,10 @@
     requests and the responses, instead of the previous ad-hoc line-oriented
     protocol.
 
-*   Issue #92: Fixed a bug in `readdir` where we would regenerate inodes for
-    directory entries, causing later confusion when trying to access those
-    directories.
+*   Changed the reconfiguration protocol so that each map and unmap request
+    carries a list of mappings to map and unmap, respectively, along with the
+    "root" path where all those mappings start.  This is to allow sandboxfs to
+    process the requests more efficiently.
 
 *   Issues #94, #98: Fixed a bug in `rename` that caused moved directories to
     lose access to their contents (because the underlying paths for their
