@@ -462,55 +462,6 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 	})
 }
 
-func TestReconfiguration_FatalErrors(t *testing.T) {
-	checkBadConfig := func(t *testing.T, state *utils.MountState, stdoutReader io.Reader, config string, wantError string) {
-		t.Helper()
-		message, err := tryRawReconfigure(state.Stdin, stdoutReader, state.RootPath(), config)
-		if err != nil {
-			t.Fatalf("want reconfiguration of / to fail; got success")
-		}
-		if message == nil {
-			t.Errorf("want reconfiguration to respond with %s; got OK", wantError)
-		} else if !utils.MatchesRegexp(wantError, *message) {
-			t.Errorf("want reconfiguration to respond with %s; got %s", wantError, *message)
-		}
-	}
-
-	testData := []struct {
-		name string
-
-		config    string
-		wantError string
-	}{
-		{
-			"InvalidSyntax",
-			`this is not in the correct format`,
-			"expected ident",
-		},
-		{
-			"EmptyStep",
-			`[{}]`,
-			"expected value",
-		},
-		{
-			"MapAndUnmapInSameStep",
-			`[{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]`,
-			"expected value",
-		},
-	}
-	for _, d := range testData {
-		t.Run(d.name, func(t *testing.T) {
-			stdoutReader, stdoutWriter := io.Pipe()
-			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
-			defer stdoutReader.Close() // Just in case the test fails half-way through.
-			defer state.TearDown(t)
-			defer stdoutWriter.Close() // Just in case the test fails half-way through.
-
-			checkBadConfig(t, state, stdoutReader, d.config, d.wantError)
-		})
-	}
-}
-
 func TestReconfiguration_RaceSystemComponents(t *testing.T) {
 	// This test verifies that a dynamic sandboxfs instance can be unmounted immediately after
 	// reconfiguration.

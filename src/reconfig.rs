@@ -194,36 +194,77 @@ mod tests {
         }
     }
 
-    fn do_run_loop_test(
-        requests: &[&[JsonStep]], exp_responses: &[Response], exp_log: &[String]) {
+    /// A `Response` that matches another `Response`'s error message in a fuzzy manner.
+    ///
+    /// To be used for testing purposes only to prevent recording exact error messages in the
+    /// tests.
+    #[derive(Debug)]
+    struct FuzzyResponse<'a>(&'a Response);
+
+    impl <'a> From<&'a Response> for FuzzyResponse<'a> {
+        /// Constructs a new `FuzzyResponse` adapter from a `Response`.
+        fn from(response: &'a Response) -> Self {
+            Self(response)
+        }
+    }
+
+    impl <'a> PartialEq<Response> for FuzzyResponse<'a> {
+        /// Checks if the `FuzzyResponse` matches a given `Response`.
+        ///
+        /// The two are considered equivalent if the pattern provided in the `FuzzyResponse`'s
+        /// error message matches the error message in `other`.
+        fn eq(&self, other: &Response) -> bool {
+            match (self.0.error.as_ref(), other.error.as_ref()) {
+                (Some(exp_message), Some(message)) => message.contains(exp_message),
+                (None, None) => true,
+                (_, _) => false,
+            }
+        }
+    }
+
+    /// Executes `run_loop` given a raw JSON request and expects the set of responses in
+    /// `exp_responses` and the set of side-effects on a file system in `exp_log`.
+    ///
+    /// Returns the result of `run_loop` (be it successful or failure) *after* all other conditions
+    /// have been checked.
+    fn do_run_loop_raw_test(requests: &str, exp_responses: &[Response], exp_log: &[String])
+        -> Fallible<()> {
         let fs: MockFS = Default::default();
 
-        let responses = {
-            let input = {
-                let mut input = String::new();
-                for request in requests {
-                    input += &serde_json::to_string(&request).unwrap();
-                }
-                input
-            };
-            let reader = io::BufReader::new(input.as_bytes());
+        let reader = io::BufReader::new(requests.as_bytes());
 
-            let mut output: Vec<u8> = Vec::new();
-            let writer = io::BufWriter::new(&mut output);
+        let mut output: Vec<u8> = Vec::new();
+        let writer = io::BufWriter::new(&mut output);
 
-            run_loop(reader, writer, &fs).unwrap();
+        let result = run_loop(reader, writer, &fs);
 
-            let mut output: io::BufReader<&[u8]> = io::BufReader::new(output.as_ref());
-            let stream = serde_json::Deserializer::from_reader(&mut output).into_iter::<Response>();
-            let mut responses = vec!();
-            for response in stream {
-                responses.push(response.unwrap());
-            }
-            responses
-        };
+        let mut output: io::BufReader<&[u8]> = io::BufReader::new(output.as_ref());
+        let stream = serde_json::Deserializer::from_reader(&mut output).into_iter::<Response>();
+        let mut responses = vec!();
+        for response in stream {
+            responses.push(response.unwrap());
+        }
 
+        let exp_responses: Vec<FuzzyResponse> =
+            exp_responses.iter().map(FuzzyResponse::from).collect();
         assert_eq!(exp_responses, responses.as_slice());
         assert_eq!(exp_log, fs.get_log().as_slice());
+
+        result
+    }
+
+    /// Executes `run_loop` given a collection of requests and expects the set of responses in
+    /// `exp_responses` and the set of side-effects on a file system in `exp_log`.
+    ///
+    /// This expects `run_loop` to complete successfully (even if individual requests fail in a
+    /// recoverable manner).  To check for the behavior of this function under fatal erroneous
+    /// conditions, use `do_run_loop_raw_test`.
+    fn do_run_loop_test(requests: &[&[JsonStep]], exp_responses: &[Response], exp_log: &[String]) {
+        let mut input = String::new();
+        for request in requests {
+            input += &serde_json::to_string(&request).unwrap();
+        }
+        do_run_loop_raw_test(&input, exp_responses, exp_log).unwrap();
     }
 
     #[test]
@@ -280,5 +321,42 @@ mod tests {
             String::from("map /z"),
         ];
         do_run_loop_test(requests, exp_responses, exp_log);
+    }
+
+    #[test]
+    fn test_run_loop_fatal_syntax_error_due_to_empty_request() {
+        let requests = r#"[{}]"#;
+        let exp_responses = &[
+            Response{ error: Some("expected value".to_string()) },
+        ];
+        do_run_loop_raw_test(&requests, exp_responses, &[]).unwrap_err();
+    }
+
+    #[test]
+    fn test_run_loop_fatal_syntax_error_due_to_conflicting_requests() {
+        let requests = r#"
+            [{"Map": {"Mapping": "/foo", "Target": "%ROOT%", "Writable": false}, "Unmap": "/bar"}]
+        "#;
+        let exp_responses = &[
+            Response{ error: Some("expected value".to_string()) },
+        ];
+        do_run_loop_raw_test(&requests, exp_responses, &[]).unwrap_err();
+    }
+
+    #[test]
+    fn test_run_loop_fatal_syntax_error_stops_processing() {
+        let requests = r#"
+            [{"Unmap": "/foo"}]
+            [{"Map": {"Mapping": "/bar"}}]
+            [{"Unmap": "/baz"}]
+        "#;
+        let exp_responses = &[
+            Response{ error: None },
+            Response{ error: Some("missing field".to_string()) },
+        ];
+        let exp_log = &[
+            String::from("unmap /foo"),
+        ];
+        do_run_loop_raw_test(&requests, exp_responses, exp_log).unwrap_err();
     }
 }
