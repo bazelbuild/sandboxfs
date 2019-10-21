@@ -282,6 +282,67 @@ func TestReconfiguration_Steps(t *testing.T) {
 	}
 }
 
+func TestReconfiguration_EmptySubroot(t *testing.T) {
+	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
+	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
+	defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+	config := request{step{Map: &mapStep{Root: "/empty", Mappings: []mapping{}}}}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(state.MountPath("empty")); err != nil {
+		t.Errorf("Failed to stat empty root: %v", err)
+	}
+
+	config = request{makeUnmapStep("/empty", "/")}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
+		t.Fatal(err)
+	}
+	errorIfNotUnmapped(t, state.MountPath(), "empty")
+}
+
+func TestReconfiguration_Subroots(t *testing.T) {
+	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
+	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
+	defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+	utils.MustMkdirAll(t, state.RootPath("sandbox1"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("sandbox1subdir"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("sandbox2"), 0755)
+	config := request{
+		makeMapStep("/sandbox1", mapping{Path: "/", UnderlyingPath: "%ROOT%/sandbox1", Writable: true}, mapping{Path: "/subdir", UnderlyingPath: "%ROOT%/sandbox1subdir", Writable: true}),
+		makeMapStep("/sandbox2", mapping{Path: "/", UnderlyingPath: "%ROOT%/sandbox2", Writable: true}),
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"sandbox1/a", "sandbox1/subdir/b", "sandbox2/c"} {
+		if err := os.Mkdir(state.MountPath(path), 0755); err != nil {
+			t.Errorf("Failed to create mount path %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{"sandbox1/a", "sandbox1subdir/b", "sandbox2/c"} {
+		if _, err := os.Lstat(state.RootPath(path)); err != nil {
+			t.Errorf("Failed to stat underlying path %s: %v", path, err)
+		}
+	}
+
+	for _, subroot := range []string{"/sandbox1", "/sandbox2"} {
+		config := request{
+			makeUnmapStep(subroot, "/"),
+		}
+		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
+			t.Fatal(err)
+		}
+		errorIfNotUnmapped(t, state.MountPath(), subroot)
+	}
+}
+
 func TestReconfiguration_Unmap(t *testing.T) {
 	stdoutReader, stdoutWriter := io.Pipe()
 	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%", "--mapping=ro:/root-mapping:%ROOT%/foo", "--mapping=ro:/nested/mapping:%ROOT%/foo", "--mapping=ro:/deep/a/b/c/d:%ROOT%/foo")
@@ -393,13 +454,7 @@ func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
 }
 
 func TestReconfiguration_RecoverableErrors(t *testing.T) {
-	stdoutReader, stdoutWriter := io.Pipe()
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
-	defer stdoutReader.Close() // Just in case the test fails half-way through.
-	defer state.TearDown(t)
-	defer stdoutWriter.Close() // Just in case the test fails half-way through.
-
-	checkBadConfig := func(t *testing.T, config request, wantError string) {
+	checkBadConfig := func(t *testing.T, state *utils.MountState, stdoutReader io.Reader, config request, wantError string) {
 		t.Helper()
 		message, err := tryReconfigure(state.Stdin, stdoutReader, state.RootPath(), config)
 		if err != nil {
@@ -414,9 +469,6 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 			t.Errorf("want file to still exist after failed reconfiguration; got %v", err)
 		}
 	}
-
-	utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
-	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
 
 	testData := []struct {
 		name string
@@ -439,6 +491,13 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 			"Root can be mapped at most once",
 		},
 		{
+			"MapRootLate",
+			request{
+				makeMapStep("/", mapping{Path: "/too-late", UnderlyingPath: "%ROOT%/subdir", Writable: false}, mapping{Path: "/", UnderlyingPath: "%ROOT%/subdir", Writable: false}),
+			},
+			"Root can be mapped at most once",
+		},
+		{
 			"MapTwice",
 			request{
 				makeMapStep("/", mapping{Path: "/foo", UnderlyingPath: "%ROOT%/subdir", Writable: false}),
@@ -447,11 +506,42 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 			"Already mapped",
 		},
 		{
+			"MapTwiceViaDifferentRoots",
+			request{
+				makeMapStep("/foo", mapping{Path: "/", UnderlyingPath: "%ROOT%/file", Writable: false}),
+				makeMapStep("/", mapping{Path: "/foo", UnderlyingPath: "%ROOT%/subdir", Writable: false}),
+			},
+			"Already mapped",
+		},
+		{
+			"MapViaFileRoot",
+			request{
+				makeMapStep("/foo", mapping{Path: "/", UnderlyingPath: "%ROOT%/file", Writable: false}),
+				makeMapStep("/foo/bar", mapping{Path: "/baz", UnderlyingPath: "%ROOT%/subdir", Writable: false}),
+			},
+			"Already mapped as a non-directory",
+		},
+		{
+			"MapSubrootLate",
+			request{
+				makeMapStep("/foo", mapping{Path: "/too-late", UnderlyingPath: "%ROOT%/file", Writable: false}, mapping{Path: "/", UnderlyingPath: "%ROOT%/subdir", Writable: false}),
+			},
+			"Root can be mapped at most once",
+		},
+		{
 			"UnmapRoot",
 			request{
 				makeUnmapStep("/", "/"),
 			},
 			"Root cannot be unmapped",
+		},
+		{
+			"UnmapTraverseFile",
+			request{
+				makeMapStep("/", mapping{Path: "/some-file", UnderlyingPath: "%ROOT%/file", Writable: false}),
+				makeUnmapStep("/some-file/cannot-traverse", "/"),
+			},
+			"Not a directory",
 		},
 		{
 			"UnmapMissingEntryInMapping",
@@ -466,7 +556,7 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 			request{
 				makeUnmapStep("/", "/subdir/foo"),
 			},
-			"Unknown entry",
+			"Unknown component in entry",
 		},
 		{
 			"UnmapPathWithMissingComponents",
@@ -478,13 +568,29 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 	}
 	for _, d := range testData {
 		t.Run(d.name, func(t *testing.T) {
-			checkBadConfig(t, d.config, d.wantError)
+			stdoutReader, stdoutWriter := io.Pipe()
+			state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
+			defer stdoutReader.Close() // Just in case the test fails half-way through.
+			defer state.TearDown(t)
+			defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+			utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
+			utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
+
+			checkBadConfig(t, state, stdoutReader, d.config, d.wantError)
 		})
 	}
 
 	t.Run("UnmapRealUnmappedPath", func(t *testing.T) {
+		stdoutReader, stdoutWriter := io.Pipe()
+		state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=rw:/:%ROOT%")
+		defer stdoutReader.Close() // Just in case the test fails half-way through.
+		defer state.TearDown(t)
+		defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
 		utils.MustMkdirAll(t, state.RootPath("subdir/inner-subdir"), 0755)
 		utils.MustWriteFile(t, state.RootPath("subdir/inner-subdir/inner-file"), 0644, "")
+		utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
 
 		if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), request{makeMapStep("/", mapping{Path: "/subdir2", UnderlyingPath: "%ROOT%/subdir", Writable: false})}); err != nil {
 			t.Fatalf("Failed to map /subdir2: %v", err)
@@ -496,7 +602,7 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 			t.Fatalf("Failed to stat just-created file subdir2/inner-subdir/inner-file: %v", err)
 		}
 
-		checkBadConfig(t, request{makeUnmapStep("/", "/subdir2/inner-subdir/inner-file")}, "inner-file.*is not a mapping")
+		checkBadConfig(t, state, stdoutReader, request{makeUnmapStep("/", "/subdir2/inner-subdir/inner-file")}, "inner-file.*is not a mapping")
 	})
 }
 

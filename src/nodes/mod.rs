@@ -355,7 +355,30 @@ pub trait Node {
     /// `_cache` is updated to reflect the rename of the underlying path.
     fn set_underlying_path(&self, _path: &Path, _cache: &dyn Cache);
 
+    /// Looks up the node for the given path, which is expected to come from a previous mapping.
+    ///
+    /// `_components` is the path to search for, broken down into components, and relative to the
+    /// current node.
+    fn find_path(&self, _components: &[Component]) -> Fallible<ArcNode> {
+        panic!("Not implemented")
+    }
+
+    /// Looks up the node for the given path, which is expected to come from a previous mapping.
+    /// Creates any missing components (including the leaf) as scaffold directories.
+    ///
+    /// `_components` is the path to search for, broken down into components, and relative to the
+    /// current node.
+    ///
+    /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
+    /// nodes, used when this algorithm instantiates any new node.
+    fn find_or_create_path(&self, _components: &[Component], _ids: &IdGenerator, _cache: &dyn Cache)
+        -> Fallible<ArcNode> {
+        panic!("Not implemented")
+    }
+
     /// Maps a path onto a node and creates intermediate components as immutable directories.
+    ///
+    /// Returns the newly-created node.
     ///
     /// `_components` is the path to map, broken down into components, and relative to the current
     /// node.  `_underlying_path` is the target to use for the created node.  `_writable` indicates
@@ -364,7 +387,7 @@ pub trait Node {
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when this algorithm instantiates any new node.
     fn map(&self, _components: &[Component], _underlying_path: &Path, _writable: bool,
-        _ids: &IdGenerator, _cache: &dyn Cache) -> Fallible<()> {
+        _ids: &IdGenerator, _cache: &dyn Cache) -> Fallible<ArcNode> {
         panic!("Not implemented")
     }
 

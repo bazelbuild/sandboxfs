@@ -23,11 +23,11 @@ use std::path::{Path, PathBuf};
 
 /// A shareable view into a reconfigurable file system.
 pub trait ReconfigurableFS {
-    /// Maps a path into the file system.
-    fn map(&self, mapping: &Mapping) -> Fallible<()>;
+    /// Maps a path into the file system, starting at the subdirectory given in `root`.
+    fn map<P: AsRef<Path>>(&self, root: P, mapping: &[Mapping]) -> Fallible<()>;
 
-    /// Unmaps a path from the file system.
-    fn unmap<P: AsRef<Path>>(&self, path: P) -> Fallible<()>;
+    /// Unmaps a path from the file system, starting at the subdirectory given in `root`.
+    fn unmap<P: AsRef<Path>>(&self, root: P, mapping: &[P]) -> Fallible<()>;
 }
 
 /// External representation of a mapping in the JSON reconfiguration data.
@@ -67,7 +67,8 @@ struct Response {
 }
 
 /// Joins the root path of a mapping request with a mapping-specific path from that request.
-fn make_path<P: AsRef<Path>>(root: P, abs_path: P) -> Result<PathBuf, MappingError> {
+pub fn make_path<P1: AsRef<Path>, P2: AsRef<Path>>(root: P1, abs_path: P2)
+    -> Result<PathBuf, MappingError> {
     let root = root.as_ref();
     let abs_path = abs_path.as_ref();
 
@@ -90,18 +91,18 @@ fn handle_request<F: ReconfigurableFS>(steps: Vec<JsonStep>, fs: &F) -> Fallible
     for step in steps {
         match step {
             JsonStep::Map(request) => {
+                // TODO(jmmv): This conversion from JsonMapping to Mapping is wasteful and only
+                // exists to validate that the mappings' paths are valid.  We should be able to do
+                // that as part of the actual parsing of the JSON input instead.
+                let mut mappings = Vec::with_capacity(request.mappings.len());
                 for mapping in request.mappings {
-                    let path = make_path(&request.root, &mapping.path)?;
-                    let mapping = Mapping::from_parts(
-                        path, mapping.underlying_path, mapping.writable)?;
-                    fs.map(&mapping)?
+                    mappings.push(Mapping::from_parts(
+                        mapping.path, mapping.underlying_path, mapping.writable)?);
                 }
+                fs.map(request.root, &mappings)?
             },
             JsonStep::Unmap(request) => {
-                for mapping in request.mappings {
-                    let path = make_path(&request.root, &mapping)?;
-                    fs.unmap(&path)?
-                }
+                fs.unmap(request.root, &request.mappings)?
             },
         }
     }
@@ -255,13 +256,19 @@ mod tests {
     }
 
     impl ReconfigurableFS for MockFS {
-        fn map(&self, mapping: &Mapping) -> Fallible<()> {
-            self.log.lock().unwrap().push(format!("map {}", mapping.path.display()));
+        fn map<P: AsRef<Path>>(&self, root: P, mappings: &[Mapping]) -> Fallible<()> {
+            for mapping in mappings {
+                let path = make_path(root.as_ref(), &mapping.path).unwrap();
+                self.log.lock().unwrap().push(format!("map {}", path.display()));
+            }
             Ok(())
         }
 
-        fn unmap<P: AsRef<Path>>(&self, path: P) -> Fallible<()> {
-            self.log.lock().unwrap().push(format!("unmap {}", path.as_ref().display()));
+        fn unmap<P: AsRef<Path>>(&self, root: P, mappings: &[P]) -> Fallible<()> {
+            for mapping in mappings {
+                let path = make_path(root.as_ref(), mapping).unwrap();
+                self.log.lock().unwrap().push(format!("unmap {}", path.display()));
+            }
             Ok(())
         }
     }
