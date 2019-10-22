@@ -51,7 +51,7 @@ func setRustEnv(cmd *exec.Cmd) {
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	cmd.Env = append(cmd.Env, "RUST_BACKTRACE=1")
+	cmd.Env = append(cmd.Env, "RUST_BACKTRACE=full")
 	cmd.Env = append(cmd.Env, "RUST_LOG=info")
 }
 

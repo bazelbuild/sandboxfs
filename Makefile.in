@@ -42,7 +42,7 @@ target/release/sandboxfs: Cargo.toml $(RUST_SRCS)
 check: check-unit check-integration
 
 check-unit: Cargo.toml $(RUST_SRCS)
-	$(CARGO) test $(CARGO_FLAGS) --verbose
+	RUST_BACKTRACE=full $(CARGO) test $(CARGO_FLAGS) --verbose
 
 @IS_BMAKE@GO_SRCS != find integration -name "*.go"
 @IS_GNUMAKE@GO_SRCS = $(shell find integration -name "*.go")
