@@ -31,7 +31,6 @@
 #[cfg(feature = "profiling")] extern crate cpuprofiler;
 #[macro_use] extern crate failure;
 extern crate fuse;
-extern crate hashbrown;
 #[macro_use] extern crate log;
 extern crate nix;
 extern crate serde_derive;
@@ -41,9 +40,9 @@ extern crate signal_hook;
 extern crate time;
 
 use failure::{Fallible, Error, ResultExt};
-use hashbrown::HashMap;
 use nix::errno::Errno;
 use nix::{sys, unistd};
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;

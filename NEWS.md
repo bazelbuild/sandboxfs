@@ -4,10 +4,6 @@
 
 **STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
 
-* Switched to the hashbrown implementation of Swiss Tables for hash maps,
-  which brings an up to 1% performance improvement during Bazel builds
-  that use sandboxfs.
-
 * Fixed the definition of `--input` and `--output` to require an argument,
   which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to
   break backwards compatibility but, in reality, it does not.  The previous
