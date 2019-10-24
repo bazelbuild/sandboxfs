@@ -59,9 +59,24 @@ enum JsonStep {
     Unmap(UnmapStep),
 }
 
+/// External representation of a reconfiguration request.
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct Request {
+    /// Unique identifier for this request, which is necessary to match it to a `Response` in case
+    /// of multiple parallel requests.
+    tag: u32,
+
+    /// Ordered list of reconfiguration operations to apply.
+    steps: Vec<JsonStep>,
+}
+
 /// External representation of a response to a reconfiguration request.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct Response {
+    /// Unique identifier of the request this response corresponds to.  Not present if the response
+    /// corresponds to an unrecoverable error (e.g. a syntax error in the requests stream).
+    tag: Option<u32>,
+
     /// Contains the error, if any, for a failed reconfiguration request.
     error: Option<String>,
 }
@@ -110,8 +125,9 @@ fn handle_request<F: ReconfigurableFS>(steps: Vec<JsonStep>, fs: &F) -> Fallible
 }
 
 /// Responds to a reconfiguration request with the details contained in a result object.
-fn respond(writer: &mut impl Write, result: &Fallible<()>) -> Fallible<()> {
+fn respond(writer: &mut impl Write, tag: Option<u32>, result: &Fallible<()>) -> Fallible<()> {
     let response = Response {
+        tag: tag,
         error: result.as_ref().err().map(|e| flatten_causes(&e)),
     };
     serde_json::to_writer(writer.by_ref(), &response)?;
@@ -133,15 +149,16 @@ pub fn run_loop(reader: impl Read, writer: impl Write, fs: &impl ReconfigurableF
     let mut reader = io::BufReader::new(reader);
     let mut writer = io::BufWriter::new(writer);
     let mut stream =
-        serde_json::Deserializer::from_reader(&mut reader).into_iter::<Vec<JsonStep>>();
+        serde_json::Deserializer::from_reader(&mut reader).into_iter::<Request>();
 
     loop {
         match stream.next() {
-            Some(Ok(steps)) => respond(&mut writer, &handle_request(steps, fs))?,
+            Some(Ok(request)) =>
+                respond(&mut writer, Some(request.tag), &handle_request(request.steps, fs))?,
             Some(Err(e)) => {
                 assert!(!e.is_eof());  // Handled below.
                 let result = Err(e.into());
-                respond(&mut writer, &result)?;
+                respond(&mut writer, None, &result)?;
                 // Parsing failed due to invalid JSON data.  Would be nice to recover from this by
                 // advancing the stream to the next valid request, but this is currently not
                 // possible; see https://github.com/serde-rs/json/issues/70.
@@ -338,7 +355,7 @@ mod tests {
     /// This expects `run_loop` to complete successfully (even if individual requests fail in a
     /// recoverable manner).  To check for the behavior of this function under fatal erroneous
     /// conditions, use `do_run_loop_raw_test`.
-    fn do_run_loop_test(requests: &[&[JsonStep]], exp_responses: &[Response], exp_log: &[String]) {
+    fn do_run_loop_test(requests: &[Request], exp_responses: &[Response], exp_log: &[String]) {
         let mut input = String::new();
         for request in requests {
             input += &serde_json::to_string(&request).unwrap();
@@ -353,11 +370,14 @@ mod tests {
 
     #[test]
     fn test_run_loop_one() {
-        let requests: &[&[JsonStep]] = &[
-            &[new_map_step("/foo", &[new_mapping("/bar", "/bin", false)])],
+        let requests: &[Request] = &[
+            Request {
+                tag: 3,
+                steps: vec!(new_map_step("/foo", &[new_mapping("/bar", "/bin", false)])),
+            }
         ];
         let exp_responses = &[
-            Response{ error: None },
+            Response{ tag: Some(3), error: None },
         ];
         let exp_log = &[
             String::from("map /foo/bar"),
@@ -367,16 +387,22 @@ mod tests {
 
     #[test]
     fn test_run_loop_many() {
-        let requests: &[&[JsonStep]] = &[
-            &[
-                new_map_step("/", &[new_mapping("/foo/bar", "/bin", false)]),
-                new_unmap_step("/", &["/a"]),
-            ],
-            &[new_map_step("/", &[new_mapping("/z", "/b", false)])],
+        let requests: &[Request] = &[
+            Request {
+                tag: 1,
+                steps: vec!(
+                    new_map_step("/", &[new_mapping("/foo/bar", "/bin", false)]),
+                    new_unmap_step("/", &["/a"]),
+                ),
+            },
+            Request {
+                tag: 5,
+                steps: vec!(new_map_step("/", &[new_mapping("/z", "/b", false)])),
+            }
         ];
         let exp_responses = &[
-            Response{ error: None },
-            Response{ error: None },
+            Response{ tag: Some(1), error: None },
+            Response{ tag: Some(5), error: None },
         ];
         let exp_log = &[
             String::from("map /foo/bar"),
@@ -388,17 +414,20 @@ mod tests {
 
     #[test]
     fn test_run_loop_roots() {
-        let requests: &[&[JsonStep]] = &[
-            &[
-                new_map_step("/sandbox", &[
-                    new_mapping("/", "/the-root", false),
-                    new_mapping("/foo/bar", "/bin", false),
-                ]),
-                new_unmap_step("/somewhere/else", &["/a", "/b", "/c/d"]),
-            ],
+        let requests: &[Request] = &[
+            Request {
+                tag: 10,
+                steps: vec!(
+                    new_map_step("/sandbox", &[
+                        new_mapping("/", "/the-root", false),
+                        new_mapping("/foo/bar", "/bin", false),
+                    ]),
+                    new_unmap_step("/somewhere/else", &["/a", "/b", "/c/d"]),
+                ),
+            },
         ];
         let exp_responses = &[
-            Response{ error: None },
+            Response{ tag: Some(10), error: None },
         ];
         let exp_log = &[
             String::from("map /sandbox"),
@@ -412,15 +441,15 @@ mod tests {
 
     #[test]
     fn test_run_loop_errors() {
-        let requests: &[&[JsonStep]] = &[
-            &[new_map_step("/", &[new_mapping("/foo", "/bin", false)])],
-            &[new_map_step("/", &[new_mapping("bar", "/b", false)])],
-            &[new_map_step("/", &[new_mapping("/z", "/b", false)])],
+        let requests: &[Request] = &[
+            Request { tag: 9, steps: vec!(new_map_step("/", &[new_mapping("/foo", "/b", false)])) },
+            Request { tag: 7, steps: vec!(new_map_step("/", &[new_mapping("bar", "/b", false)])) },
+            Request { tag: 8, steps: vec!(new_map_step("/", &[new_mapping("/z", "/b", false)])) },
         ];
         let exp_responses = &[
-            Response{ error: None },
-            Response{ error: Some("path \"bar\" is not absolute".to_owned()) },
-            Response{ error: None },
+            Response{ tag: Some(9), error: None },
+            Response{ tag: Some(7), error: Some("path \"bar\" is not absolute".to_owned()) },
+            Response{ tag: Some(8), error: None },
         ];
         let exp_log = &[
             String::from("map /foo"),
@@ -431,9 +460,9 @@ mod tests {
 
     #[test]
     fn test_run_loop_fatal_syntax_error_due_to_empty_request() {
-        let requests = r#"[{}]"#;
+        let requests = r#"{}"#;
         let exp_responses = &[
-            Response{ error: Some("expected value".to_string()) },
+            Response{ tag: None, error: Some("missing field `tag`".to_string()) },
         ];
         do_run_loop_raw_test(&requests, exp_responses, &[]).unwrap_err();
     }
@@ -441,19 +470,22 @@ mod tests {
     #[test]
     fn test_run_loop_fatal_syntax_error_due_to_conflicting_requests() {
         let requests = r#"
-            [{
-                "Map": {
-                    "root": "/",
-                    "mappings": [{"path": "/foo", "underlying_path": "/foo", "writable": false}]
-                },
-                "Unmap": {
-                    "root": "/",
-                    "mappings": ["/bar"]
-                }
-            }]
+            {
+                "tag": 1,
+                "steps": [{
+                    "Map": {
+                        "root": "/",
+                        "mappings": [{"path": "/foo", "underlying_path": "/foo", "writable": false}]
+                    },
+                    "Unmap": {
+                        "root": "/",
+                        "mappings": ["/bar"]
+                    }
+                }]
+            }
         "#;
         let exp_responses = &[
-            Response{ error: Some("expected value".to_string()) },
+            Response{ tag: None, error: Some("expected value".to_string()) },
         ];
         do_run_loop_raw_test(&requests, exp_responses, &[]).unwrap_err();
     }
@@ -461,28 +493,37 @@ mod tests {
     #[test]
     fn test_run_loop_fatal_syntax_error_stops_processing() {
         let requests = r#"
-            [
-                {"Unmap": {
-                    "root": "/",
-                    "mappings": ["/foo"]
-                }}
-            ]
-            [
-                {"Map": {
-                    "root": "/",
-                    "mappings": [{"path": "/bar"}]
-                }}
-            ]
-            [
-                {"Unmap": {
-                    "root": "/",
-                    "mappings": ["/baz"]
-                }
-            ]
+            {
+                "tag": 8,
+                "steps": [
+                    {"Unmap": {
+                        "root": "/",
+                        "mappings": ["/foo"]
+                    }}
+                ]
+            }
+            {
+                "tag": 4,
+                "steps": [
+                    {"Map": {
+                        "root": "/",
+                        "mappings": [{"path": "/bar"}]
+                    }}
+                ]
+            }
+            {
+                "tag": 2,
+                "steps": [
+                    {"Unmap": {
+                        "root": "/",
+                        "mappings": ["/baz"]
+                    }
+                ]
+            }
         "#;
         let exp_responses = &[
-            Response{ error: None },
-            Response{ error: Some("missing field".to_string()) },
+            Response{ tag: Some(8), error: None },
+            Response{ tag: None, error: Some("missing field".to_string()) },
         ];
         let exp_log = &[
             String::from("unmap /foo"),

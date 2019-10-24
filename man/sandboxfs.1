@@ -259,7 +259,11 @@ As a result, it is highly recommended that you only send reconfiguration
 requests when you know that the file system is quiescent.
 .Pp
 Configuration requests are provided as a stream of JSON objects.
-Each request is an ordered sequence of
+Each request is an object with a
+.Sq tag
+key, which contains an arbitrary number, and a
+.Sq steps
+key, which contains an ordered sequence of
 .Em steps .
 A step is a dictionary with keys
 .Sq Map
@@ -302,6 +306,8 @@ the caller to do so, for simplicity reasons.
 Each configuration request is paired with a response, which are also provided
 as a stream of JSON objects.
 Each response is a map with an optional
+.sq tag
+field, which corresponds to the tag given in the request, and an optional
 .Sq error
 field, which is empty if the request was successful and contains an error
 message otherwise.

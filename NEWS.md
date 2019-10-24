@@ -13,9 +13,9 @@
     "root" path where all those mappings start.  This is to allow sandboxfs to
     process the requests more efficiently.
 
-*   Issues #94, #98: Fixed a bug in `rename` that caused moved directories to
-    lose access to their contents (because the underlying paths for their
-    descendents wouldn't be updated to point to their new locations).
+*   Changed the reconfiguration protocol so that each request contains a tag,
+    which is then propagated to the response for that request.  This is to
+    allow sandboxfs to process requests in parallel.
 
 *   Fixed a bug where writes on a file descriptor that had been duplicated and
     closed did not update the file size, resulting in bad data being returned
