@@ -2,7 +2,7 @@
 
 ## Changes in version 0.1.1
 
-**STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
+**Released 2019-10-24.**
 
 * Fixed the definition of `--input` and `--output` to require an argument,
   which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to

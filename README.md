@@ -15,7 +15,7 @@ not an official Google product.
 
 ## Releases
 
-The latest version of sandboxfs is 0.1.0 and was released on 2019-02-05.
+The latest version of sandboxfs is 0.1.1 and was released on 2019-10-24.
 
 See the [installation instructions](INSTALL.md) for details on how to build
 and install sandboxfs.
