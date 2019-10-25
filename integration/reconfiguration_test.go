@@ -29,8 +29,6 @@ import (
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
-const invalidationsWork = false
-
 // mapping represents a mapping entry in the reconfiguration protocol.
 type mapping struct {
 	Path           string `json:"path"`
@@ -153,28 +151,18 @@ func existsViaReaddir(dir string, name string) (bool, error) {
 // errorIfNotUnmapped fails the calling test case if the given directory entry, which is expected to
 // not be mapped any longer, still exists.
 func errorIfNotUnmapped(t *testing.T, dir string, name string) {
-	if !invalidationsWork {
-		// The FUSE library we use from Rust currently lacks support for kernel cache
-		// invalidations.  As a result, sandboxfs cannot make unmapped entries disappear
-		// right away (and setting a lower TTL for the file system does not help because
-		// OSXFUSE does nothing with the entries' TTL).  We know that this is suboptimal,
-		// but instead of making the tests fail, make sure sandboxfs mostly works by
-		// checking that it really did unmap the entry (which we can confirm by looking
-		// at readdir output).
-		exists, err := existsViaReaddir(dir, name)
-		if err != nil {
-			t.Errorf("Failed to read contents of %s: %v", dir, err)
-		} else if exists {
-			t.Errorf("Unmapped %s is not gone from %s", name, dir)
-		}
-	} else {
-		path := filepath.Join(dir, name)
-		_, err := os.Lstat(path)
-		if err != nil && !os.IsNotExist(err) {
-			t.Errorf("Failed to stat %s: %v", path, err)
-		} else if err == nil {
-			t.Errorf("Unmapped %s is not gone from %s", name, dir)
-		}
+	// The FUSE library we use from Rust currently lacks support for kernel cache
+	// invalidations.  As a result, sandboxfs cannot make unmapped entries disappear
+	// right away (and setting a lower TTL for the file system does not help because
+	// OSXFUSE does nothing with the entries' TTL).  We know that this is suboptimal,
+	// but instead of making the tests fail, make sure sandboxfs mostly works by
+	// checking that it really did unmap the entry (which we can confirm by looking
+	// at readdir output).
+	exists, err := existsViaReaddir(dir, name)
+	if err != nil {
+		t.Errorf("Failed to read contents of %s: %v", dir, err)
+	} else if exists {
+		t.Errorf("Unmapped %s is not gone from %s", name, dir)
 	}
 }
 
@@ -389,85 +377,6 @@ func TestReconfiguration_Unmap(t *testing.T) {
 		t.Fatal(err)
 	}
 	errorIfNotUnmapped(t, state.MountPath(), "nested")
-}
-
-func TestReconfiguration_RemapInvalidatesCache(t *testing.T) {
-	if !invalidationsWork {
-		t.Skipf("Kernel cache invalidations are not currently supported")
-	}
-
-	stdoutReader, stdoutWriter := io.Pipe()
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, "--mapping=ro:/:%ROOT%")
-	defer stdoutReader.Close() // Just in case the test fails half-way through.
-	defer state.TearDown(t)
-	defer stdoutWriter.Close() // Just in case the test fails half-way through.
-
-	checkMountPoint := func(wantExist string, wantNotExist string, wantFileContents string, wantLink string) {
-		for _, subdir := range []string{"", "/z"} {
-			if _, err := os.Lstat(state.MountPath(subdir, wantExist)); err != nil {
-				t.Errorf("%s not present: %v", filepath.Join(subdir, wantExist), err)
-			}
-			if _, err := os.Lstat(state.MountPath(subdir, wantNotExist)); wantNotExist != "" && err == nil {
-				t.Errorf("%s present but should not have been", filepath.Join(subdir, wantNotExist))
-			}
-			if err := utils.FileEquals(state.MountPath(subdir, "file"), wantFileContents); err != nil {
-				t.Errorf("%s does not match expected contents: %v", filepath.Join(subdir, "file"), err)
-			}
-			if link, err := os.Readlink(state.MountPath(subdir, "symlink")); err != nil {
-				t.Errorf("%s not present: %v", filepath.Join(subdir, "symlink"), err)
-			} else {
-				if link != wantLink {
-					t.Errorf("%s contents are invalid: got %s, want %s", filepath.Join(subdir, "symlink"), link, wantLink)
-				}
-			}
-		}
-	}
-
-	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
-	utils.MustMkdirAll(t, state.RootPath("dir/original-entry"), 0755)
-	utils.MustWriteFile(t, state.RootPath("file"), 0644, "original file contents")
-	utils.MustSymlink(t, "/non-existent", state.RootPath("symlink"))
-
-	config := makeRequest(
-		makeMapStep("/", mapping{Path: "/dir", UnderlyingPath: "%ROOT%/dir", Writable: false}),
-		makeMapStep("/", mapping{Path: "/file", UnderlyingPath: "%ROOT%/file", Writable: false}),
-		makeMapStep("/", mapping{Path: "/symlink", UnderlyingPath: "%ROOT%/symlink", Writable: false}),
-		makeMapStep("/", mapping{Path: "/z/dir", UnderlyingPath: "%ROOT%/dir", Writable: false}),
-		makeMapStep("/", mapping{Path: "/z/file", UnderlyingPath: "%ROOT%/file", Writable: false}),
-		makeMapStep("/", mapping{Path: "/z/symlink", UnderlyingPath: "%ROOT%/symlink", Writable: false}),
-	)
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
-		t.Fatal(err)
-	}
-	checkMountPoint("dir/original-entry", "", "original file contents", "/non-existent")
-
-	for _, file := range []string{"dir/original-entry", "file", "symlink"} {
-		if err := os.Remove(state.RootPath(file)); err != nil {
-			t.Fatalf("Failed to remove %s while recreating files: %v", file, err)
-		}
-	}
-	utils.MustMkdirAll(t, state.RootPath("dir/new-entry"), 0755)
-	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new file contents")
-	utils.MustSymlink(t, "/non-existent-other", state.RootPath("symlink"))
-
-	config = makeRequest(
-		makeUnmapStep("/", "/dir"),
-		makeMapStep("/", mapping{Path: "/dir", UnderlyingPath: "%ROOT%/dir", Writable: false}),
-		makeUnmapStep("/", "/file"),
-		makeMapStep("/", mapping{Path: "/file", UnderlyingPath: "%ROOT%/file", Writable: false}),
-		makeUnmapStep("/", "/symlink"),
-		makeMapStep("/", mapping{Path: "/symlink", UnderlyingPath: "%ROOT%/symlink", Writable: false}),
-		makeUnmapStep("/", "/z/dir"),
-		makeMapStep("/", mapping{Path: "/z/dir", UnderlyingPath: "%ROOT%/dir", Writable: false}),
-		makeUnmapStep("/", "/z/file"),
-		makeMapStep("/", mapping{Path: "/z/file", UnderlyingPath: "%ROOT%/file", Writable: false}),
-		makeUnmapStep("/", "/z/symlink"),
-		makeMapStep("/", mapping{Path: "/z/symlink", UnderlyingPath: "%ROOT%/symlink", Writable: false}),
-	)
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
-		t.Fatal(err)
-	}
-	checkMountPoint("dir/new-entry", "dir/original-entry", "new file contents", "/non-existent-other")
 }
 
 func TestReconfiguration_RecoverableErrors(t *testing.T) {
@@ -739,124 +648,6 @@ func TestReconfiguration_DirectoryListings(t *testing.T) {
 				t.Error(err)
 			}
 		})
-	}
-}
-
-func TestReconfiguration_InodesAreStableForSameUnderlyingFiles(t *testing.T) {
-	if !invalidationsWork {
-		t.Skipf("Kernel cache invalidations are not currently supported")
-	}
-
-	// inodeOf obtains the inode number of a file.
-	inodeOf := func(path string) uint64 {
-		fileInfo, err := os.Lstat(path)
-		if err != nil {
-			t.Fatalf("Failed to get inode number of %s: %v", path, err)
-		}
-		return fileInfo.Sys().(*syscall.Stat_t).Ino
-	}
-
-	stdoutReader, stdoutWriter := io.Pipe()
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
-	defer stdoutReader.Close()
-	defer state.TearDown(t)
-	defer stdoutWriter.Close()
-
-	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
-	utils.MustMkdirAll(t, state.RootPath("dir2"), 0755)
-	utils.MustMkdirAll(t, state.RootPath("dir3"), 0755)
-	utils.MustWriteFile(t, state.RootPath("dir1/file"), 0644, "Hello")
-	utils.MustWriteFile(t, state.RootPath("dir2/file"), 0644, "Hello")
-	utils.MustWriteFile(t, state.RootPath("dir3/file"), 0644, "Hello")
-
-	wantInodes := make(map[string]uint64)
-
-	firstConfig := makeRequest(
-		makeMapStep("/", mapping{Path: "/dir1", UnderlyingPath: "%ROOT%/dir1", Writable: false}),
-		makeMapStep("/", mapping{Path: "/dir3", UnderlyingPath: "%ROOT%/dir3", Writable: false}),
-	)
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
-		t.Fatalf("First configuration failed: %v", err)
-	}
-	wantInodes["dir1"] = inodeOf(state.MountPath("dir1"))
-	wantInodes["dir1/file"] = inodeOf(state.MountPath("dir1/file"))
-	wantInodes["dir3"] = inodeOf(state.MountPath("dir3"))
-	wantInodes["dir3/file"] = inodeOf(state.MountPath("dir3/file"))
-
-	secondConfig := makeRequest(
-		makeUnmapStep("/", "/dir1"),
-		makeUnmapStep("/", "/dir3"),
-		makeMapStep("/", mapping{Path: "/dir2", UnderlyingPath: "%ROOT%/dir2", Writable: false}),
-	)
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), secondConfig); err != nil {
-		t.Fatalf("Failed to replace all mappings with new configuration: %v", err)
-	}
-	wantInodes["dir2"] = inodeOf(state.MountPath("dir2"))
-	wantInodes["dir2/file"] = inodeOf(state.MountPath("dir2/file"))
-
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), firstConfig); err != nil {
-		t.Fatalf("Failed to restore all mappings from first configuration: %v", err)
-	}
-
-	for _, name := range []string{"dir1", "dir3"} {
-		inode := inodeOf(state.MountPath(name))
-		// We currently cannot reuse directory nodes because of the internal representation
-		// used for them, as any sharing could result in the spurious exposure of in-memory
-		// entries that don't exist on disk. Just assert that the user-visible consequences
-		// of this remain true.
-		if wantInodes[name] == inode {
-			t.Errorf("Inode for %s was respected across reconfigurations but it should not have been", name)
-		}
-	}
-
-	for _, name := range []string{"dir1/file", "dir3/file"} {
-		inode := inodeOf(state.MountPath(name))
-		if wantInodes[name] != inode {
-			t.Errorf("Inode for %s was not respected across reconfigurations: got %d, want %d", name, inode, wantInodes[name])
-		}
-	}
-
-	for name, inode := range wantInodes {
-		if name != "dir2/file" && inode == wantInodes["dir2/file"] {
-			t.Errorf("Inode of dir2/file (%d) was reused for some unrelated file %s", inode, name)
-		}
-	}
-}
-
-func TestReconfiguration_WritableNodesAreDifferent(t *testing.T) {
-	if !invalidationsWork {
-		t.Skipf("Kernel cache invalidations are not currently supported")
-	}
-
-	stdoutReader, stdoutWriter := io.Pipe()
-	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
-	defer stdoutReader.Close()
-	defer state.TearDown(t)
-	defer stdoutWriter.Close()
-
-	utils.MustMkdirAll(t, state.RootPath("dir1"), 0755)
-
-	config := makeRequest(
-		makeMapStep("/", mapping{Path: "/dir1", UnderlyingPath: "%ROOT%/dir1", Writable: true}),
-	)
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.Mkdir(state.MountPath("dir1/dir2"), 0755); err != nil {
-		t.Errorf("Failed to create entry in writable directory: %v", err)
-	}
-
-	config = makeRequest(
-		makeUnmapStep("/", "/dir1"),
-		makeMapStep("/", mapping{Path: "/dir1", UnderlyingPath: "%ROOT%/dir1", Writable: false}),
-	)
-	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := os.Mkdir(state.MountPath("dir1/dir3"), 0755); !os.IsPermission(err) {
-		t.Errorf("Writable mapping was not properly downgraded to read-only: got %v; want permission error", err)
 	}
 }
 
