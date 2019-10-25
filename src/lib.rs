@@ -37,6 +37,7 @@ extern crate serde_derive;
 extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 #[cfg(test)] extern crate users;
+extern crate threadpool;
 extern crate time;
 extern crate xattr;
 
@@ -205,6 +206,7 @@ struct SandboxFS {
 /// This structure exists because `fuse::mount` takes ownership of the file system so there is no
 /// way for us to share that instance across threads.  Instead, we construct a reduced view of the
 /// fields we need for reconfiguration and pass those across threads.
+#[derive(Clone)]
 struct ReconfigurableSandboxFS {
     /// The root node of the file system, on which to apply all reconfiguration operations.
     root: nodes::ArcNode,
@@ -814,7 +816,8 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 #[allow(clippy::too_many_arguments)]
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
-    cache: ArcCache, xattrs: bool, input: fs::File, output: fs::File) -> Fallible<()> {
+    cache: ArcCache, xattrs: bool, input: fs::File, output: fs::File, threads: usize)
+    -> Fallible<()> {
     let mut os_options = options.iter().map(AsRef::as_ref).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
@@ -837,7 +840,7 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
         let mut input = concurrent::ShareableFile::from(input);
         let reader = input.reader()?;
         let handler = thread::spawn(move || {
-            match reconfig::run_loop(reader, output, &reconfigurable_fs) {
+            match reconfig::run_loop(reader, output, threads, &reconfigurable_fs) {
                 Ok(()) => info!(
                     "Reached end of reconfiguration input; file system mappings are now frozen"),
                 Err(e) => warn!("Reconfigurations stopped due to internal error: {}", e),

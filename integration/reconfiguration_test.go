@@ -22,7 +22,9 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 
@@ -669,5 +671,92 @@ func TestReconfiguration_StreamFileDoesNotExist(t *testing.T) {
 				t.Errorf("Got %s; want stderr to match %s", stderr, d.wantStderr)
 			}
 		})
+	}
+}
+
+// parallelTest is a helper function to verify that sandboxfs processes requests in parallel.
+//
+// To do so, sandboxfs runs with multiple reconfiguration threads and we send many more
+// reconfiguration requests in parallel. Because of the non-determinism introduced by the
+// multiple threads, we expect the responses to come in a different order.
+//
+// Returns true if the responses we received were in the same order as the requests, in which case
+// we suspect sandboxfs processed all of them sequentially. Because of non-determinism, the caller
+// has to wrap this helper function and run it several times in a row to get a good answer.
+func requestsMatchResponsesWithNThreads(t *testing.T, threads int) bool {
+	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr, fmt.Sprintf("--reconfig_threads=%d", threads))
+	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
+	defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	requests := []string{}
+	requestsMu := sync.Mutex{}
+
+	wg := sync.WaitGroup{}
+	for i := 0; i < 100; i++ {
+		id := fmt.Sprintf("sandbox-%d", i)
+		req := makeCreateSandboxRequest(id, mapping{Path: "/", UnderlyingPath: state.RootPath("dir"), Writable: false})
+		wg.Add(1)
+		go func() {
+			bytes, err := json.Marshal(req)
+			if err != nil {
+				panic(fmt.Sprintf("Bad configuration request in test: %v", err))
+			}
+			requestsMu.Lock()
+			n, err := io.WriteString(state.Stdin, string(bytes))
+			if n != len(bytes) || err != nil {
+				requestsMu.Unlock()
+				panic(fmt.Sprintf("Reconfiguration failed unexpectedly: %d bytes written of %d, error %v", n, len(bytes), err))
+			}
+			requests = append(requests, id)
+			requestsMu.Unlock()
+			wg.Done()
+		}()
+	}
+
+	decoder := json.NewDecoder(stdoutReader)
+	responses := []string{}
+	for i := 0; i < 100; i++ {
+		resp := response{}
+		if err := decoder.Decode(&resp); err != nil {
+			t.Errorf("Failed to decode %v", err)
+		}
+		if resp.Error != nil {
+			t.Errorf("Unexpected error in response %v: %s", resp.ID, *resp.Error)
+		}
+		responses = append(responses, *resp.ID)
+	}
+
+	wg.Wait()
+
+	return reflect.DeepEqual(requests, responses)
+}
+
+func TestReconfiguration_ParallelOneThread(t *testing.T) {
+	ok := true
+	for i := 0; i < 50; i++ {
+		if !requestsMatchResponsesWithNThreads(t, 1) {
+			ok = false
+			break
+		}
+	}
+	if !ok {
+		t.Fatalf("Requests were expected to be processed in order but weren't")
+	}
+}
+
+func TestReconfiguration_ParallelMultipleThreads(t *testing.T) {
+	ok := false
+	for i := 0; i < 50; i++ {
+		if !requestsMatchResponsesWithNThreads(t, 4) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		t.Fatalf("Requests were expected to be processed out of order but weren't")
 	}
 }

@@ -26,6 +26,9 @@
     this lines up better with the needs of Bazel, our primary customer, and
     with sandboxfs' own name.
 
+*   Made sandboxfs process reconfiguration requests in parallel, which has a
+    significant performance impact when those requests are large.
+
 *   Fixed a bug where writes on a file descriptor that had been duplicated and
     closed did not update the file size, resulting in bad data being returned
     on future reads.

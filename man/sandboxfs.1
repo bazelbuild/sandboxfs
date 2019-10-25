@@ -26,6 +26,7 @@
 .Op Fl -mapping Ar type:mapping:target
 .Op Fl -node_cache
 .Op Fl -output Ar path
+.Op Fl -reconfig_threads Ar count
 .Op Fl -ttl Ar duration
 .Op Fl -version
 .Op Fl -xattrs
@@ -146,6 +147,9 @@ Specifies how long the kernel is allowed to cache file metadata for.
 The duration is currently specified as a number of seconds followed by the
 .Sq s
 suffix.
+.It Fl -reconfig_threads Ar count
+Sets the number of threads to use to process reconfiguration requests.
+Defaults to the number of logical CPUs in the system.
 .It Fl -version
 Prints version information and exits.
 Specifying this flag causes all other valid flags and arguments to be ignored

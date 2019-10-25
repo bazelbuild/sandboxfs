@@ -198,6 +198,8 @@ fn version() {
 fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     env_logger::init();
 
+    let cpus = num_cpus::get();
+
     let mut opts = Options::new();
     opts.optopt("", "allow", concat!("specifies who should have access to the file system",
         " (default: self)"), "other|root|self");
@@ -212,6 +214,8 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     opts.optopt("", "output",
         &format!("where to write the reconfiguration status to ({} for stdout)", DEFAULT_INOUT),
         "PATH");
+    opts.optopt("", "reconfig_threads",
+        &format!("number of reconfiguration threads (default: {})", cpus), "COUNT");
     opts.optopt("", "ttl",
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
         &format!("TIME{}", SECONDS_SUFFIX));
@@ -260,6 +264,18 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
                 output_flag.unwrap_or_else(|| DEFAULT_INOUT.to_owned())))?
     };
 
+    let reconfig_threads = match matches.opt_str("reconfig_threads") {
+        Some(value) => {
+            match value.parse::<usize>() {
+                Ok(n) => n,
+                Err(e) => return Err(UsageError {
+                    message: format!("invalid thread count {}: {}", value, e)
+                }.into()),
+            }
+        },
+        None => cpus,
+    };
+
     let mount_point = if matches.free.len() == 1 {
         Path::new(&matches.free[0])
     } else {
@@ -279,7 +295,7 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     };
     sandboxfs::mount(
         mount_point, &options, &mappings, ttl, node_cache, matches.opt_present("xattrs"),
-        input, output)
+        input, output, reconfig_threads)
         .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }

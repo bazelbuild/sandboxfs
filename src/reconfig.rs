@@ -20,6 +20,8 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::{self, Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use threadpool::ThreadPool;
 
 /// A shareable view into a reconfigurable file system.
 pub trait ReconfigurableFS {
@@ -118,7 +120,9 @@ fn handle_request<F: ReconfigurableFS>(request: Request, fs: &F) -> Fallible<()>
 }
 
 /// Responds to a reconfiguration request with the details contained in a result object.
-fn respond(writer: &mut impl Write, id: Option<String>, result: Fallible<()>) -> Fallible<()> {
+fn respond(writer: Arc<Mutex<io::BufWriter<impl Write>>>, id: Option<String>, result: Fallible<()>)
+    -> Fallible<()> {
+    let mut writer = writer.lock().unwrap();
     let response = Response {
         id: id,
         error: result.as_ref().err().map(|e| flatten_causes(&e)),
@@ -129,33 +133,40 @@ fn respond(writer: &mut impl Write, id: Option<String>, result: Fallible<()>) ->
     Ok(())
 }
 
-/// Runs the reconfiguration loop on the given file system `fs`.
+/// Same as `run_loop` but takes a thread pool instead of a number of threads.
 ///
-/// The reconfiguration loop terminates under these conditions:
-/// * there is no more input in `reader`, which denotes that the user froze the configuration),
-/// * once the the input is closed by a different thread (returning success), or
-/// * once parsing stops abruptly due to an error in the input stream (returning such details).
-///
-/// Writes reconfiguration responses to `output`, which either acknowledge the request or contain
-/// details about any semantical errors that occur during the process.
-pub fn run_loop(reader: impl Read, writer: impl Write, fs: &impl ReconfigurableFS) -> Fallible<()> {
+/// This is a separate function to ensure we control the lifecycle of the thread pool on the caller
+/// side, as `ThreadPool` does not call `join` when dropped.
+fn run_loop_aux(
+    reader: impl Read,
+    writer: impl Write + Send + Sync + 'static,
+    pool: &ThreadPool,
+    fs: &(impl ReconfigurableFS + Send + Sync + Clone + 'static))
+    -> Fallible<()> {
+
     let mut reader = io::BufReader::new(reader);
-    let mut writer = io::BufWriter::new(writer);
+    let writer = Arc::from(Mutex::from(io::BufWriter::new(writer)));
     let mut stream = serde_json::Deserializer::from_reader(&mut reader).into_iter::<Request>();
 
     loop {
+        let writer = writer.clone();
         match stream.next() {
             Some(Ok(request)) => {
-                let id = match &request {
-                    Request::CreateSandbox(request) => request.id.clone(),
-                    Request::DestroySandbox(id) => id.clone(),
-                };
-                respond(&mut writer, Some(id), handle_request(request, fs))?
+                let fs = fs.clone();
+                pool.execute(move || {
+                    let id = match &request {
+                        Request::CreateSandbox(request) => request.id.clone(),
+                        Request::DestroySandbox(id) => id.clone(),
+                    };
+                    if let Err(e) = respond(writer, Some(id), handle_request(request, &fs)) {
+                        warn!("Failed to write response: {}", e);
+                    }
+                });
             },
             Some(Err(e)) => {
                 assert!(!e.is_eof());  // Handled below.
                 let result = Err(format_err!("{}", e));
-                respond(&mut writer, None, Err(e.into()))?;
+                respond(writer, None, Err(e.into()))?;
                 // Parsing failed due to invalid JSON data.  Would be nice to recover from this by
                 // advancing the stream to the next valid request, but this is currently not
                 // possible; see https://github.com/serde-rs/json/issues/70.
@@ -166,6 +177,30 @@ pub fn run_loop(reader: impl Read, writer: impl Write, fs: &impl ReconfigurableF
             }
         };
     }
+}
+
+/// Runs the reconfiguration loop on the given file system `fs`.
+///
+/// The reconfiguration loop terminates under these conditions:
+/// * there is no more input in `reader`, which denotes that the user froze the configuration,
+/// * once the the input is closed by a different thread (returning success), or
+/// * once parsing stops abruptly due to an error in the input stream (returning such details).
+///
+/// Writes reconfiguration responses to `output`, which either acknowledge the request or contain
+/// details about any semantical errors that occur during the process.
+///
+/// The reconfiguration loop is configured to accept `threads` parallel requests.
+pub fn run_loop(
+    reader: impl Read,
+    writer: impl Write + Send + Sync + 'static,
+    threads: usize,
+    fs: &(impl ReconfigurableFS + Send + Sync + Clone + 'static))
+    -> Fallible<()> {
+
+    let pool = ThreadPool::new(threads);
+    let result = run_loop_aux(reader, writer, &pool, fs);
+    pool.join();
+    result
 }
 
 /// Opens the input file for the reconfiguration loop.
@@ -196,9 +231,12 @@ pub fn open_output<P: AsRef<Path>>(path: Option<P>) -> Fallible<fs::File> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::io::Seek;
     use std::path::Path;
     use std::sync::Mutex;
     use super::*;
+    use tempfile;
 
     /// Syntactic sugar to instantiate a new `JsonStep::Map` for testing purposes only.
     fn new_mapping<P: AsRef<Path>>(path: P, underlying_path: P, writable: bool) -> JsonMapping {
@@ -260,13 +298,13 @@ mod tests {
     }
 
     /// A reconfigurable file system that tracks map and unmap operations.
-    #[derive(Default)]
+    #[derive(Clone, Default)]
     struct MockFS {
         /// Capture of all reconfiguration requests received, in order.
         ///
         /// Map operations are recorded as "map foo" and unmap operations are recorded as "unmap
         /// foo", where "foo" is the path of the mapping.
-        log: Mutex<Vec<String>>,
+        log: Arc<Mutex<Vec<String>>>,
     }
 
     impl MockFS {
@@ -330,21 +368,31 @@ mod tests {
 
         let reader = io::BufReader::new(requests.as_bytes());
 
-        let mut output: Vec<u8> = Vec::new();
-        let writer = io::BufWriter::new(&mut output);
+        // Using a file is the lazy way of getting a concurrently-accessible buffer across the
+        // reconfiguration threads.
+        let mut file = tempfile::tempfile().unwrap();
 
-        let result = run_loop(reader, writer, &fs);
+        let result = {
+            let output = file.try_clone().unwrap();
+            let writer = io::BufWriter::new(output);
+            run_loop(reader, writer, 1, &fs)
+        };
 
-        let mut output: io::BufReader<&[u8]> = io::BufReader::new(output.as_ref());
+        file.seek(io::SeekFrom::Start(0)).unwrap();
+        let mut output = io::BufReader::new(file);
         let stream = serde_json::Deserializer::from_reader(&mut output).into_iter::<Response>();
-        let mut responses = vec!();
+        let mut responses = HashMap::new();
         for response in stream {
-            responses.push(response.unwrap());
+            let response = response.unwrap();
+            responses.insert(response.id.clone(), response);
         }
 
-        let exp_responses: Vec<FuzzyResponse> =
-            exp_responses.iter().map(FuzzyResponse::from).collect();
-        assert_eq!(exp_responses, responses.as_slice());
+        let exp_responses: HashMap<Option<String>, FuzzyResponse> =
+            exp_responses.iter().map(|v| (v.id.clone(), FuzzyResponse::from(v))).collect();
+        assert_eq!(exp_responses.len(), responses.len());
+        for response in responses {
+            assert_eq!(exp_responses.get(&response.0).unwrap(), &response.1);
+        }
         assert_eq!(exp_log, fs.get_log().as_slice());
 
         result
