@@ -17,6 +17,15 @@
     which is then propagated to the response for that request.  This is to
     allow sandboxfs to process requests in parallel.
 
+*   Changed the reconfiguration protocol to work at the level of sandboxes,
+    not paths, where a sandbox is defined as a top-level directory with a
+    collection of mappings beneath it.
+
+    This essentially makes reconfigurations less powerful than they were, but
+    also makes them infinitely simpler to understand and manage.  Furthermore,
+    this lines up better with the needs of Bazel, our primary customer, and
+    with sandboxfs' own name.
+
 *   Fixed a bug where writes on a file descriptor that had been duplicated and
     closed did not update the file size, resulting in bad data being returned
     on future reads.

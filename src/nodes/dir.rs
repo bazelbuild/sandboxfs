@@ -500,63 +500,20 @@ impl Node for Dir {
         }
     }
 
-    fn find_path(&self, components: &[Component]) -> Fallible<ArcNode> {
-        debug_assert!(
-            !components.is_empty(),
-            "Must not be reached because we don't have the containing ArcNode to return it");
-        let (name, remainder) = split_components(components);
-
-        let state = self.state.lock().unwrap();
+    fn find_subdir(&self, name: &OsStr, ids: &IdGenerator) -> Fallible<ArcNode> {
+        let mut state = self.state.lock().unwrap();
 
         match state.children.get(name) {
             Some(dirent) => {
-                if remainder.is_empty() {
-                    Ok(dirent.node.clone())
-                } else {
-                    ensure!(dirent.explicit_mapping, "Not a mapping");
-                    ensure!(
-                        dirent.node.file_type_cached() == fuse::FileType::Directory,
-                        "Not a directory");
-                    dirent.node.find_path(remainder)
-                }
-            },
-            None => Err(format_err!("Not mapped")),
-        }
-    }
-
-    fn find_or_create_path(&self, components: &[Component], ids: &IdGenerator, cache: &dyn Cache)
-        -> Fallible<ArcNode> {
-        debug_assert!(
-            !components.is_empty(),
-            "Must not be reached because we don't have the containing ArcNode to return it");
-        let (name, remainder) = split_components(components);
-
-        let mut state = self.state.lock().unwrap();
-
-        if let Some(dirent) = state.children.get(name) {
-            if remainder.is_empty() {
                 ensure!(dirent.explicit_mapping, "Not a mapping");
-                return Ok(dirent.node.clone());
-            } else {
-                // TODO(jmmv): We should probably mark this dirent as an explicit mapping if it
-                // already wasn't.
-                ensure!(
-                    dirent.node.file_type_cached() == fuse::FileType::Directory,
-                    "Already mapped as a non-directory");
-                return dirent.node.find_or_create_path(remainder, ids, cache);
-            }
-        }
-
-        let child = self.new_scaffold_child(None, name, ids, time::get_time());
-
-        let dirent = Dirent { node: child.clone(), explicit_mapping: true };
-        state.children.insert(name.to_os_string(), dirent);
-
-        if remainder.is_empty() {
-            Ok(child)
-        } else {
-            ensure!(child.file_type_cached() == fuse::FileType::Directory, "Already mapped");
-            child.find_or_create_path(remainder, ids, cache)
+                Ok(dirent.node.clone())
+            },
+            None => {
+                let child = self.new_scaffold_child(None, name, ids, time::get_time());
+                let dirent = Dirent { node: child.clone(), explicit_mapping: true };
+                state.children.insert(name.to_os_string(), dirent);
+                Ok(child)
+            },
         }
     }
 

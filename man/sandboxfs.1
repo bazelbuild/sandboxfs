@@ -259,27 +259,22 @@ As a result, it is highly recommended that you only send reconfiguration
 requests when you know that the file system is quiescent.
 .Pp
 Configuration requests are provided as a stream of JSON objects.
-Each request is an object with a
-.Sq tag
-key, which contains an arbitrary number, and a
-.Sq steps
-key, which contains an ordered sequence of
-.Em steps .
-A step is a dictionary with keys
-.Sq Map
-and
-.Sq Unmap
-which represent a single map or unmap operation.
-Exactly one key must be present in each step.
-Map operations add new mappings to the file system and unmap operations remove
-existing mappings.
+Each request is an object with just one of the following keys:
+.Sq CreateSandbox ,
+which requests the creation of a new top-level directory with a given set of
+mappings; and
+.Sq DestroySandbox ,
+which requests the deletion of the mappings at an existing top-level directory.
 .Pp
-A map operation is specified as a dictionary with the following keys:
-.Sq root ,
-which provides the path where all the mappings apply, and
-.Sq mappings ,
-which provides an array of mappings to apply.
-Then, each mapping entry is a dictionary with the following keys:
+.Pp
+A
+.Sq CreateSandbox
+operation contains an object with two keys:
+.Sq id
+specifies the name of the top-level directory to create and
+.Sq mappings
+contains an array of all mappings to apply within that directory.
+Each mapping entry is an object with the following keys:
 .Sq path
 and
 .Sq underlying_path ,
@@ -288,29 +283,23 @@ which define the mapping paths, and
 which if set to true indicates a read/write mapping.
 The mapping must not yet exist in the file system.
 .Pp
-An unmap operation is specified as a dictionary with the following keys:
-.Sq root ,
-which provides the path where all the unmappings apply, and
-.Sq mappings ,
-which provides an array of mappings to apply.
-Then, each mapping entry is a non-empty string containing the path of
-the mapping to remove.
-The path must exist in the file system and must represent a mapping (not a file
-from an underlying file system).
-If a mapping operation created intermediate empty directory components,
-unmapping the leaf of such path does
-.Em not
-cause those intermediate components to be unmapped: it is the responsibility of
-the caller to do so, for simplicity reasons.
+A
+.Sq DestroySandbox
+operation simply contains the
+.Sq id
+of a previously-created sandbox as a string.
+The whole tree hierarchy is unmapped.
 .Pp
 Each configuration request is paired with a response, which are also provided
 as a stream of JSON objects.
 Each response is a map with an optional
-.sq tag
-field, which corresponds to the tag given in the request, and an optional
+.sq id
+field, which corresponds to the identifier given in the request, and an optional
 .Sq error
 field, which is empty if the request was successful and contains an error
 message otherwise.
+Responses with a missing identifier indicate fatal failures during the
+reconfiguration (e.g. due to a syntax error) and are not recoverable.
 .Sh EXIT STATUS
 .Nm
 exits with 0 if the file system was both mounted and unmounted cleanly; 1 on a
@@ -361,27 +350,29 @@ to point into a sandbox-specific writable directory:
 sandboxfs --mapping=ro:/:/ --mapping=rw:/tmp:/tmp/fresh-tmp /mnt
 .Ed
 .Pp
-This example modifies an existing sandbox by adding a new mapping for
-.Pa /tmp
-and redoing the mapping for
-.Pa /foo
-by pointing it at another location.
+This example creates a new sandbox under
+.Pa /first
+with a single mapping that will appear as
+.Pa /first/tmp
+and that is mapped to
+.Pa /tmp/abc ;
+then deletes said sandbox, and then creates a different sandbox under
+.Pa /second
+with a single mapping that will appear as
+.Pa /foo/bar
+and that is mapped to
+.Pa / :
 .Bd -literal -offset indent
 [
-    {"Map": {
-        "root": "/",
+    {"CreateSandbox": {
+        "id": "first",
         "mappings": [
             {"path": "/tmp", "underlying_path": "/tmp/abc", "writable": true}
         ]
     }},
-    {"Unmap":
-        "root": "/",
-        "mappings": [
-            "/foo"
-        ]
-    }},
-    {"Map": {
-        "root": "/",
+    {"DestroySandbox": "first"}
+    {"CreateSandbox": {
+        "id": "second",
         "mappings": [
             {"path": "/foo/bar", "underlying_path": "/", "writable": false}
         ]
@@ -391,7 +382,9 @@ by pointing it at another location.
 .Pp
 The previous example results in the following response:
 .Bd -literal -offset indent
-{"error": null}
+{"id": "first", "error": null}
+{"id": "first", "error": null}
+{"id": "second", "error": null}
 .Ed
 .Sh AUTHORS
 .An -nosplit

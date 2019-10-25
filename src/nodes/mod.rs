@@ -355,24 +355,11 @@ pub trait Node {
     /// `_cache` is updated to reflect the rename of the underlying path.
     fn set_underlying_path(&self, _path: &Path, _cache: &dyn Cache);
 
-    /// Looks up the node for the given path, which is expected to come from a previous mapping.
-    ///
-    /// `_components` is the path to search for, broken down into components, and relative to the
-    /// current node.
-    fn find_path(&self, _components: &[Component]) -> Fallible<ArcNode> {
-        panic!("Not implemented")
-    }
-
-    /// Looks up the node for the given path, which is expected to come from a previous mapping.
-    /// Creates any missing components (including the leaf) as scaffold directories.
-    ///
-    /// `_components` is the path to search for, broken down into components, and relative to the
-    /// current node.
+    /// Returns the subdirectory `_name` and creates it as a scaffold directory if missing.
     ///
     /// `_ids` and `_cache` are the file system-wide bookkeeping objects needed to instantiate new
     /// nodes, used when this algorithm instantiates any new node.
-    fn find_or_create_path(&self, _components: &[Component], _ids: &IdGenerator, _cache: &dyn Cache)
-        -> Fallible<ArcNode> {
+    fn find_subdir(&self, _name: &OsStr, _ids: &IdGenerator) -> Fallible<ArcNode> {
         panic!("Not implemented")
     }
 

@@ -247,29 +247,6 @@ fn apply_mapping(mapping: &Mapping, root: &dyn nodes::Node, ids: &IdGenerator,
     root.map(&components, &mapping.underlying_path, mapping.writable, &ids, cache)
 }
 
-/// Looks up the node for the given path, which is expected to come from a previous mapping.
-fn find_path(path: &Path, root: &nodes::ArcNode) -> Fallible<nodes::ArcNode> {
-    let components = split_abs_path(path);
-    if components.is_empty() {
-        Ok(root.clone())
-    } else {
-        root.find_path(&components)
-    }
-}
-
-/// Looks up the node for the given path, which is expected to come from a previous mapping.
-/// Creates any missing components (including the leaf) as scaffold directories.
-fn find_or_create_path(
-    path: &Path, root: &nodes::ArcNode, ids: &IdGenerator, cache: &dyn nodes::Cache)
-    -> Fallible<nodes::ArcNode> {
-    let components = split_abs_path(path);
-    if components.is_empty() {
-        Ok(root.clone())
-    } else {
-        root.find_or_create_path(&components, &ids, cache)
-    }
-}
-
 /// Creates the initial node hierarchy based on a collection of `mappings`.
 fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &dyn nodes::Cache)
     -> Fallible<nodes::ArcNode> {
@@ -796,28 +773,24 @@ impl fuse::Filesystem for SandboxFS {
 }
 
 impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
-    fn map<P: AsRef<Path>>(&self, root: P, mut mappings: &[Mapping]) -> Fallible<()> {
+    fn create_sandbox(&self, id: &str, mut mappings: &[Mapping]) -> Fallible<()> {
         // Special-case the first mapping if it is for the "root" directory.  We know that this
         // mapping, if present, must come first (as otherwise it will fail when applied later on
-        // anyway).  But if it is first, we must treat it as if we were mapping "root" itself.
+        // anyway).  But if it is first, we must treat it as if we were mapping the "root" itself.
         let root_node = match mappings.get(0) {
             Some(mapping) => {
                 if mapping.path.as_path() == Path::new(&"/") {
-                    let path = reconfig::make_path(root, mapping.path.clone())?;
+                    let path = reconfig::make_path(id, mapping.path.clone())?;
                     mappings = &mappings[1..];
                     let m = Mapping::from_parts(
                         path, mapping.underlying_path.clone(), mapping.writable)?;
                     apply_mapping(&m, self.root.as_ref(), self.ids.as_ref(), self.cache.as_ref())
                         .context(format!("Cannot map '{}'", mapping))?
                 } else {
-                    find_or_create_path(
-                        root.as_ref(), &self.root, self.ids.as_ref(), self.cache.as_ref())?
+                    self.root.find_subdir(OsStr::new(id), self.ids.as_ref())?
                 }
             },
-            None => {
-                find_or_create_path(
-                    root.as_ref(), &self.root, self.ids.as_ref(), self.cache.as_ref())?
-            }
+            None => self.root.find_subdir(OsStr::new(id), self.ids.as_ref())?,
         };
 
         // TODO(jmmv): Even though we don't hold the root lock any longer, this *still* is very
@@ -832,24 +805,8 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
         Ok(())
     }
 
-    fn unmap<P: AsRef<Path>>(&self, root: P, mappings: &[P]) -> Fallible<()> {
-        let root = root.as_ref();
-        let root_node = find_path(&root, &self.root)?;
-
-        // TODO(jmmv): Even though we don't hold the root lock any longer, this *still* is very
-        // inefficient because keep locking/unlocking the top directory for every unmapping.  See
-        // comment in `map` above about this same issue.  That said, we usually receive unmap
-        // requests with a single mapping in them, so this is not as critical performance-wise.
-        for path in mappings {
-            let components = split_abs_path(path.as_ref());
-            if components.is_empty() {
-                let components = split_abs_path(root);
-                ensure!(!components.is_empty(), "Root cannot be unmapped");
-                self.root.unmap(&components)?;
-            } else {
-                root_node.unmap(&components)?;
-            }
-        }
+    fn destroy_sandbox(&self, id: &str) -> Fallible<()> {
+        self.root.unmap(&[Component::Normal(OsStr::new(id))])?;
         Ok(())
     }
 }
