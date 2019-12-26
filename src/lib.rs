@@ -866,7 +866,7 @@ mod tests {
         assert!(!Mapping::from_parts(
             PathBuf::from("/a"), irrelevant.clone(), false).unwrap().is_root());
         assert!(!Mapping::from_parts(
-            PathBuf::from("/a/b"), irrelevant.clone(), false).unwrap().is_root());
+            PathBuf::from("/a/b"), irrelevant, false).unwrap().is_root());
     }
 
     #[test]

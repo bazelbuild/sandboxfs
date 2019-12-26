@@ -151,7 +151,7 @@ impl Read for ShareableFileReader {
                     // read from the fd even if there were data in it.
                     Ok(0)
                 } else {
-                    debug_assert!(read_set.contains(self.fd));
+                    assert!(read_set.contains(self.fd));
                     unistd::read(self.fd, buf)
                 }
             })
