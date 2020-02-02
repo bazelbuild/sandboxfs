@@ -16,9 +16,11 @@ package integration
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"syscall"
 	"testing"
@@ -204,6 +206,59 @@ func TestReadWrite_RewriteFileWithShorterContent(t *testing.T) {
 	utils.MustWriteFile(t, state.MountPath("file"), 0644, "short")
 	if err := utils.FileEquals(state.MountPath("file"), "short"); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestReadWrite_WriteOnDeletedAndDuppedFd(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	fd, err := openAndDelete(state.MountPath("some-file"), syscall.O_RDWR|syscall.O_CREAT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Close(fd)
+
+	mustWrite := func(fd int, s string) {
+		t.Helper()
+		if n, err := syscall.Write(fd, []byte(s)); err != nil || n != len(s) {
+			t.Fatalf("Failed to write: got n=%d, err=%v; want n=%d, err=nil", n, err, len(s))
+		}
+	}
+
+	mustWrite(fd, "123")
+
+	fd2, err := syscall.Dup(fd)
+	if err != nil {
+		t.Fatalf("Dup failed: %v", err)
+	}
+	defer syscall.Close(fd2)
+	syscall.Close(fd)
+
+	mustWrite(fd2, "45")
+
+	if n, err := syscall.Seek(fd2, 0, io.SeekStart); err != nil || n != 0 {
+		t.Fatalf("Failed to rewind file: n=%d, err=%v", n, err)
+	}
+
+	wantBuf := []byte("12345")
+	buf := make([]byte, 8)
+	if n, err := syscall.Read(fd2, buf); err != nil || n != len(wantBuf) {
+		t.Fatalf("Failed to write: got n=%d, err=%v; want n=%d, err=nil", n, err, len(wantBuf))
+	} else {
+		buf = buf[0:n]
+	}
+
+	if !reflect.DeepEqual(buf, wantBuf) {
+		t.Errorf("Data read from file doesn't match written: got %v, want %v", buf, wantBuf)
+	}
+
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(fd2, &stat); err != nil {
+		t.Fatalf("Fstat failed on deleted entry: %v", err)
+	}
+	if stat.Size != int64(len(wantBuf)) {
+		t.Errorf("Bad file length: got %d, want %d", stat.Size, len(wantBuf))
 	}
 }
 

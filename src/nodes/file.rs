@@ -21,10 +21,26 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-impl Handle for fs::File {
+/// Handle for an open file.
+struct OpenFile {
+    /// Reference to the node's state for this file.  Needed to update attributes on writes.
+    state: Arc<Mutex<MutableFile>>,
+
+    /// Handle for the open file descriptor.
+    file: fs::File,
+}
+
+impl OpenFile {
+    /// Creates a new handle that references the given node's `state` and the already-open `file`.
+    fn from(state: Arc<Mutex<MutableFile>>, file: fs::File) -> OpenFile {
+        Self { state, file }
+    }
+}
+
+impl Handle for OpenFile {
     fn read(&self, offset: i64, size: u32) -> NodeResult<Vec<u8>> {
         let mut buffer = vec![0; size as usize];
-        let n = self.read_at(&mut buffer[..size as usize], offset as u64)?;
+        let n = self.file.read_at(&mut buffer[..size as usize], offset as u64)?;
         buffer.truncate(n);
         Ok(buffer)
     }
@@ -39,8 +55,17 @@ impl Handle for fs::File {
             warn!("Truncating too-long write to {} (asked for {} bytes)", MAX_WRITE, data.len());
             data = &data[..MAX_WRITE];
         }
-        let n = self.write_at(data, offset as u64)?;
+
+        let mut state = self.state.lock().unwrap();
+
+        let n = self.file.write_at(data, offset as u64)?;
         debug_assert!(n <= MAX_WRITE, "Size bounds checked above");
+
+        let new_size = (offset as u64) + (n as u64);
+        if state.attr.size < new_size {
+            state.attr.size = new_size;
+        }
+
         Ok(n as u32)
     }
 }
@@ -52,7 +77,7 @@ impl Handle for fs::File {
 pub struct File {
     inode: u64,
     writable: bool,
-    state: Mutex<MutableFile>,
+    state: Arc<Mutex<MutableFile>>,
 }
 
 /// Holds the mutable data of a file node.
@@ -88,7 +113,7 @@ impl File {
             attr: attr,
         };
 
-        Arc::new(File { inode, writable, state: Mutex::from(state) })
+        Arc::new(File { inode, writable, state: Arc::from(Mutex::from(state)) })
     }
 
     /// Same as `getattr` but with the node already locked.
@@ -141,14 +166,18 @@ impl Node for File {
         File::getattr_locked(self.inode, &mut state)
     }
 
+    fn handle_from(&self, file: fs::File) -> ArcHandle {
+        Arc::from(OpenFile::from(self.state.clone(), file))
+    }
+
     fn open(&self, flags: u32) -> NodeResult<ArcHandle> {
         let state = self.state.lock().unwrap();
 
         let options = conv::flags_to_openoptions(flags, self.writable)?;
         let path = state.underlying_path.as_ref().expect(
             "Don't know how to handle a request to reopen a deleted file");
-        let file = options.open(path)?;
-        Ok(Arc::from(file))
+        let file = options.open(&path)?;
+        Ok(Arc::from(OpenFile::from(self.state.clone(), file)))
     }
 
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {

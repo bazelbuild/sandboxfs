@@ -19,6 +19,7 @@ use nix;
 use nix::errno::Errno;
 use nix::{sys, unistd};
 use std::ffi::OsStr;
+use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
@@ -348,6 +349,11 @@ pub trait Node {
 
     /// Retrieves the node's metadata.
     fn getattr(&self) -> NodeResult<fuse::FileAttr>;
+
+    /// Creates a handle for an already-open backing file corresponding to this node.
+    fn handle_from(&self, _file: fs::File) -> ArcHandle {
+        panic!("Not implemented");
+    }
 
     /// Looks up a node with the given name within the current node and returns the found node and
     /// its attributes at the time of the query.

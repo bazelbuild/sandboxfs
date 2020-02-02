@@ -14,6 +14,10 @@
 * Fixed `--input` and `--output` to handle stdin and stdout correctly when
   running e.g. under `sudo`.
 
+* Fixed a bug where writes on a file descriptor that had been duplicated and
+  closed did not update the file size, resulting in bad data being returned
+  on future reads.
+
 * Make create operations honor the UID and GID of the caller user instead of
   inheriting the permissions of whoever was running sandboxfs.  Only has an
   effect when using `--allow=other` or `--allow=root`.

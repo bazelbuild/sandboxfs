@@ -538,7 +538,7 @@ impl Node for Dir {
         let file = create_as(&path, uid, gid, |p| options.open(&p), |p| fs::remove_file(&p))?;
         let (node, attr) = Dir::post_create_lookup(self.writable, &mut state, &path, name,
             fuse::FileType::RegularFile, ids, cache)?;
-        Ok((node, Arc::from(file), attr))
+        Ok((node.clone(), node.handle_from(file), attr))
     }
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
