@@ -31,7 +31,7 @@ language:
   - java  # For Bazel.
 
 go:
-  - "1.11"
+  - "1.13"
 go_import_path: github.com/bazelbuild/sandboxfs
 
 env:
