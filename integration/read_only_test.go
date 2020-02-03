@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"syscall"
 	"testing"
@@ -466,6 +467,74 @@ func TestReadOnly_ReaddirFromFileFails(t *testing.T) {
 	// release is current, keep the multiple error checks.
 	if err == nil || (err != unix.EINVAL && err != unix.ENOTDIR) {
 		t.Errorf("Want error to be %v or %v; got %v", unix.EINVAL, unix.ENOTDIR, err)
+	}
+}
+
+func TestReadOnly_Listxattrs(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("symlink"))
+
+	tests := []string{"dir", "file"}
+	if runtime.GOOS != "linux" { // Linux doesn't support xattrs on symlinks.
+		tests = append(tests, "symlink")
+	}
+	for _, name := range tests {
+		if err := unix.Lsetxattr(state.RootPath(name), "user.first", []byte{}, 0); err != nil {
+			t.Fatalf("Lsetxattr(%s) failed: %v", name, err)
+		}
+		if err := unix.Lsetxattr(state.RootPath(name), "user.second", []byte{}, 0); err != nil {
+			t.Fatalf("Lsetxattr(%s) failed: %v", name, err)
+		}
+
+		for _, path := range []string{state.MountPath(name), state.RootPath(name)} {
+			buf := make([]byte, 32)
+			sz, err := unix.Llistxattr(path, buf)
+			if err != nil {
+				t.Fatalf("Listxattr(%s) failed: %v", path, err)
+			}
+			list := buf[0:sz]
+			wantList := []byte("user.first\000user.second\000")
+			if !reflect.DeepEqual(list, wantList) {
+				t.Errorf("Invalid attributes list for %s: got %s, want %s", path, list, wantList)
+			}
+		}
+	}
+}
+
+func TestReadOnly_Getxattr(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("symlink"))
+
+	tests := []string{"dir", "file"}
+	if runtime.GOOS != "linux" { // Linux doesn't support xattrs on symlinks.
+		tests = append(tests, "symlink")
+	}
+	for _, name := range tests {
+		wantValue := []byte("some-value")
+		if err := unix.Lsetxattr(state.RootPath(name), "user.foo", wantValue, 0); err != nil {
+			t.Fatalf("Lsetxattr(%s) failed: %v", name, err)
+		}
+
+		for _, path := range []string{state.MountPath(name), state.RootPath(name)} {
+			buf := make([]byte, 32)
+			sz, err := unix.Lgetxattr(path, "user.foo", buf)
+			if err != nil {
+				t.Fatalf("Listxattr(%s) failed: %v", path, err)
+			}
+			value := buf[0:sz]
+			if !reflect.DeepEqual(value, wantValue) {
+				t.Errorf("Invalid attribute for %s: got %s, want %s", path, value, wantValue)
+			}
+
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ extern crate fuse;
 
 use nix::errno;
 use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
+use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
@@ -166,8 +167,24 @@ impl Node for File {
         File::getattr_locked(self.inode, &mut state)
     }
 
+    fn getxattr(&self, name: &OsStr) -> NodeResult<Option<Vec<u8>>> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::get(path, name)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
+    }
+
     fn handle_from(&self, file: fs::File) -> ArcHandle {
         Arc::from(OpenFile::from(self.state.clone(), file))
+    }
+
+    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::list(path)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
     }
 
     fn open(&self, flags: u32) -> NodeResult<ArcHandle> {
@@ -180,9 +197,25 @@ impl Node for File {
         Ok(Arc::from(OpenFile::from(self.state.clone(), file)))
     }
 
+    fn removexattr(&self, name: &OsStr) -> NodeResult<()> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::remove(path, name)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
+    }
+
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
         Ok(state.attr)
+    }
+
+    fn setxattr(&self, name: &OsStr, value: &[u8]) -> NodeResult<()> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+                Some(path) => Ok(xattr::set(path, name, value)?),
+                None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
     }
 }

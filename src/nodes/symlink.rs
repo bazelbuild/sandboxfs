@@ -16,6 +16,7 @@ extern crate fuse;
 
 use nix::errno;
 use nodes::{ArcNode, AttrDelta, KernelError, Node, NodeResult, conv, setattr};
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -107,6 +108,24 @@ impl Node for Symlink {
         Symlink::getattr_locked(self.inode, &mut state)
     }
 
+    fn getxattr(&self, name: &OsStr) -> NodeResult<Option<Vec<u8>>> {
+        let state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "There is no known API to access the extended attributes of a symlink via an fd");
+        let value = xattr::get(state.underlying_path.as_ref().unwrap(), name)?;
+        Ok(value)
+    }
+
+    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+        let state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "There is no known API to access the extended attributes of a symlink via an fd");
+        let xattrs = xattr::list(state.underlying_path.as_ref().unwrap())?;
+        Ok(xattrs)
+    }
+
     fn readlink(&self) -> NodeResult<PathBuf> {
         let state = self.state.lock().unwrap();
 
@@ -115,9 +134,27 @@ impl Node for Symlink {
         Ok(fs::read_link(path)?)
     }
 
+    fn removexattr(&self, name: &OsStr) -> NodeResult<()> {
+        let state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "There is no known API to access the extended attributes of a symlink via an fd");
+        xattr::remove(state.underlying_path.as_ref().unwrap(), name)?;
+        Ok(())
+    }
+
     fn setattr(&self, delta: &AttrDelta) -> NodeResult<fuse::FileAttr> {
         let mut state = self.state.lock().unwrap();
         state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
         Ok(state.attr)
+    }
+
+    fn setxattr(&self, name: &OsStr, value: &[u8]) -> NodeResult<()> {
+        let state = self.state.lock().unwrap();
+        assert!(
+            state.underlying_path.is_some(),
+            "There is no known API to access the extended attributes of a symlink via an fd");
+        xattr::set(state.underlying_path.as_ref().unwrap(), name, value)?;
+        Ok(())
     }
 }

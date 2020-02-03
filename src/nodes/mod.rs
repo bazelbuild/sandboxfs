@@ -350,8 +350,18 @@ pub trait Node {
     /// Retrieves the node's metadata.
     fn getattr(&self) -> NodeResult<fuse::FileAttr>;
 
+    /// Gets the value of the `_name` exgtended attribute.
+    fn getxattr(&self, _name: &OsStr) -> NodeResult<Option<Vec<u8>>> {
+        panic!("Not implemented");
+    }
+
     /// Creates a handle for an already-open backing file corresponding to this node.
     fn handle_from(&self, _file: fs::File) -> ArcHandle {
+        panic!("Not implemented");
+    }
+
+    /// Gets the list of extended attribute names from the file.
+    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
         panic!("Not implemented");
     }
 
@@ -401,6 +411,11 @@ pub trait Node {
 
     /// Reads the target of a symlink.
     fn readlink(&self) -> NodeResult<PathBuf> {
+        panic!("Not implemented");
+    }
+
+    /// Removes the `_name` extended attribute.
+    fn removexattr(&self, _name: &OsStr) -> NodeResult<()> {
         panic!("Not implemented");
     }
 
@@ -461,6 +476,11 @@ pub trait Node {
 
     /// Sets one or more properties of the node's metadata.
     fn setattr(&self, _delta: &AttrDelta) -> NodeResult<fuse::FileAttr>;
+
+    /// Sets the `_name` extended attribute to `_value`.
+    fn setxattr(&self, _name: &OsStr, _value: &[u8]) -> NodeResult<()> {
+        panic!("Not implemented");
+    }
 
     /// Creates a symlink with `_name` pointing at `_link`.
     ///

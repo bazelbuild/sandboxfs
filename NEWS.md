@@ -25,6 +25,8 @@
   inheriting the permissions of whoever was running sandboxfs.  Only has an
   effect when using `--allow=other` or `--allow=root`.
 
+* Added support for extended attributes.
+
 ## Changes in version 0.1.0
 
 **Released on 2019-02-05.**

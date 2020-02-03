@@ -553,6 +553,22 @@ impl Node for Dir {
         Dir::getattr_locked(self.inode, &mut state)
     }
 
+    fn getxattr(&self, name: &OsStr) -> NodeResult<Option<Vec<u8>>> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::get(path, name)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
+    }
+
+    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::list(path)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
+    }
+
     fn lookup(&self, name: &OsStr, ids: &IdGenerator, cache: &Cache)
         -> NodeResult<(ArcNode, fuse::FileAttr)> {
         let mut state = self.state.lock().unwrap();
@@ -639,6 +655,14 @@ impl Node for Dir {
         }))
     }
 
+    fn removexattr(&self, name: &OsStr) -> NodeResult<()> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::remove(path, name)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
+    }
+
     fn rename(&self, old_name: &OsStr, new_name: &OsStr, cache: &Cache) -> NodeResult<()> {
         let mut state = self.state.lock().unwrap();
 
@@ -711,6 +735,14 @@ impl Node for Dir {
         let mut state = self.state.lock().unwrap();
         state.attr = setattr(state.underlying_path.as_ref(), &state.attr, delta)?;
         Ok(state.attr)
+    }
+
+    fn setxattr(&self, name: &OsStr, value: &[u8]) -> NodeResult<()> {
+        let state = self.state.lock().unwrap();
+        match &state.underlying_path {
+            Some(path) => Ok(xattr::set(path, name, value)?),
+            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+        }
     }
 
     fn symlink(&self, name: &OsStr, link: &Path, uid: unistd::Uid, gid: unistd::Gid,
