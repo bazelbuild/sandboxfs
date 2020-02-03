@@ -1238,3 +1238,110 @@ func TestReadWrite_MmapAfterMovesWorks(t *testing.T) {
 	readViaMmap(fd)
 	syscall.Close(fd)
 }
+
+func testXattrsOnDeletedFiles(t *testing.T, hook func(int) error) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "content")
+	for _, name := range []string{"dir", "file"} {
+		fd, err := openAndDelete(state.MountPath(name), syscall.O_RDONLY)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer syscall.Close(fd)
+
+		if err := hook(fd); err == nil || err != unix.ENOENT {
+			t.Errorf("xattr operations via file handles not supported; want ENOENT, got %v", err)
+		}
+	}
+}
+
+func TestReadWrite_Fgetxattr(t *testing.T) {
+	testXattrsOnDeletedFiles(t, func(fd int) error {
+		_, err := unix.Fgetxattr(fd, "user.foo", []byte{})
+		return err
+	})
+}
+
+func TestReadWrite_Flistxattr(t *testing.T) {
+	testXattrsOnDeletedFiles(t, func(fd int) error {
+		_, err := unix.Flistxattr(fd, []byte{})
+		return err
+	})
+}
+
+func TestReadWrite_Setxattr(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("symlink"))
+
+	tests := []string{"dir", "file"}
+	if runtime.GOOS != "linux" { // Linux doesn't support xattrs on symlinks.
+		tests = append(tests, "symlink")
+	}
+	for _, name := range tests {
+		wantValue := []byte("some-value")
+		if err := unix.Lsetxattr(state.MountPath(name), "user.foo", wantValue, 0); err != nil {
+			t.Fatalf("Lsetxattr(%s) failed: %v", name, err)
+		}
+
+		for _, path := range []string{state.MountPath(name), state.RootPath(name)} {
+			buf := make([]byte, 32)
+			sz, err := unix.Lgetxattr(path, "user.foo", buf)
+			if err != nil {
+				t.Fatalf("Listxattr(%s) failed: %v", path, err)
+			}
+			value := buf[0:sz]
+			if !reflect.DeepEqual(value, wantValue) {
+				t.Errorf("Invalid attribute for path %s: got %s, want %s", path, value, wantValue)
+			}
+		}
+	}
+}
+
+func TestReadWrite_Fsetxattr(t *testing.T) {
+	testXattrsOnDeletedFiles(t, func(fd int) error {
+		return unix.Fsetxattr(fd, "user.foo", []byte{}, 0)
+	})
+}
+
+func TestReadWrite_Removexattr(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("symlink"))
+
+	tests := []string{"dir", "file"}
+	if runtime.GOOS != "linux" { // Linux doesn't support xattrs on symlinks.
+		tests = append(tests, "symlink")
+	}
+	for _, name := range []string{"dir", "file"} {
+		if err := unix.Lsetxattr(state.RootPath(name), "user.foo", []byte("some-value"), 0); err != nil {
+			t.Fatalf("Lsetxattr(%s) failed: %v", name, err)
+		}
+		err := unix.Lremovexattr(state.MountPath(name), "user.foo")
+		if err != nil {
+			t.Fatalf("Lremovexattr(%s) failed: %v", name, err)
+		}
+
+		for _, path := range []string{state.MountPath(name), state.RootPath(name)} {
+			buf := make([]byte, 32)
+			if _, err := unix.Lgetxattr(path, "user.foo", buf); err == nil {
+				t.Fatalf("Lgetxattr(%s) succeeded but want error", path)
+			}
+		}
+	}
+}
+
+func TestReadWrite_Fremovexattr(t *testing.T) {
+	testXattrsOnDeletedFiles(t, func(fd int) error {
+		return unix.Fremovexattr(fd, "user.foo")
+	})
+}

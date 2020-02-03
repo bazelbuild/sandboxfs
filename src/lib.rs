@@ -38,6 +38,7 @@ extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 #[cfg(test)] extern crate users;
 extern crate time;
+extern crate xattr;
 
 use failure::{Fallible, Error, ResultExt};
 use nix::errno::Errno;
@@ -502,6 +503,25 @@ fn nix_gid(req: &fuse::Request) -> unistd::Gid {
     unistd::Gid::from_raw(req.gid() as u32)
 }
 
+/// Converts a collection of extended attribute names into a raw vector of null-terminated strings.
+///
+// TODO(jmmv): This conversion is unnecessary.  `Xattrs` has the raw representation of the extended
+// attributes, which we could forward to the kernel directly.
+fn xattrs_to_u8(xattrs: xattr::XAttrs) -> Vec<u8> {
+    let mut length = 0;
+    for xa in xattrs.clone().into_iter() {
+        length += xa.len() + 1;
+    }
+    let mut data = Vec::with_capacity(length);
+    for xa in xattrs.into_iter() {
+        for b in xa.as_bytes() {
+            data.push(*b);
+        }
+        data.push(0);
+    }
+    data
+}
+
 impl fuse::Filesystem for SandboxFS {
     fn create(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
         reply: fuse::ReplyCreate) {
@@ -728,6 +748,70 @@ impl fuse::Filesystem for SandboxFS {
 
         match handle.write(offset, data) {
             Ok(size) => reply.written(size),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
+    fn setxattr(&mut self, _req: &fuse::Request<'_>, inode: u64, name: &OsStr, value: &[u8],
+        _flags: u32, _position: u32, reply: fuse::ReplyEmpty) {
+        let node = self.find_node(inode);
+        if !node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match node.setxattr(name, value) {
+            Ok(_) => reply.ok(),
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
+    fn getxattr(&mut self, _req: &fuse::Request<'_>, inode: u64, name: &OsStr, size: u32,
+        reply: fuse::ReplyXattr) {
+        let node = self.find_node(inode);
+        match node.getxattr(name) {
+            Ok(None) => reply.error(Errno::ENODATA as i32),
+            Ok(Some(value)) => {
+                if size == 0 {
+                    reply.size(value.len() as u32); // XXX
+                } else if (size as usize) < value.len() {
+                    reply.error(Errno::ERANGE as i32);
+                } else {
+                    reply.data(value.as_slice());
+                }
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
+    fn listxattr(&mut self, _req: &fuse::Request<'_>, inode: u64, size: u32,
+        reply: fuse::ReplyXattr) {
+        let node = self.find_node(inode);
+        match node.listxattr() {
+            Ok(xattrs) => {
+                let value = xattrs_to_u8(xattrs);
+                if size == 0 {
+                    reply.size(value.len() as u32); // XXX
+                } else if (size as usize) < value.len() {
+                    reply.error(Errno::ERANGE as i32);
+                } else {
+                    reply.data(value.as_slice());
+                }
+            },
+            Err(e) => reply.error(e.errno_as_i32()),
+        }
+    }
+
+    fn removexattr(&mut self, _req: &fuse::Request<'_>, inode: u64, name: &OsStr,
+        reply: fuse::ReplyEmpty) {
+        let node = self.find_node(inode);
+        if !node.writable() {
+            reply.error(Errno::EPERM as i32);
+            return;
+        }
+
+        match node.removexattr(name) {
+            Ok(_) => reply.ok(),
             Err(e) => reply.error(e.errno_as_i32()),
         }
     }
