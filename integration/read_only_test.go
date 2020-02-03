@@ -459,23 +459,13 @@ func TestReadOnly_ReaddirFromFileFails(t *testing.T) {
 	}
 	defer unix.Close(fd)
 
-	// It is unfortunate that the error we get in this failure condition is different across
-	// operating systems, but given that this case is handled within the the FUSE library (the
-	// sandboxfs process never has a chance to see the invalid request), we cannot do much.
-	var wantErr error
-	switch runtime.GOOS {
-	case "darwin":
-		wantErr = unix.EINVAL
-	case "linux":
-		wantErr = unix.ENOTDIR
-	default:
-		t.Fatalf("Don't know how this test behaves in this platform")
-	}
-
 	buffer := make([]byte, 1024)
 	_, err = unix.ReadDirent(fd, buffer)
-	if err == nil || err != wantErr {
-		t.Errorf("Want error to be %v; got %v", wantErr, err)
+	// The error that we get here seemed to depend on the operating system, but with the upgrade
+	// to Go 1.13, it seems to have become the same across them. For now, given that this Go
+	// release is current, keep the multiple error checks.
+	if err == nil || (err != unix.EINVAL && err != unix.ENOTDIR) {
+		t.Errorf("Want error to be %v or %v; got %v", unix.EINVAL, unix.ENOTDIR, err)
 	}
 }
 
