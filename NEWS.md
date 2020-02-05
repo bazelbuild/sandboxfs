@@ -4,6 +4,9 @@
 
 **Released 2019-10-24.**
 
+* Issue #92: Fixed a bug in `readdir` where we would regenerate inodes for
+  directory entries, causing later confusion when trying to access those directories.
+
 * Fixed the definition of `--input` and `--output` to require an argument,
   which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to
   break backwards compatibility but, in reality, it does not.  The previous

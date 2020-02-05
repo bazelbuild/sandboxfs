@@ -126,11 +126,18 @@ impl OpenDir {
             }
 
             if let Some(dirent) = state.children.get(&name) {
-                if dirent.explicit_mapping {
-                    // Found an on-disk entry that also corresponds to an explicit mapping by the
-                    // user.  Nothing to do: we already handled this case above.
-                    continue;
+                // Found a previously-known on-disk entry.  Must return it "as is" (even if its
+                // type might have changed) because, if we called into `cache.get_or_create` below,
+                // we might recreate the node unintentionally.  Note that mappings were handled
+                // earlier, so only handle the non-mapping case here.
+                if !dirent.explicit_mapping {
+                    reply.push(ReplyEntry {
+                        inode: dirent.node.inode(),
+                        fs_type: dirent.node.file_type_cached(),
+                        name: name.clone(),
+                    });
                 }
+                continue;
             }
 
             let path = state.underlying_path.as_ref().unwrap().join(&name);
