@@ -262,6 +262,46 @@ func TestReadWrite_WriteOnDeletedAndDuppedFd(t *testing.T) {
 	}
 }
 
+func TestReadWrite_InodesArePreservedDuringReaddir(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	// inodeOf obtains the inode number of a file.
+	inodeOf := func(path string) uint64 {
+		fileInfo, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("Failed to get inode number of %s: %v", path, err)
+		}
+		return fileInfo.Sys().(*syscall.Stat_t).Ino
+	}
+
+	utils.MustMkdirAll(t, state.MountPath("dir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("file"), 0644, "")
+
+	for _, name := range []string{"dir", "file"} {
+		previous := inodeOf(state.MountPath(name))
+		if found, err := existsViaReaddir(state.MountPath(), name); err != nil || !found {
+			t.Fatalf("Cannot find entry %s: %v", name, err)
+		}
+
+		// Rename the entry to force the kernel to "rediscover" it during the next readdir.
+		// Otherwise, we might not trigger bugs with inode preservation, and the behavior of
+		// this depends on the platform.
+		newName := name + "-new"
+		if err := os.Rename(state.MountPath(name), state.MountPath(newName)); err != nil {
+			t.Fatalf("Cannot rename %s: %v", name, err)
+		}
+
+		if found, err := existsViaReaddir(state.MountPath(), newName); err != nil || !found {
+			t.Fatalf("Cannot find entry %s: %v", newName, err)
+		}
+		now := inodeOf(state.MountPath(newName))
+		if previous != now {
+			t.Errorf("Inode number was not stable for %s; got %v, want %v", name, now, previous)
+		}
+	}
+}
+
 func TestReadWrite_InodeReassignedAfterRecreation(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
