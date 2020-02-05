@@ -273,19 +273,45 @@ which requests the deletion of the mappings at an existing top-level directory.
 .Pp
 A
 .Sq CreateSandbox
-operation contains an object with two keys:
+operation contains an object with three keys:
 .Sq id
-specifies the name of the top-level directory to create and
+specifies the name of the top-level directory to create,
 .Sq mappings
-contains an array of all mappings to apply within that directory.
+contains an array of all mappings to apply within that directory, and
+.Sq prefixes
+contains a dictionary of all new prefixes to register for prefix-encoded paths.
 Each mapping entry is an object with the following keys:
 .Sq path
 and
 .Sq underlying_path ,
-which define the mapping paths, and
+which define the mapping paths;
+.Sq path_prefix
+and
+.Sq underlying_path_prefix ,
+which identify the prefixes for the provided paths, respectively; and
 .Sq writable ,
 which if set to true indicates a read/write mapping.
 The mapping must not yet exist in the file system.
+Each entry in the prefixes dictionary is keyed by the numerical identifier of
+the prefix (supplied as a string due to JSON limitations), and the value is the
+absolute path for that prefix.
+.Pp
+Prefix-encoded paths serve to minimize the size of the requests but their use
+is optional.
+To specify a path in its prefix-encoded form,
+.Sq path
+and/or
+.Sq underlying_path
+must be relative and
+.Sq path_prefix
+and/or
+.Sq underlying_path_prefix
+must indicate a positive non-zero integer.
+The referenced prefix must be registered in the same request or a previous
+request, but if the prefix is repeated across requests, it must point to the
+same location.
+To avoid prefix-encoded form, paths must be given as absolute and they need to
+reference the special prefix 0.
 .Pp
 A
 .Sq DestroySandbox
@@ -346,14 +372,15 @@ may recognize other standard Rust variables like
 .Va RUST_BACKTRACE
 but the list above attempts to describe the ones a user may find most useful.
 .Sh EXAMPLES
-The following example configures a sandbox that maps the whole host's
+.Ss Command-line invocation
+This example configures a sandbox that maps the whole host's
 file system but clears
 .Pa /tmp
 to point into a sandbox-specific writable directory:
 .Bd -literal -offset indent
 sandboxfs --mapping=ro:/:/ --mapping=rw:/tmp:/tmp/fresh-tmp /mnt
 .Ed
-.Pp
+.Ss Reconfiguration request
 This example creates a new sandbox under
 .Pa /first
 with a single mapping that will appear as
@@ -365,7 +392,7 @@ then deletes said sandbox, and then creates a different sandbox under
 with a single mapping that will appear as
 .Pa /foo/bar
 and that is mapped to
-.Pa / :
+.Pa /tmp/x/y :
 .Bd -literal -offset indent
 [
     {"CreateSandbox": {
@@ -378,17 +405,47 @@ and that is mapped to
     {"CreateSandbox": {
         "id": "second",
         "mappings": [
-            {"path": "/foo/bar", "underlying_path": "/", "writable": false}
+            {"path": "/foo/bar", "underlying_path": "/tmp/x/y",
+             "writable": false}
         ]
     }}
 ]
 .Ed
 .Pp
-The previous example results in the following response:
+When sending this request, we obtain the following response:
 .Bd -literal -offset indent
 {"id": "first", "error": null}
 {"id": "first", "error": null}
 {"id": "second", "error": null}
+.Ed
+.Ss Prefix-encoded reconfiguration request
+This example is the same as above, but this time using prefix-encoded paths:
+.Bd -literal -offset indent
+[
+    {"CreateSandbox": {
+        "id": "first",
+        "mappings": [
+            {"path": "", "path_prefix": 1,
+             "underlying_path": "abc", "underlying_path_prefix": 1,
+             "writable": true}
+        ],
+        "prefixes": {
+            "1": "/tmp"
+        }
+    }},
+    {"DestroySandbox": "first"}
+    {"CreateSandbox": {
+        "id": "second",
+        "mappings": [
+            {"path": "bar", "path_prefix": 2,
+             "underlying_path": "x/y", "underlying_path_prefix": 1,
+             "writable": false}
+        ],
+        "prefixes": {
+            "2": "/foo"
+        }
+    }}
+]
 .Ed
 .Sh AUTHORS
 .An -nosplit

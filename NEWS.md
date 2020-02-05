@@ -26,6 +26,12 @@
     this lines up better with the needs of Bazel, our primary customer, and
     with sandboxfs' own name.
 
+*   Changed the reconfiguration protocol to take prefix-encoded paths to
+    minimize the size of the reconfiguration requests.  This has shown to
+    significantly reduce the CPU consumption of both sandboxfs and Bazel
+    during a build, as the size of the reconfiguration messages is
+    drastically smaller.
+
 *   Made sandboxfs process reconfiguration requests in parallel, which has a
     significant performance impact when those requests are large.
 

@@ -33,15 +33,18 @@ import (
 
 // mapping represents a mapping entry in the reconfiguration protocol.
 type mapping struct {
-	Path           string `json:"path"`
-	UnderlyingPath string `json:"underlying_path"`
-	Writable       bool   `json:"writable"`
+	Path                 string `json:"path"`
+	PathPrefix           int    `json:"path_prefix"`
+	UnderlyingPath       string `json:"underlying_path"`
+	UnderlyingPathPrefix int    `json:"underlying_path_prefix"`
+	Writable             bool   `json:"writable"`
 }
 
 // mapStep represents a map operation in the reconfiguration protocol.
 type createSandboxRequest struct {
-	ID       string    `json:"id"`
-	Mappings []mapping `json:"mappings"`
+	ID       string            `json:"id"`
+	Mappings []mapping         `json:"mappings"`
+	Prefixes map[string]string `json:"prefixes"`
 }
 
 // request represents a single reconfiguration request.
@@ -73,6 +76,7 @@ func makeCreateSandboxRequest(id string, mapping1 mapping, mappingN ...mapping) 
 		CreateSanbox: &createSandboxRequest{
 			ID:       id,
 			Mappings: append([]mapping{mapping1}, mappingN...),
+			Prefixes: make(map[string]string),
 		},
 	}
 }
@@ -304,6 +308,7 @@ func TestReconfiguration_EmptySubroot(t *testing.T) {
 		CreateSanbox: &createSandboxRequest{
 			ID:       "empty",
 			Mappings: []mapping{},
+			Prefixes: make(map[string]string),
 		},
 	}
 	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config); err != nil {
@@ -361,6 +366,55 @@ func TestReconfiguration_Subroots(t *testing.T) {
 			t.Fatal(err)
 		}
 		errorIfNotUnmapped(t, state.MountPath(), subroot)
+	}
+}
+
+func TestReconfiguration_Prefixes(t *testing.T) {
+	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
+	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
+	defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+	utils.MustMkdirAll(t, state.RootPath("x"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("y"), 0755)
+	config1 := request{
+		CreateSanbox: &createSandboxRequest{
+			ID: "sb1",
+			Mappings: []mapping{
+				{Path: "a", PathPrefix: 1, UnderlyingPath: "x", UnderlyingPathPrefix: 2, Writable: true},
+			},
+			Prefixes: map[string]string{
+				"1": "/foo/bar",
+				"2": "%ROOT%",
+			},
+		},
+	}
+	// This second request is intended to define new prefixes and also use previously-defined
+	// prefixes.
+	config2 := request{
+		CreateSanbox: &createSandboxRequest{
+			ID: "sb2",
+			Mappings: []mapping{
+				{Path: "", PathPrefix: 3, UnderlyingPath: "y", UnderlyingPathPrefix: 2, Writable: true},
+			},
+			Prefixes: map[string]string{
+				"3": "/",
+			},
+		},
+	}
+	if err := reconfigure(state.Stdin, stdoutReader, state.RootPath(), config1, config2); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"sb1/foo/bar/a/test", "sb2/test"} {
+		if err := os.Mkdir(state.MountPath(path), 0755); err != nil {
+			t.Errorf("Failed to create mount path %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{"x/test", "y/test"} {
+		if _, err := os.Lstat(state.RootPath(path)); err != nil {
+			t.Errorf("Failed to stat underlying path %s: %v", path, err)
+		}
 	}
 }
 
@@ -439,6 +493,13 @@ func TestReconfiguration_RecoverableErrors(t *testing.T) {
 				makeDestroySandboxRequest(""),
 			},
 			"Identifier cannot be empty",
+		},
+		{
+			"BadPrefixes",
+			[]request{
+				makeCreateSandboxRequest("sb", mapping{Path: "foo", PathPrefix: 5, UnderlyingPath: "%ROOT%/file", Writable: false}, mapping{Path: "/", UnderlyingPath: "%ROOT%/subdir", Writable: false}),
+			},
+			"Prefix 5 does not exist",
 		},
 	}
 	for _, d := range testData {
@@ -696,7 +757,7 @@ func requestsMatchResponsesWithNThreads(t *testing.T, threads int) bool {
 	requestsMu := sync.Mutex{}
 
 	wg := sync.WaitGroup{}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		id := fmt.Sprintf("sandbox-%d", i)
 		req := makeCreateSandboxRequest(id, mapping{Path: "/", UnderlyingPath: state.RootPath("dir"), Writable: false})
 		wg.Add(1)
@@ -719,7 +780,7 @@ func requestsMatchResponsesWithNThreads(t *testing.T, threads int) bool {
 
 	decoder := json.NewDecoder(stdoutReader)
 	responses := []string{}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		resp := response{}
 		if err := decoder.Decode(&resp); err != nil {
 			t.Errorf("Failed to decode %v", err)
