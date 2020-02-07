@@ -14,6 +14,8 @@
 
 extern crate pkg_config;
 
+use std::env;
+
 /// Configures the crate to link against `lib_name`.
 ///
 /// The library is searched via the pkg-config file provided in `pc_name`, which provides us
@@ -31,6 +33,19 @@ fn find_library(pc_name: &str, lib_name: &str, fallback: bool) {
 }
 
 fn main () {
+    // We are running on Travis, which pins us to an old macOS version that does not have
+    // utimensat.  Apply a workaround so we can test most of sandboxfs.
+    // TODO(https://github.com/bazelbuild/sandboxfs/issues/46): Remove this hack.
+    match env::var_os("DO") {
+        Some(_) => {
+            #[cfg(target_os = "macos")]
+            println!("cargo:rustc-cfg=have_utimensat=\"0\"");
+            #[cfg(not(target_os = "macos"))]
+            println!("cargo:rustc-cfg=have_utimensat=\"1\"");
+        },
+        None => println!("cargo:rustc-cfg=have_utimensat=\"1\""),
+    }
+
     // Look for the libraries required by our cpuprofiler dependency.  Such dependency should do
     // this on its own but it doesn't yet.  Given that we just need this during linking, we can
     // cheat and do it ourselves.

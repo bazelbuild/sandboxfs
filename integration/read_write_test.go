@@ -1019,8 +1019,17 @@ func TestReadWrite_Chtimes(t *testing.T) {
 		minCtime := time.Now()
 		time.Sleep(1 * time.Second)
 
-		if err := os.Chtimes(path, atime, mtime); err != nil {
-			return time.Unix(0, 0), fmt.Errorf("failed to chtimes %s: %v", path, err)
+		atimeTimespec, err := unix.TimeToTimespec(atime)
+		if err != nil {
+			t.Fatalf("Failed to convert %v to a timespec: %v", atime, err)
+		}
+		mtimeTimespec, err := unix.TimeToTimespec(mtime)
+		if err != nil {
+			t.Fatalf("Failed to convert %v to a timespec: %v", mtime, err)
+		}
+
+		if err := unix.UtimesNanoAt(unix.AT_FDCWD, path, []unix.Timespec{atimeTimespec, mtimeTimespec}, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return time.Unix(0, 0), err
 		}
 		return minCtime, nil
 	}
@@ -1054,20 +1063,36 @@ func TestReadWrite_Chtimes(t *testing.T) {
 
 	t.Run("Symlink", func(t *testing.T) {
 		utils.MustWriteFile(t, state.RootPath("target"), 0644, "")
+		targetBefore, err := os.Lstat(state.MountPath("target"))
+		if err != nil {
+			t.Fatalf("Cannot stat target: %v", err)
+		}
+
 		utils.MustSymlink(t, "target", state.RootPath("symlink"))
-		path := state.MountPath("symlink")
 
-		atimeTimespec, err := unix.TimeToTimespec(someAtime)
-		if err != nil {
-			t.Fatalf("Failed to convert %v to a timespec: %v", someAtime, err)
+		// Cope with the lack of utimensat on Travis macOS builds, just like we do in
+		// build.rs.
+		// TODO(https://github.com/bazelbuild/sandboxfs/issues/46): Remove this hack.
+		if _, ok := os.LookupEnv("DO"); runtime.GOOS != "darwin" || !ok {
+			wantMinCtime, err := chtimes(state.MountPath("symlink"), someAtime, someMtime)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := checkTimes("symlink", someAtime, someMtime, wantMinCtime); err != nil {
+				t.Error(err)
+			}
+		} else {
+			if _, err := chtimes(state.MountPath("symlink"), someAtime, someMtime); err == nil || err != syscall.EOPNOTSUPP {
+				t.Fatalf("Expected EOPNOTSUPP changing the times of a symlink; got %v", err)
+			}
 		}
-		mtimeTimespec, err := unix.TimeToTimespec(someMtime)
+		targetAfter, err := os.Lstat(state.MountPath("target"))
 		if err != nil {
-			t.Fatalf("Failed to convert %v to a timespec: %v", someMtime, err)
+			t.Fatalf("Cannot stat target: %v", err)
 		}
 
-		if err = unix.UtimesNanoAt(unix.AT_FDCWD, path, []unix.Timespec{atimeTimespec, mtimeTimespec}, unix.AT_SYMLINK_NOFOLLOW); err == nil || err != syscall.EOPNOTSUPP {
-			t.Fatalf("Expected EOPNOTSUPP changing the times of a symlink; got %v", err)
+		if !reflect.DeepEqual(targetBefore, targetAfter) {
+			t.Errorf("Target file's times were unexpectedly modified: got %v, want %v", targetAfter, targetBefore)
 		}
 	})
 }
