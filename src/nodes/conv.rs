@@ -72,6 +72,17 @@ pub fn timeval_to_timespec(val: sys::time::TimeVal) -> Timespec {
     Timespec::new(val.tv_sec() as sys::time::time_t, usec)
 }
 
+/// Converts a `sys::time::TimeVal` object into a `sys::time::TimeSpec`.
+pub fn timeval_to_nix_timespec(val: sys::time::TimeVal) -> sys::time::TimeSpec {
+    let usec = if val.tv_usec() > sys::time::suseconds_t::from(std::i32::MAX) {
+        warn!("Cannot represent too-long usec quantity {} in timespec; using 0", val.tv_usec());
+        0
+    } else {
+        val.tv_usec() as i64
+    };
+    sys::time::TimeSpec::nanoseconds((val.tv_sec() as i64) * 1_000_000_000 + usec)
+}
+
 /// Converts a file type as returned by the file system to a FUSE file type.
 ///
 /// `path` is the file from which the file type was originally extracted and is only for debugging
@@ -244,6 +255,14 @@ mod tests {
         let spec = timeval_to_timespec(val);
         assert_eq!(654, spec.sec);
         assert_eq!(123, spec.nsec);
+    }
+
+    #[test]
+    fn test_timeval_to_nix_timespec() {
+        let val = sys::time::TimeVal::seconds(654) + sys::time::TimeVal::nanoseconds(123_456);
+        let spec = timeval_to_nix_timespec(val);
+        assert_eq!(654, spec.tv_sec());
+        assert_eq!(123, spec.tv_nsec());
     }
 
     #[test]

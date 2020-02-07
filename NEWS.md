@@ -27,6 +27,9 @@
 
 * Added support for extended attributes.
 
+* Added support to change the timestamps of a symlink on systems that have
+  this feature.
+
 ## Changes in version 0.1.0
 
 **Released on 2019-02-05.**

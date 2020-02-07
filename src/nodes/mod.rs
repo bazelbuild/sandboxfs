@@ -150,15 +150,23 @@ fn setattr_times(attr: &mut fuse::FileAttr, path: Option<&PathBuf>,
         return Ok(());
     }
 
-    if attr.kind == fuse::FileType::Symlink {
-        // TODO(https://github.com/bazelbuild/sandboxfs/issues/46): Should use futimensat to support
-        // changing the times of a symlink if requested to do so.
-        return Err(nix::Error::from_errno(Errno::EOPNOTSUPP));
-    }
-
     let atime = atime.unwrap_or_else(|| conv::timespec_to_timeval(attr.atime));
     let mtime = mtime.unwrap_or_else(|| conv::timespec_to_timeval(attr.mtime));
-    let result = try_path(path, |p| sys::stat::utimes(p, &atime, &mtime));
+    #[allow(clippy::collapsible_if)]
+    let result = if cfg!(have_utimensat = "1") {
+        try_path(path, |p| sys::stat::utimensat(
+            None, p,
+            &conv::timeval_to_nix_timespec(atime), &conv::timeval_to_nix_timespec(mtime),
+            sys::stat::UtimensatFlags::NoFollowSymlink))
+    } else {
+        if attr.kind == fuse::FileType::Symlink {
+            eprintln!(
+                "utimensat not present; ignoring request to change symlink times for {:?}", path);
+            Err(nix::Error::from_errno(Errno::EOPNOTSUPP))
+        } else {
+            try_path(path, |p| sys::stat::utimes(p, &atime, &mtime))
+        }
+    };
     if result.is_ok() {
         attr.atime = conv::timeval_to_timespec(atime);
         attr.mtime = conv::timeval_to_timespec(mtime);
