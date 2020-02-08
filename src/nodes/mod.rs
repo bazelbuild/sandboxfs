@@ -170,6 +170,11 @@ fn setattr_times(attr: &mut fuse::FileAttr, path: Option<&PathBuf>,
     if result.is_ok() {
         attr.atime = conv::timeval_to_timespec(atime);
         attr.mtime = conv::timeval_to_timespec(mtime);
+        if attr.mtime < attr.crtime {
+            // BSD semantics say, per the sources of libarchive, that the crtime should be rolled
+            // back to an earlier mtime.
+            attr.crtime = attr.mtime;
+        }
     }
     result
 }

@@ -20,6 +20,7 @@ set -e -u -x
 
 rootenv=()
 rootenv+=(PATH="${PATH}")
+[ "${DO-unset}" = unset ] || rootenv+=(DO="${DO}")
 [ "${GOPATH-unset}" = unset ] || rootenv+=(GOPATH="${GOPATH}")
 [ "${GOROOT-unset}" = unset ] || rootenv+=(GOROOT="${GOROOT}")
 readonly rootenv

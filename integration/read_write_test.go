@@ -1097,6 +1097,50 @@ func TestReadWrite_Chtimes(t *testing.T) {
 	})
 }
 
+func TestReadWrite_ChtimesResetsBirthtimeWithMtime(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	mustBtime := func(path string) time.Time {
+		t.Helper()
+		btime, err := utils.Btime(path)
+		if err != nil {
+			t.Fatalf("Cannot get birthtime for %s: %v", path, err)
+			return btime // Not reached.
+		}
+		if btime == utils.ZeroBtime {
+			t.Skipf("Birthtime not supported on this platform for %s", path)
+			return btime // Not reached.
+		}
+		return btime
+	}
+
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	path := state.MountPath("file")
+	birth := mustBtime(path)
+
+	// Let some time pass so that "now" becomes newer than the birth time.
+	time.Sleep(time.Second)
+	now := time.Now()
+
+	if err := os.Chtimes(path, now, now); err != nil {
+		t.Fatalf("Failed to chtimes on %s: %v", path, err)
+	}
+	newBirth := mustBtime(path)
+	if newBirth != birth {
+		t.Errorf("Birthtime unexpectedly changed: got %v, want %v", newBirth, birth)
+	}
+
+	past := time.Date(1984, 8, 10, 19, 15, 0, 0, time.Local)
+	if err := os.Chtimes(path, now, past); err != nil {
+		t.Fatalf("Failed to chtimes on %s: %v", path, err)
+	}
+	newBirth = mustBtime(path)
+	if newBirth != past {
+		t.Errorf("Birthtime was not updated: got %v, want %v", newBirth, past)
+	}
+}
+
 func TestReadWrite_FutimesOnDeletedNode(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
