@@ -21,6 +21,9 @@
   closed did not update the file size, resulting in bad data being returned
   on future reads.
 
+* Fixed timestamp updates so that the `birthtime` rolls back to an older
+  `mtime` to mimic BSD semantics.
+
 * Make create operations honor the UID and GID of the caller user instead of
   inheriting the permissions of whoever was running sandboxfs.  Only has an
   effect when using `--allow=other` or `--allow=root`.

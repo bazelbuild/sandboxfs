@@ -15,13 +15,28 @@
 package utils
 
 import (
+	"os"
 	"syscall"
 	"time"
 )
 
+// ZeroBtime indicates that the given timestamp could not be queried.
+var ZeroBtime = time.Date(0, 0, 0, 0, 0, 0, 0, time.Local)
+
 // Atime obtains the access time from a system-specific stat structure.
 func Atime(s *syscall.Stat_t) time.Time {
 	return time.Unix(int64(s.Atimespec.Sec), int64(s.Atimespec.Nsec))
+}
+
+// Btime obtains the birth time from a file.
+func Btime(path string) (time.Time, error) {
+	fileInfo, err := os.Lstat(path)
+	if err != nil {
+		return ZeroBtime, err
+	}
+
+	s := fileInfo.Sys().(*syscall.Stat_t)
+	return time.Unix(int64(s.Birthtimespec.Sec), int64(s.Birthtimespec.Nsec)), nil
 }
 
 // Ctime obtains the inode change time from a system-specific stat structure.

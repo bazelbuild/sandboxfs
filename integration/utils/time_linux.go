@@ -17,11 +17,28 @@ package utils
 import (
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
+
+// ZeroBtime indicates that the given timestamp could not be queried.
+var ZeroBtime = time.Date(0, 0, 0, 0, 0, 0, 0, time.Local)
 
 // Atime obtains the access time from a system-specific stat structure.
 func Atime(s *syscall.Stat_t) time.Time {
 	return time.Unix(int64(s.Atim.Sec), int64(s.Atim.Nsec))
+}
+
+// Btime obtains the birth time from a system-specific stat structure.
+func Btime(path string) (time.Time, error) {
+	var stx unix.Statx_t
+	if err := unix.Statx(unix.AT_FDCWD, path, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_BTIME, &stx); err != nil {
+		return ZeroBtime, err
+	}
+	if stx.Mask&unix.STATX_BTIME == 0 {
+		return ZeroBtime, nil
+	}
+	return time.Unix(int64(stx.Btime.Sec), int64(stx.Btime.Nsec)), nil
 }
 
 // Ctime obtains the inode change time from a system-specific stat structure.
