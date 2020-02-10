@@ -487,6 +487,14 @@ impl Node for Dir {
         debug_assert!(state.underlying_path.is_some(),
             "Renames should not have been allowed in scaffold or deleted nodes");
         state.underlying_path = Some(PathBuf::from(path));
+
+        // This is racy: if other file operations are going on inside this subtree, they will fail
+        // with ENOENT until we have updated their underlying paths after the move.  However, as we
+        // are currently single-threaded (because the Rust FUSE bindings don't support multiple
+        // threads), we are fine.
+        for (name, dirent) in &state.children {
+            dirent.node.set_underlying_path(&path.join(name));
+        }
     }
 
     fn map(&self, components: &[Component], underlying_path: &Path, writable: bool,
