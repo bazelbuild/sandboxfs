@@ -107,7 +107,7 @@ impl File {
         if !File::supports_type(fs_attr.file_type()) {
             panic!("Can only construct based on non-directories / non-symlinks");
         }
-        let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
+        let attr = conv::attr_fs_to_fuse(underlying_path, inode, 1, &fs_attr);
 
         let state = MutableFile {
             underlying_path: Some(PathBuf::from(underlying_path)),
@@ -126,7 +126,7 @@ impl File {
                     path.display(), fs_attr.file_type());
                 return Err(KernelError::from_errno(errno::Errno::EIO));
             }
-            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
+            state.attr = conv::attr_fs_to_fuse(path, inode, state.attr.nlink, &fs_attr);
         }
 
         Ok(state.attr)
@@ -153,6 +153,8 @@ impl Node for File {
             state.underlying_path.is_some(),
             "Delete already called or trying to delete an explicit mapping");
         state.underlying_path = None;
+        debug_assert!(state.attr.nlink >= 1);
+        state.attr.nlink -= 1;
     }
 
     fn set_underlying_path(&self, path: &Path) {

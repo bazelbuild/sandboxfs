@@ -49,7 +49,7 @@ impl Symlink {
         if !fs_attr.file_type().is_symlink() {
             panic!("Can only construct based on symlinks");
         }
-        let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
+        let attr = conv::attr_fs_to_fuse(underlying_path, inode, 1, &fs_attr);
 
         let state = MutableSymlink {
             underlying_path: Some(PathBuf::from(underlying_path)),
@@ -68,7 +68,7 @@ impl Symlink {
                     path.display(), fs_attr.file_type());
                 return Err(KernelError::from_errno(errno::Errno::EIO));
             }
-            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
+            state.attr = conv::attr_fs_to_fuse(path, inode, state.attr.nlink, &fs_attr);
         }
 
         Ok(state.attr)
@@ -101,6 +101,8 @@ impl Node for Symlink {
         debug_assert!(state.underlying_path.is_some(),
             "Renames should not have been allowed in scaffold or deleted nodes");
         state.underlying_path = Some(PathBuf::from(path));
+        debug_assert!(state.attr.nlink >= 1);
+        state.attr.nlink -= 1;
     }
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {

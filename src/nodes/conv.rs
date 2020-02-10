@@ -116,17 +116,13 @@ pub fn filetype_fs_to_fuse(path: &Path, fs_type: fs::FileType) -> fuse::FileType
 ///
 /// `inode` is the value of the FUSE inode (not the value of the inode supplied within `attr`) to
 /// fill into the returned file attributes.  `path` is the file from which the attributes were
-/// originally extracted and is only for debugging purposes.
+/// originally extracted and is only for debugging purposes.  `nlink` is the number of links to
+/// expose, which is a sandboxfs-internal property and does not match the on-disk value included
+/// in `attr`.
 ///
 /// Any errors encountered along the conversion process are logged and the corresponding field is
 /// replaced by a reasonable value that should work.  In other words: all errors are swallowed.
-pub fn attr_fs_to_fuse(path: &Path, inode: u64, attr: &fs::Metadata) -> fuse::FileAttr {
-    let nlink = if attr.is_dir() {
-        2  // "." entry plus whichever initial named node points at this.
-    } else {
-        1  // We don't support hard links so this is always valid.
-    };
-
+pub fn attr_fs_to_fuse(path: &Path, inode: u64, nlink: u32, attr: &fs::Metadata) -> fuse::FileAttr {
     let len = if attr.is_dir() {
         2  // TODO(jmmv): Reevaluate what directory sizes should be.
     } else {
@@ -313,7 +309,7 @@ mod tests {
         let exp_attr = fuse::FileAttr {
             ino: 1234,  // Ensure underlying inode is not propagated.
             kind: fuse::FileType::Directory,
-            nlink: 2, // TODO(jmmv): Should account for subdirs.
+            nlink: 56, // TODO(jmmv): Should this account for subdirs?
             size: 2,
             blocks: 0,
             atime: Timespec { sec: 12345, nsec: 0 },
@@ -327,7 +323,7 @@ mod tests {
             flags: 0,
         };
 
-        let mut attr = attr_fs_to_fuse(&path, 1234, &fs::symlink_metadata(&path).unwrap());
+        let mut attr = attr_fs_to_fuse(&path, 1234, 56, &fs::symlink_metadata(&path).unwrap());
         // We cannot really make any useful assertions on ctime and crtime as these cannot be
         // modified and may not be queryable, so stub them out.
         attr.ctime = BAD_TIME;
@@ -350,7 +346,7 @@ mod tests {
         let exp_attr = fuse::FileAttr {
             ino: 42,  // Ensure underlying inode is not propagated.
             kind: fuse::FileType::RegularFile,
-            nlink: 1,
+            nlink: 50,
             size: content.len() as u64,
             blocks: 0,
             atime: Timespec { sec: 54321, nsec: 0 },
@@ -364,7 +360,7 @@ mod tests {
             flags: 0,
         };
 
-        let mut attr = attr_fs_to_fuse(&path, 42, &fs::symlink_metadata(&path).unwrap());
+        let mut attr = attr_fs_to_fuse(&path, 42, 50, &fs::symlink_metadata(&path).unwrap());
         // We cannot really make any useful assertions on ctime and crtime as these cannot be
         // modified and may not be queryable, so stub them out.
         attr.ctime = BAD_TIME;

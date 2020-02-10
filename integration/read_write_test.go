@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -128,6 +129,58 @@ func TestReadWrite_CreateFileAsDifferentUser(t *testing.T) {
 	createAsDifferentUserTest(t, utils.CreateFileAsUser)
 }
 
+func TestReadWrite_DirectoryNlinkCountsStayFixed(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	checkNlink := func(path string, wantNlink int) {
+		t.Helper()
+		var stat syscall.Stat_t
+		if err := syscall.Lstat(path, &stat); err != nil {
+			t.Fatalf("Lstat failed on deleted entry: %v", err)
+		}
+		if int(stat.Nlink) != wantNlink {
+			t.Errorf("Got nlink %d, want %d", stat.Nlink, wantNlink)
+		}
+	}
+
+	mustMkdir := func(path string) {
+		t.Helper()
+		if err := os.Mkdir(path, 755); err != nil {
+			t.Fatalf("Failed to mkdir %s: %v", path, err)
+		}
+	}
+
+	mustRemove := func(path string) {
+		t.Helper()
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("Failed to remove %s: %v", path, err)
+		}
+	}
+
+	utils.MustMkdirAll(t, state.RootPath("subdir"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("subdir/dir1"), 0755)
+	utils.MustMkdirAll(t, state.RootPath("subdir/dir2"), 0755)
+	utils.MustWriteFile(t, state.RootPath("subdir/file"), 0644, "original content")
+
+	checkNlink(state.MountPath("subdir"), 2)
+
+	mustRemove(state.MountPath("subdir/dir1"))
+	checkNlink(state.MountPath("subdir"), 2)
+
+	mustRemove(state.MountPath("subdir/file"))
+	checkNlink(state.MountPath("subdir"), 2)
+
+	mustMkdir(state.MountPath("subdir/dir3"))
+	checkNlink(state.MountPath("subdir"), 2)
+
+	mustRemove(state.MountPath("subdir/dir2"))
+	checkNlink(state.MountPath("subdir"), 2)
+
+	mustRemove(state.MountPath("subdir/dir3"))
+	checkNlink(state.MountPath("subdir"), 2)
+}
+
 func TestReadWrite_Remove(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%", "--mapping=rw:/mapped-dir:%ROOT%/mapped-dir", "--mapping=rw:/scaffold/dir:%ROOT%/scaffold-dir")
 	defer state.TearDown(t)
@@ -181,6 +234,32 @@ func TestReadWrite_Remove(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestReadWRite_RemoveZeroesNlink(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "")
+	for _, name := range []string{"Dir", "File"} {
+		t.Run(name, func(t *testing.T) {
+			path := state.MountPath(strings.ToLower(name))
+			fd, err := openAndDelete(path, syscall.O_RDONLY)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer syscall.Close(fd)
+
+			var stat syscall.Stat_t
+			if err := syscall.Fstat(fd, &stat); err != nil {
+				t.Fatalf("Fstat failed on deleted entry: %v", err)
+			}
+			if int(stat.Nlink) != 0 {
+				t.Errorf("Bad link count: got %d, want 0", stat.Nlink)
+			}
+		})
+	}
 }
 
 func TestReadWrite_RewriteFile(t *testing.T) {
