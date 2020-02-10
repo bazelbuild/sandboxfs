@@ -273,7 +273,18 @@ impl Dir {
         if !fs_attr.is_dir() {
             panic!("Can only construct based on dirs");
         }
-        let attr = conv::attr_fs_to_fuse(underlying_path, inode, &fs_attr);
+
+        // For directories, assume a fixed link count of 2 that does not change throughout the
+        // lifetime of the directory (except for its own removal).
+        //
+        // An alternative would be to inherit the link count from the underlying file system and
+        // trust that it is accurate in the (typical) absence of hard links for directories.
+        // I tried that on 2020-02-10 on macOS Catalina with APFS and discovered that this
+        // assumption does not work because this system seems to count *all* directory entries as
+        // links (not just subdirectories).
+        let nlink = 2;
+
+        let attr = conv::attr_fs_to_fuse(underlying_path, inode, nlink, &fs_attr);
 
         let state = MutableDir {
             parent: inode,
@@ -325,7 +336,7 @@ impl Dir {
                     path.display(), fs_attr.file_type());
                 return Err(KernelError::from_errno(errno::Errno::EIO));
             }
-            state.attr = conv::attr_fs_to_fuse(path, inode, &fs_attr);
+            state.attr = conv::attr_fs_to_fuse(path, inode, state.attr.nlink, &fs_attr);
         }
 
         Ok(state.attr)
@@ -365,7 +376,8 @@ impl Dir {
             };
             let fs_attr = fs::symlink_metadata(&path)?;
             let node = cache.get_or_create(ids, &path, &fs_attr, writable);
-            let attr = conv::attr_fs_to_fuse(path.as_path(), node.inode(), &fs_attr);
+            let attr = conv::attr_fs_to_fuse(
+                path.as_path(), node.inode(), node.getattr()?.nlink, &fs_attr);
             (node, attr)
         };
         let dirent = Dirent {
@@ -462,6 +474,12 @@ impl Node for Dir {
             state.underlying_path.is_some(),
             "Delete already called or trying to delete an explicit mapping");
         state.underlying_path = None;
+        // Make the hard link count for the directory be zero.  This is pretty much arbitrary as the
+        // semantics for hard link counts on directories are not well defined, and thus different
+        // OSes and file systems behave inconsistently.  For example, Linux's FUSE forces this to
+        // zero, and macOS's APFS keeps this at 2.
+        debug_assert!(state.attr.nlink >= 2);
+        state.attr.nlink -= 2;
     }
 
     fn set_underlying_path(&self, path: &Path) {
