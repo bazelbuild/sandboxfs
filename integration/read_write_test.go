@@ -735,6 +735,29 @@ func TestReadWrite_MoveAsDifferentUser(t *testing.T) {
 	})
 }
 
+func TestReadWrite_MoveDirectoryUpdatesContents(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	defer state.TearDown(t)
+
+	// Create the files directly in the mount path, as opposed to the root path (like other
+	// tests do), to ensure sandboxfs creates in-memory nodes for them.
+	utils.MustMkdirAll(t, state.MountPath("dir1"), 0755)
+	utils.MustWriteFile(t, state.MountPath("dir1/file"), 0644, "First file")
+	utils.MustMkdirAll(t, state.MountPath("dir1/subdir"), 0755)
+	utils.MustWriteFile(t, state.MountPath("dir1/subdir/file"), 0644, "Second file")
+
+	if err := os.Rename(state.MountPath("dir1"), state.MountPath("dir2")); err != nil {
+		t.Fatalf("Rename failed: %v", err)
+	}
+
+	if err := utils.FileEquals(state.MountPath("dir2/file"), "First file"); err != nil {
+		t.Fatalf("dir2/file is invalid: %v", err)
+	}
+	if err := utils.FileEquals(state.MountPath("dir2/subdir/file"), "Second file"); err != nil {
+		t.Fatalf("dir2/subdir/file is invalid: %v", err)
+	}
+}
+
 func TestReadWrite_Mknod(t *testing.T) {
 	utils.RequireRoot(t, "Requires root privileges to create arbitrary nodes")
 
