@@ -14,6 +14,7 @@
 
 extern crate fuse;
 
+use Cache;
 use nix::errno;
 use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::ffi::OsStr;
@@ -147,20 +148,23 @@ impl Node for File {
         state.attr.kind
     }
 
-    fn delete(&self) {
+    fn delete(&self, cache: &Cache) {
         let mut state = self.state.lock().unwrap();
         assert!(
             state.underlying_path.is_some(),
             "Delete already called or trying to delete an explicit mapping");
+        cache.delete(state.underlying_path.as_ref().unwrap(), state.attr.kind);
         state.underlying_path = None;
         debug_assert!(state.attr.nlink >= 1);
         state.attr.nlink -= 1;
     }
 
-    fn set_underlying_path(&self, path: &Path) {
+    fn set_underlying_path(&self, path: &Path, cache: &Cache) {
         let mut state = self.state.lock().unwrap();
         debug_assert!(state.underlying_path.is_some(),
             "Renames should not have been allowed in scaffold or deleted nodes");
+        cache.rename(
+            state.underlying_path.as_ref().unwrap(), path.to_owned(), state.attr.kind);
         state.underlying_path = Some(PathBuf::from(path));
     }
 

@@ -7,8 +7,8 @@
 * Issue #92: Fixed a bug in `readdir` where we would regenerate inodes for
   directory entries, causing later confusion when trying to access those directories.
 
-* Issue #94: Fixed a bug in `rename` that caused moved directories to lose
-  access to their contents (because the underlying paths for their
+* Issues #94, #98: Fixed a bug in `rename` that caused moved directories to
+  lose access to their contents (because the underlying paths for their
   descendents wouldn't be updated to point to their new locations).
 
 * Fixed the definition of `--input` and `--output` to require an argument,

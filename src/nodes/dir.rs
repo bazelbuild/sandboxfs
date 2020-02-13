@@ -449,8 +449,7 @@ impl Dir {
         // situation cannot arise.
         let entry = state.children.remove(name)
             .expect("Presence guaranteed by get_writable_path call above");
-        cache.delete(&path, entry.node.file_type_cached());
-        entry.node.delete();
+        entry.node.delete(cache);
         Ok(())
     }
 }
@@ -468,11 +467,12 @@ impl Node for Dir {
         fuse::FileType::Directory
     }
 
-    fn delete(&self) {
+    fn delete(&self, cache: &Cache) {
         let mut state = self.state.lock().unwrap();
         assert!(
             state.underlying_path.is_some(),
             "Delete already called or trying to delete an explicit mapping");
+        cache.delete(state.underlying_path.as_ref().unwrap(), state.attr.kind);
         state.underlying_path = None;
         // Make the hard link count for the directory be zero.  This is pretty much arbitrary as the
         // semantics for hard link counts on directories are not well defined, and thus different
@@ -482,10 +482,12 @@ impl Node for Dir {
         state.attr.nlink -= 2;
     }
 
-    fn set_underlying_path(&self, path: &Path) {
+    fn set_underlying_path(&self, path: &Path, cache: &Cache) {
         let mut state = self.state.lock().unwrap();
         debug_assert!(state.underlying_path.is_some(),
             "Renames should not have been allowed in scaffold or deleted nodes");
+        cache.rename(
+            state.underlying_path.as_ref().unwrap(), path.to_owned(), state.attr.kind);
         state.underlying_path = Some(PathBuf::from(path));
 
         // This is racy: if other file operations are going on inside this subtree, they will fail
@@ -493,7 +495,7 @@ impl Node for Dir {
         // are currently single-threaded (because the Rust FUSE bindings don't support multiple
         // threads), we are fine.
         for (name, dirent) in &state.children {
-            dirent.node.set_underlying_path(&path.join(name));
+            dirent.node.set_underlying_path(&path.join(name), cache);
         }
     }
 
@@ -699,8 +701,7 @@ impl Node for Dir {
 
         let dirent = state.children.remove(old_name)
             .expect("get_writable_path call above ensured the child exists");
-        dirent.node.set_underlying_path(&new_path);
-        cache.rename(&old_path, new_path, dirent.node.file_type_cached());
+        dirent.node.set_underlying_path(&new_path, cache);
         state.children.insert(new_name.to_owned(), dirent);
         Ok(())
     }
@@ -745,8 +746,7 @@ impl Node for Dir {
 
         fs::rename(&old_path, &new_path)?;
 
-        dirent.node.set_underlying_path(&new_path);
-        cache.rename(&old_path, new_path, dirent.node.file_type_cached());
+        dirent.node.set_underlying_path(&new_path, cache);
         state.children.insert(new_name.to_owned(), dirent.clone());
         Ok(())
     }
