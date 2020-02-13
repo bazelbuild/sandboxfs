@@ -321,10 +321,14 @@ pub trait Node {
     ///
     /// The implication of this is that a node loses its backing underlying path once this method
     /// is called.
-    fn delete(&self);
+    ///
+    /// `_cache` is updated to remove the path if the underlying file is deleted.
+    fn delete(&self, _cache: &Cache);
 
     /// Updates the node's underlying path to the given one.  Needed for renames.
-    fn set_underlying_path(&self, _path: &Path);
+    ///
+    /// `_cache` is updated to reflect the rename of the underlying path.
+    fn set_underlying_path(&self, _path: &Path, _cache: &Cache);
 
     /// Maps a path onto a node and creates intermediate components as immutable directories.
     ///
