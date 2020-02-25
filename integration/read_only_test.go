@@ -505,6 +505,21 @@ func TestReadOnly_Listxattrs(t *testing.T) {
 	}
 }
 
+func TestReadOnly_ListxattrsOnScaffoldDirectory(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=ro:/scaffold/dir:%ROOT%")
+	defer state.TearDown(t)
+
+	path := state.MountPath("scaffold")
+	buf := make([]byte, 32)
+	sz, err := unix.Llistxattr(path, buf)
+	if err != nil {
+		t.Fatalf("Listxattr(%s) failed: %v", path, err)
+	}
+	if sz != 0 {
+		t.Errorf("Got attributes list for scaffold dir, want nothing")
+	}
+}
+
 func TestReadOnly_Getxattr(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
@@ -537,7 +552,18 @@ func TestReadOnly_Getxattr(t *testing.T) {
 	}
 }
 
-func TestReadOnly_GetxattrMissing(t *testing.T) {
+func TestReadOnly_GetxattrOnScaffoldDirectory(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=ro:/scaffold/dir:%ROOT%")
+	defer state.TearDown(t)
+
+	path := state.MountPath("scaffold")
+	buf := make([]byte, 32)
+	if _, err := unix.Lgetxattr(path, "user.foo", buf); err != utils.MissingXattrErr {
+		t.Errorf("Invalid error from Lgetxattr for %s: got %v, want %v", path, err, utils.MissingXattrErr)
+	}
+}
+
+func TestReadOnly_GetxattrMissingErrno(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 

@@ -378,7 +378,10 @@ pub trait Node {
     }
 
     /// Gets the list of extended attribute names from the file.
-    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+    // TODO(jmmv): This shouldn't have to return an `Option` of extended attributes, as we could
+    // also represent this with an empty `xattr::Xattrs`... but we cannot construct this object
+    // as it is private to the `xattr` crate. Maybe contribute an empty constructor.
+    fn listxattr(&self) -> NodeResult<Option<xattr::XAttrs>> {
         panic!("Not implemented");
     }
 

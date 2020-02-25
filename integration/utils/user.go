@@ -21,6 +21,8 @@ import (
 	"os/user"
 	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // UnixUser represents a Unix user account.  This differs from the standard user.User in that the
@@ -84,6 +86,22 @@ func toUnixUser(user *user.User) (*UnixUser, error) {
 		GID:      gid,
 		Groups:   groups,
 	}, nil
+}
+
+// WriteErrorForUnwritableNode returns the expected error for operations that cannot succeed on
+// unwritable nodes.
+//
+// Unwritable nodes have read-only permissions.  Because we use default_permissions when mounting
+// the daemon, the kernel performs access checks on its own based on those.  For unprivileged users,
+// the kernel denies access and returns EACCES without even calling the FUSE handler for the desired
+// write operation.  However, when running as root, the kernel bypasses this check and ends up
+// calling the operation, which then fails with EPERM.  This function computes the expected error
+// code based on this logic.
+func WriteErrorForUnwritableNode() error {
+	if os.Getuid() == 0 {
+		return unix.EPERM
+	}
+	return unix.EACCES
 }
 
 // LookupUser looks up a user by username.
