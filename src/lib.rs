@@ -522,6 +522,25 @@ fn xattrs_to_u8(xattrs: xattr::XAttrs) -> Vec<u8> {
     data
 }
 
+/// Responds to a successful xattr get or list request.
+///
+/// If `size` is zero, the kernel wants to know the length of `value`.  Otherwise, we are being
+/// asked for the actual value, which should not be longer than `size`.
+fn reply_xattr(size: u32, value: &[u8], reply: fuse::ReplyXattr) {
+    if size == 0 {
+        if value.len() > std::u32::MAX as usize {
+            warn!("xattr data too long ({} bytes); cannot reply", value.len());
+            reply.error(Errno::EIO as i32);
+        } else {
+            reply.size(value.len() as u32);
+        }
+    } else if (size as usize) < value.len() {
+        reply.error(Errno::ERANGE as i32);
+    } else {
+        reply.data(value);
+    }
+}
+
 impl fuse::Filesystem for SandboxFS {
     fn create(&mut self, req: &fuse::Request, parent: u64, name: &OsStr, mode: u32, flags: u32,
         reply: fuse::ReplyCreate) {
@@ -780,15 +799,7 @@ impl fuse::Filesystem for SandboxFS {
                 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
                 compile_error!("Don't know what error to return on a missing getxattr")
             },
-            Ok(Some(value)) => {
-                if size == 0 {
-                    reply.size(value.len() as u32); // XXX
-                } else if (size as usize) < value.len() {
-                    reply.error(Errno::ERANGE as i32);
-                } else {
-                    reply.data(value.as_slice());
-                }
-            },
+            Ok(Some(value)) => reply_xattr(size, value.as_slice(), reply),
             Err(e) => reply.error(e.errno_as_i32()),
         }
     }
@@ -797,16 +808,7 @@ impl fuse::Filesystem for SandboxFS {
         reply: fuse::ReplyXattr) {
         let node = self.find_node(inode);
         match node.listxattr() {
-            Ok(Some(xattrs)) => {
-                let value = xattrs_to_u8(xattrs);
-                if size == 0 {
-                    reply.size(value.len() as u32); // XXX
-                } else if (size as usize) < value.len() {
-                    reply.error(Errno::ERANGE as i32);
-                } else {
-                    reply.data(value.as_slice());
-                }
-            },
+            Ok(Some(xattrs)) => reply_xattr(size, xattrs_to_u8(xattrs).as_slice(), reply),
             Ok(None) => {
                 if size == 0 {
                     reply.size(0);
