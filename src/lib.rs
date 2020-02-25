@@ -300,6 +300,9 @@ struct SandboxFS {
 
     /// How long to tell the kernel to cache file metadata for.
     ttl: Timespec,
+
+    /// Whether support for xattrs is enabled or not.
+    xattrs: bool,
 }
 
 /// A view of a `SandboxFS` instance to allow for concurrent reconfigurations.
@@ -366,7 +369,7 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache) -> Fallib
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn create(mappings: &[Mapping], ttl: Timespec) -> Fallible<SandboxFS> {
+    fn create(mappings: &[Mapping], ttl: Timespec, xattrs: bool) -> Fallible<SandboxFS> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
         let cache = Cache::default();
 
@@ -381,6 +384,7 @@ impl SandboxFS {
             handles: Arc::from(Mutex::from(HashMap::new())),
             cache: Arc::from(cache),
             ttl: ttl,
+            xattrs: xattrs,
         })
     }
 
@@ -773,6 +777,11 @@ impl fuse::Filesystem for SandboxFS {
 
     fn setxattr(&mut self, _req: &fuse::Request<'_>, inode: u64, name: &OsStr, value: &[u8],
         _flags: u32, _position: u32, reply: fuse::ReplyEmpty) {
+        if !self.xattrs {
+            reply.error(Errno::ENOSYS as i32);
+            return;
+        }
+
         let node = self.find_node(inode);
         if !node.writable() {
             reply.error(Errno::EPERM as i32);
@@ -787,6 +796,11 @@ impl fuse::Filesystem for SandboxFS {
 
     fn getxattr(&mut self, _req: &fuse::Request<'_>, inode: u64, name: &OsStr, size: u32,
         reply: fuse::ReplyXattr) {
+        if !self.xattrs {
+            reply.error(Errno::ENOSYS as i32);
+            return;
+        }
+
         let node = self.find_node(inode);
         match node.getxattr(name) {
             Ok(None) => {
@@ -806,6 +820,11 @@ impl fuse::Filesystem for SandboxFS {
 
     fn listxattr(&mut self, _req: &fuse::Request<'_>, inode: u64, size: u32,
         reply: fuse::ReplyXattr) {
+        if !self.xattrs {
+            reply.error(Errno::ENOSYS as i32);
+            return;
+        }
+
         let node = self.find_node(inode);
         match node.listxattr() {
             Ok(Some(xattrs)) => reply_xattr(size, xattrs_to_u8(xattrs).as_slice(), reply),
@@ -822,6 +841,11 @@ impl fuse::Filesystem for SandboxFS {
 
     fn removexattr(&mut self, _req: &fuse::Request<'_>, inode: u64, name: &OsStr,
         reply: fuse::ReplyEmpty) {
+        if !self.xattrs {
+            reply.error(Errno::ENOSYS as i32);
+            return;
+        }
+
         let node = self.find_node(inode);
         if !node.writable() {
             reply.error(Errno::EPERM as i32);
@@ -855,7 +879,7 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
-    input: fs::File, output: fs::File) -> Fallible<()> {
+    xattrs: bool, input: fs::File, output: fs::File) -> Fallible<()> {
     let mut os_options = options.iter().map(AsRef::as_ref).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
@@ -863,7 +887,7 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
     os_options.push(OsStr::new("-o"));
     os_options.push(OsStr::new("default_permissions"));
 
-    let mut fs = SandboxFS::create(mappings, ttl)?;
+    let mut fs = SandboxFS::create(mappings, ttl, xattrs)?;
     let reconfigurable_fs = fs.reconfigurable();
     info!("Mounting file system onto {:?}", mount_point);
 

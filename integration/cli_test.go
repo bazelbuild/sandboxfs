@@ -43,6 +43,7 @@ Options:
     --ttl TIMEs         how long the kernel is allowed to keep file metadata
                         (default: 60s)
     --version           prints version information and exits
+    --xattrs            enables support for extended attributes
 `
 
 	stdout, stderr, err := utils.RunAndWait(0, "--help")
