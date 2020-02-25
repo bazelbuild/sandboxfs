@@ -471,7 +471,7 @@ func TestReadOnly_ReaddirFromFileFails(t *testing.T) {
 }
 
 func TestReadOnly_Listxattrs(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -494,7 +494,7 @@ func TestReadOnly_Listxattrs(t *testing.T) {
 			buf := make([]byte, 32)
 			sz, err := unix.Llistxattr(path, buf)
 			if err != nil {
-				t.Fatalf("Listxattr(%s) failed: %v", path, err)
+				t.Fatalf("Llistxattr(%s) failed: %v", path, err)
 			}
 			list := buf[0:sz]
 			wantList := []byte("user.first\000user.second\000")
@@ -506,22 +506,52 @@ func TestReadOnly_Listxattrs(t *testing.T) {
 }
 
 func TestReadOnly_ListxattrsOnScaffoldDirectory(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=ro:/scaffold/dir:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=ro:/:%ROOT%", "--mapping=ro:/scaffold/dir:%ROOT%")
 	defer state.TearDown(t)
 
 	path := state.MountPath("scaffold")
 	buf := make([]byte, 32)
 	sz, err := unix.Llistxattr(path, buf)
 	if err != nil {
-		t.Fatalf("Listxattr(%s) failed: %v", path, err)
+		t.Fatalf("Llistxattr(%s) failed: %v", path, err)
 	}
 	if sz != 0 {
 		t.Errorf("Got attributes list for scaffold dir, want nothing")
 	}
 }
 
-func TestReadOnly_Getxattr(t *testing.T) {
+func TestReadOnly_ListxattrsDisabled(t *testing.T) {
 	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	if err := unix.Lsetxattr(state.RootPath("dir"), "user.foo", []byte{}, 0); err != nil {
+		t.Fatalf("Lsetxattr failed: %v", err)
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		buf := make([]byte, 32)
+		sz, err := unix.Llistxattr(state.MountPath("dir"), buf)
+		if err != nil {
+			t.Fatalf("Llistxattr failed: %v", err)
+		}
+		if sz != 0 {
+			t.Errorf("Llistxattr should not have returned anything")
+		}
+	case "linux":
+		buf := make([]byte, 32)
+		if _, err := unix.Llistxattr(state.MountPath("dir"), buf); err != unix.EOPNOTSUPP {
+			t.Fatalf("Llistxattr should have failed with %v, but got %v", unix.EOPNOTSUPP, err)
+		}
+	default:
+		panic("Don't know how this test behaves on this platform")
+	}
+}
+
+func TestReadOnly_Getxattr(t *testing.T) {
+	state := utils.MountSetup(t, "--xattrs", "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -553,7 +583,7 @@ func TestReadOnly_Getxattr(t *testing.T) {
 }
 
 func TestReadOnly_GetxattrOnScaffoldDirectory(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=ro:/scaffold/dir:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=ro:/:%ROOT%", "--mapping=ro:/scaffold/dir:%ROOT%")
 	defer state.TearDown(t)
 
 	path := state.MountPath("scaffold")
@@ -564,7 +594,7 @@ func TestReadOnly_GetxattrOnScaffoldDirectory(t *testing.T) {
 }
 
 func TestReadOnly_GetxattrMissingErrno(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=ro:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -582,6 +612,32 @@ func TestReadOnly_GetxattrMissingErrno(t *testing.T) {
 				t.Errorf("Invalid error from Lgetxattr for %s: got %v, want %v", path, err, utils.MissingXattrErr)
 			}
 		}
+	}
+}
+
+func TestReadOnly_GetxattrDisabled(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	if err := unix.Lsetxattr(state.RootPath("dir"), "user.foo", []byte{}, 0); err != nil {
+		t.Fatalf("Lsetxattr failed: %v", err)
+	}
+
+	var wantErr error
+	switch runtime.GOOS {
+	case "darwin":
+		wantErr = utils.MissingXattrErr
+	case "linux":
+		wantErr = unix.EOPNOTSUPP
+	default:
+		panic("Don't know how this test behaves on this platform")
+	}
+
+	buf := make([]byte, 32)
+	if _, err := unix.Lgetxattr(state.MountPath("dir"), "user.foo", buf); err != wantErr {
+		t.Errorf("Invalid error from Lgetxattr: got %v, want %v", err, wantErr)
 	}
 }
 

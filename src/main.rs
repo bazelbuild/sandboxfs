@@ -213,6 +213,7 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
         &format!("how long the kernel is allowed to keep file metadata (default: {})", DEFAULT_TTL),
         &format!("TIME{}", SECONDS_SUFFIX));
     opts.optflag("", "version", "prints version information and exits");
+    opts.optflag("", "xattrs", "enables support for extended attributes");
     let matches = opts.parse(args)?;
 
     if matches.opt_present("help") {
@@ -266,7 +267,8 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     if let Some(path) = matches.opt_str("cpu_profile") {
         _profiler = sandboxfs::ScopedProfiler::start(&path).context("Failed to start CPU profile")?;
     };
-    sandboxfs::mount(mount_point, &options, &mappings, ttl, input, output)
+    sandboxfs::mount(
+        mount_point, &options, &mappings, ttl, matches.opt_present("xattrs"), input, output)
         .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }

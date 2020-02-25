@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd January 15, 2019
+.Dd February 25, 2020
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -27,6 +27,7 @@
 .Op Fl -output Ar path
 .Op Fl -ttl Ar duration
 .Op Fl -version
+.Op Fl -xattrs
 .Ar mount_point
 .Sh DESCRIPTION
 .Nm
@@ -144,6 +145,18 @@ sandboxfs MAJOR.MINOR[.ADDITIONAL OPTIONAL QUALIFIERS]
 Programs automating invocations of
 .Nm
 can use this information to determine the correct command-line syntax to use.
+.It Fl -xattrs
+Enables support for extended attributes, which causes all extended attribute
+operations to propagate to the underlying files.
+.Pp
+When disabled (the default), the behavior of extended attribute operations is
+platform-dependent: they may either fail as not supported or they may act as
+no-op stubs.
+The reason is that this feature is disabled by telling the kernel that none of
+these operations are implemented in
+.Nm ,
+which then causes the kernel to never contact the daemon for them.
+Keeping extended attributes disabled can result in a performance boost.
 .El
 .Ss Mapping specifications
 The basic concept behind a
@@ -410,4 +423,9 @@ You may be able to mitigate this by setting a low node TTL with the
 .Fl -ttl
 flag, but this doesn't work on macOS either because OSXFUSE does not honor
 node TTLs.
+.It
+Handling of extended attributes on open-but-deleted-files does not work
+properly.
+Those files will appear as if they didn't have any extended attributes any
+longer, and attempts to modify them will fail.
 .El

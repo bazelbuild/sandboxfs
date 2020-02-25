@@ -1431,7 +1431,7 @@ func TestReadWrite_MmapAfterMovesWorks(t *testing.T) {
 }
 
 func testXattrsOnDeletedFiles(t *testing.T, wantErr error, hook func(int) error) {
-	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -1464,7 +1464,7 @@ func TestReadWrite_Flistxattr(t *testing.T) {
 }
 
 func TestReadWrite_Setxattr(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -1496,7 +1496,7 @@ func TestReadWrite_Setxattr(t *testing.T) {
 }
 
 func TestReadWrite_SetxattrOnScaffoldDirectory(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%", "--mapping=rw:/scaffold/dir:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=rw:/:%ROOT%", "--mapping=rw:/scaffold/dir:%ROOT%")
 	defer state.TearDown(t)
 
 	path := state.MountPath("scaffold")
@@ -1507,6 +1507,27 @@ func TestReadWrite_SetxattrOnScaffoldDirectory(t *testing.T) {
 	}
 }
 
+func TestReadWrite_SetxattrDisabled(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	var wantErr error
+	switch runtime.GOOS {
+	case "darwin":
+		wantErr = unix.EPERM
+	case "linux":
+		wantErr = unix.EOPNOTSUPP
+	default:
+		panic("Don't know how this test behaves on this platform")
+	}
+
+	if err := unix.Lsetxattr(state.MountPath("dir"), "user.foo", []byte{}, 0); err != wantErr {
+		t.Fatalf("Lsetxattr should have failed with %v, got %v", wantErr, err)
+	}
+}
+
 func TestReadWrite_Fsetxattr(t *testing.T) {
 	testXattrsOnDeletedFiles(t, unix.EACCES, func(fd int) error {
 		return unix.Fsetxattr(fd, "user.foo", []byte{}, 0)
@@ -1514,7 +1535,7 @@ func TestReadWrite_Fsetxattr(t *testing.T) {
 }
 
 func TestReadWrite_Removexattr(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
 	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
@@ -1544,13 +1565,34 @@ func TestReadWrite_Removexattr(t *testing.T) {
 }
 
 func TestReadWrite_RemovexattrOnScaffoldDirectory(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%", "--mapping=rw:/scaffold/dir:%ROOT%")
+	state := utils.MountSetup(t, "--xattrs", "--mapping=rw:/:%ROOT%", "--mapping=rw:/scaffold/dir:%ROOT%")
 	defer state.TearDown(t)
 
 	path := state.MountPath("scaffold")
 	wantErr := utils.WriteErrorForUnwritableNode()
 	if err := unix.Lremovexattr(path, "user.foo"); err != wantErr {
 		t.Errorf("Invalid error from Lremovexattr for %s: got %v, want %v", path, err, wantErr)
+	}
+}
+
+func TestReadWrite_RemovexattrDisabled(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	var wantErr error
+	switch runtime.GOOS {
+	case "darwin":
+		wantErr = utils.MissingXattrErr
+	case "linux":
+		wantErr = unix.EOPNOTSUPP
+	default:
+		panic("Don't know how this test behaves on this platform")
+	}
+
+	if err := unix.Lremovexattr(state.MountPath("dir"), "user.foo"); err != wantErr {
+		t.Fatalf("Lremovexattr should have failed with %v, got %v", wantErr, err)
 	}
 }
 

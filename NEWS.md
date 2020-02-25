@@ -35,7 +35,8 @@
   inheriting the permissions of whoever was running sandboxfs.  Only has an
   effect when using `--allow=other` or `--allow=root`.
 
-* Added support for extended attributes.
+* Added support for extended attributes.  Must be explicitly enabled by passing
+  the `--xattrs` option.
 
 * Added support to change the timestamps of a symlink on systems that have
   this feature.
