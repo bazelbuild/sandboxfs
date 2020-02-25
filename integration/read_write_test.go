@@ -1430,7 +1430,7 @@ func TestReadWrite_MmapAfterMovesWorks(t *testing.T) {
 	syscall.Close(fd)
 }
 
-func testXattrsOnDeletedFiles(t *testing.T, hook func(int) error) {
+func testXattrsOnDeletedFiles(t *testing.T, wantErr error, hook func(int) error) {
 	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%")
 	defer state.TearDown(t)
 
@@ -1443,21 +1443,21 @@ func testXattrsOnDeletedFiles(t *testing.T, hook func(int) error) {
 		}
 		defer syscall.Close(fd)
 
-		if err := hook(fd); err == nil || err != unix.ENOENT {
-			t.Errorf("xattr operations via file handles not supported; want ENOENT, got %v", err)
+		if err := hook(fd); err != wantErr {
+			t.Errorf("xattr operations via file handles not supported for %s; got %v, want %v", name, err, wantErr)
 		}
 	}
 }
 
 func TestReadWrite_Fgetxattr(t *testing.T) {
-	testXattrsOnDeletedFiles(t, func(fd int) error {
+	testXattrsOnDeletedFiles(t, utils.MissingXattrErr, func(fd int) error {
 		_, err := unix.Fgetxattr(fd, "user.foo", []byte{})
 		return err
 	})
 }
 
 func TestReadWrite_Flistxattr(t *testing.T) {
-	testXattrsOnDeletedFiles(t, func(fd int) error {
+	testXattrsOnDeletedFiles(t, nil, func(fd int) error {
 		_, err := unix.Flistxattr(fd, []byte{})
 		return err
 	})
@@ -1495,8 +1495,20 @@ func TestReadWrite_Setxattr(t *testing.T) {
 	}
 }
 
+func TestReadWrite_SetxattrOnScaffoldDirectory(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%", "--mapping=rw:/scaffold/dir:%ROOT%")
+	defer state.TearDown(t)
+
+	path := state.MountPath("scaffold")
+	value := []byte("some-value")
+	wantErr := utils.WriteErrorForUnwritableNode()
+	if err := unix.Lsetxattr(path, "user.foo", value, 0); err != wantErr {
+		t.Errorf("Invalid error from Lsetxattr for %s: got %v, want %v", path, err, wantErr)
+	}
+}
+
 func TestReadWrite_Fsetxattr(t *testing.T) {
-	testXattrsOnDeletedFiles(t, func(fd int) error {
+	testXattrsOnDeletedFiles(t, unix.EACCES, func(fd int) error {
 		return unix.Fsetxattr(fd, "user.foo", []byte{}, 0)
 	})
 }
@@ -1531,8 +1543,19 @@ func TestReadWrite_Removexattr(t *testing.T) {
 	}
 }
 
+func TestReadWrite_RemovexattrOnScaffoldDirectory(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=rw:/:%ROOT%", "--mapping=rw:/scaffold/dir:%ROOT%")
+	defer state.TearDown(t)
+
+	path := state.MountPath("scaffold")
+	wantErr := utils.WriteErrorForUnwritableNode()
+	if err := unix.Lremovexattr(path, "user.foo"); err != wantErr {
+		t.Errorf("Invalid error from Lremovexattr for %s: got %v, want %v", path, err, wantErr)
+	}
+}
+
 func TestReadWrite_Fremovexattr(t *testing.T) {
-	testXattrsOnDeletedFiles(t, func(fd int) error {
+	testXattrsOnDeletedFiles(t, unix.EACCES, func(fd int) error {
 		return unix.Fremovexattr(fd, "user.foo")
 	})
 }

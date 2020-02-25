@@ -123,13 +123,13 @@ impl Node for Symlink {
         Ok(value)
     }
 
-    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+    fn listxattr(&self) -> NodeResult<Option<xattr::XAttrs>> {
         let state = self.state.lock().unwrap();
         assert!(
             state.underlying_path.is_some(),
             "There is no known API to access the extended attributes of a symlink via an fd");
         let xattrs = xattr::list(state.underlying_path.as_ref().unwrap())?;
-        Ok(xattrs)
+        Ok(Some(xattrs))
     }
 
     fn readlink(&self) -> NodeResult<PathBuf> {

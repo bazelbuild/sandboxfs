@@ -797,7 +797,7 @@ impl fuse::Filesystem for SandboxFS {
         reply: fuse::ReplyXattr) {
         let node = self.find_node(inode);
         match node.listxattr() {
-            Ok(xattrs) => {
+            Ok(Some(xattrs)) => {
                 let value = xattrs_to_u8(xattrs);
                 if size == 0 {
                     reply.size(value.len() as u32); // XXX
@@ -805,6 +805,13 @@ impl fuse::Filesystem for SandboxFS {
                     reply.error(Errno::ERANGE as i32);
                 } else {
                     reply.data(value.as_slice());
+                }
+            },
+            Ok(None) => {
+                if size == 0 {
+                    reply.size(0);
+                } else {
+                    reply.data(&[]);
                 }
             },
             Err(e) => reply.error(e.errno_as_i32()),

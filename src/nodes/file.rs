@@ -177,7 +177,7 @@ impl Node for File {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
             Some(path) => Ok(xattr::get(path, name)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            None => Ok(None),
         }
     }
 
@@ -185,11 +185,11 @@ impl Node for File {
         Arc::from(OpenFile::from(self.state.clone(), file))
     }
 
-    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+    fn listxattr(&self) -> NodeResult<Option<xattr::XAttrs>> {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
-            Some(path) => Ok(xattr::list(path)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            Some(path) => Ok(Some(xattr::list(path)?)),
+            None => Ok(None),
         }
     }
 
@@ -207,7 +207,7 @@ impl Node for File {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
             Some(path) => Ok(xattr::remove(path, name)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            None => Err(KernelError::from_errno(errno::Errno::EACCES)),
         }
     }
 
@@ -220,8 +220,8 @@ impl Node for File {
     fn setxattr(&self, name: &OsStr, value: &[u8]) -> NodeResult<()> {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
-                Some(path) => Ok(xattr::set(path, name, value)?),
-                None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            Some(path) => Ok(xattr::set(path, name, value)?),
+            None => Err(KernelError::from_errno(errno::Errno::EACCES)),
         }
     }
 }

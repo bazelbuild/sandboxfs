@@ -585,15 +585,15 @@ impl Node for Dir {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
             Some(path) => Ok(xattr::get(path, name)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            None => Ok(None),
         }
     }
 
-    fn listxattr(&self) -> NodeResult<xattr::XAttrs> {
+    fn listxattr(&self) -> NodeResult<Option<xattr::XAttrs>> {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
-            Some(path) => Ok(xattr::list(path)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            Some(path) => Ok(Some(xattr::list(path)?)),
+            None => Ok(None),
         }
     }
 
@@ -687,7 +687,7 @@ impl Node for Dir {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
             Some(path) => Ok(xattr::remove(path, name)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            None => Err(KernelError::from_errno(errno::Errno::EACCES)),
         }
     }
 
@@ -767,7 +767,7 @@ impl Node for Dir {
         let state = self.state.lock().unwrap();
         match &state.underlying_path {
             Some(path) => Ok(xattr::set(path, name, value)?),
-            None => Err(KernelError::from_errno(errno::Errno::ENOENT)),
+            None => Err(KernelError::from_errno(errno::Errno::EACCES)),
         }
     }
 
