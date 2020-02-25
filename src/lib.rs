@@ -770,7 +770,16 @@ impl fuse::Filesystem for SandboxFS {
         reply: fuse::ReplyXattr) {
         let node = self.find_node(inode);
         match node.getxattr(name) {
-            Ok(None) => reply.error(Errno::ENODATA as i32),
+            Ok(None) => {
+                #[cfg(target_os = "linux")]
+                reply.error(Errno::ENODATA as i32);
+
+                #[cfg(target_os = "macos")]
+                reply.error(Errno::ENOATTR as i32);
+
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                compile_error!("Don't know what error to return on a missing getxattr")
+            },
             Ok(Some(value)) => {
                 if size == 0 {
                     reply.size(value.len() as u32); // XXX
