@@ -527,13 +527,34 @@ func TestReadOnly_Getxattr(t *testing.T) {
 			buf := make([]byte, 32)
 			sz, err := unix.Lgetxattr(path, "user.foo", buf)
 			if err != nil {
-				t.Fatalf("Listxattr(%s) failed: %v", path, err)
+				t.Fatalf("Lgetxattr(%s) failed: %v", path, err)
 			}
 			value := buf[0:sz]
 			if !reflect.DeepEqual(value, wantValue) {
 				t.Errorf("Invalid attribute for %s: got %s, want %s", path, value, wantValue)
 			}
+		}
+	}
+}
 
+func TestReadOnly_GetxattrMissing(t *testing.T) {
+	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%")
+	defer state.TearDown(t)
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+	utils.MustWriteFile(t, state.RootPath("file"), 0644, "new content")
+	utils.MustSymlink(t, "missing", state.RootPath("symlink"))
+
+	tests := []string{"dir", "file"}
+	if runtime.GOOS != "linux" { // Linux doesn't support xattrs on symlinks.
+		tests = append(tests, "symlink")
+	}
+	for _, name := range tests {
+		for _, path := range []string{state.MountPath(name), state.RootPath(name)} {
+			buf := make([]byte, 32)
+			if _, err := unix.Lgetxattr(path, "user.foo", buf); err != utils.MissingXattrErr {
+				t.Errorf("Invalid error from Lgetxattr for %s: got %v, want %v", path, err, utils.MissingXattrErr)
+			}
 		}
 	}
 }
