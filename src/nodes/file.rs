@@ -14,9 +14,9 @@
 
 extern crate fuse;
 
-use Cache;
 use nix::errno;
-use nodes::{ArcHandle, ArcNode, AttrDelta, Handle, KernelError, Node, NodeResult, conv, setattr};
+use nodes::{
+    ArcHandle, ArcNode, AttrDelta, Cache, Handle, KernelError, Node, NodeResult, conv, setattr};
 use std::ffi::OsStr;
 use std::fs;
 use std::os::unix::fs::FileExt;
@@ -148,7 +148,7 @@ impl Node for File {
         state.attr.kind
     }
 
-    fn delete(&self, cache: &Cache) {
+    fn delete(&self, cache: &dyn Cache) {
         let mut state = self.state.lock().unwrap();
         assert!(
             state.underlying_path.is_some(),
@@ -159,7 +159,7 @@ impl Node for File {
         state.attr.nlink -= 1;
     }
 
-    fn set_underlying_path(&self, path: &Path, cache: &Cache) {
+    fn set_underlying_path(&self, path: &Path, cache: &dyn Cache) {
         let mut state = self.state.lock().unwrap();
         debug_assert!(state.underlying_path.is_some(),
             "Renames should not have been allowed in scaffold or deleted nodes");

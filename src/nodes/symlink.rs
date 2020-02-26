@@ -14,9 +14,8 @@
 
 extern crate fuse;
 
-use Cache;
 use nix::errno;
-use nodes::{ArcNode, AttrDelta, KernelError, Node, NodeResult, conv, setattr};
+use nodes::{ArcNode, AttrDelta, Cache, KernelError, Node, NodeResult, conv, setattr};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -89,7 +88,7 @@ impl Node for Symlink {
         fuse::FileType::Symlink
     }
 
-    fn delete(&self, cache: &Cache) {
+    fn delete(&self, cache: &dyn Cache) {
         let mut state = self.state.lock().unwrap();
         assert!(
             state.underlying_path.is_some(),
@@ -98,7 +97,7 @@ impl Node for Symlink {
         state.underlying_path = None;
     }
 
-    fn set_underlying_path(&self, path: &Path, cache: &Cache) {
+    fn set_underlying_path(&self, path: &Path, cache: &dyn Cache) {
         let mut state = self.state.lock().unwrap();
         debug_assert!(state.underlying_path.is_some(),
             "Renames should not have been allowed in scaffold or deleted nodes");

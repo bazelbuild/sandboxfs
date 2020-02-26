@@ -179,111 +179,6 @@ impl IdGenerator {
     }
 }
 
-/// Cache of sandboxfs nodes indexed by their underlying path.
-///
-/// This cache is critical to offer good performance during reconfigurations: if the identity of an
-/// underlying file changes across reconfigurations, the kernel will think it's a different file
-/// (even if it may not be) and will therefore not be able to take advantage of any caches.  You
-/// would think that avoiding kernel cache invalidations during the reconfiguration itself (e.g. if
-/// file `A` was mapped and is still mapped now, don't invalidate it) would be sufficient to avoid
-/// this problem, but it's not: `A` could be mapped, then unmapped, and then remapped again in three
-/// different reconfigurations, and we'd still not want to lose track of it.
-///
-/// Nodes should be inserted in this cache at creation time and removed from it when explicitly
-/// deleted by the user (because there is a chance they'll be recreated, and at that point we truly
-/// want to reload the data from disk).
-///
-/// TODO(jmmv): There currently is no cache expiration, which means that memory usage can grow
-/// unboundedly.  A preliminary attempt at expiring cache entries on a node's forget handler sounded
-/// promising (because then cache expiration would be delegated to the kernel)... but, on Linux, the
-/// kernel seems to be calling this very eagerly, rendering our cache useless.  I did not track down
-/// what exactly triggered the forget notifications though.
-#[derive(Default)]
-pub struct Cache {
-    entries: Mutex<HashMap<PathBuf, nodes::ArcNode>>,
-}
-
-impl Cache {
-    /// Gets a mapped node from the cache or creates a new one if not yet cached.
-    ///
-    /// The returned node represents the given underlying path uniquely.  If creation is needed, the
-    /// created node uses the given type and writable settings.
-    pub fn get_or_create(&self, ids: &IdGenerator, underlying_path: &Path, attr: &fs::Metadata,
-        writable: bool) -> nodes::ArcNode {
-        if attr.is_dir() {
-            // Directories cannot be cached because they contain entries that are created only
-            // in memory based on the mappings configuration.
-            //
-            // TODO(jmmv): Actually, they *could* be cached, but it's hard.  Investigate doing so
-            // after quantifying how much it may benefit performance.
-            return nodes::Dir::new_mapped(ids.next(), underlying_path, attr, writable);
-        }
-
-        let mut entries = self.entries.lock().unwrap();
-
-        if let Some(node) = entries.get(underlying_path) {
-            if node.writable() == writable {
-                // We have a match from the cache!  Return it immediately.
-                //
-                // It is tempting to ensure that the type of the cached node matches the type we
-                // want to return based on the metadata we have now in `attr`... but doing so does
-                // not really prevent problems: the type of the underlying file can change at any
-                // point in time.  We could check this here and the type could change immediately
-                // afterwards behind our backs, so don't bother.
-                return node.clone();
-            }
-
-            // We had a match... but node writability has changed; recreate the node.
-            //
-            // You may wonder why we care about this and not the file type as described above: the
-            // reason is that the writability property is a setting of the mappings, not a property
-            // of the underlying files, and thus it's a setting that we fully control and must keep
-            // correct across reconfigurations or across different mappings of the same files.
-            info!("Missed node caching opportunity because writability has changed for {:?}",
-                underlying_path)
-        }
-
-        let node: nodes::ArcNode = if attr.is_dir() {
-            panic!("Directory entries cannot be cached and are handled above");
-        } else if attr.file_type().is_symlink() {
-            nodes::Symlink::new_mapped(ids.next(), underlying_path, attr, writable)
-        } else {
-            nodes::File::new_mapped(ids.next(), underlying_path, attr, writable)
-        };
-        entries.insert(underlying_path.to_path_buf(), node.clone());
-        node
-    }
-
-    /// Deletes the entry `path` from the cache.
-    ///
-    /// The `file_type` corresponds to the type of the mapping that points to the given `path`.  We
-    /// don't need this information to remove an entry from the cache, but we use it to perform
-    /// consistency checks.
-    pub fn delete(&self, path: &Path, file_type: fuse::FileType) {
-        let mut entries = self.entries.lock().unwrap();
-        if file_type == fuse::FileType::Directory {
-            debug_assert!(!entries.contains_key(path), "Directories are not currently cached");
-        } else {
-            entries.remove(path).expect("Tried to delete unknown path from the cache");
-        }
-    }
-
-    /// Renames the entry `old_path` to `new_path` in the cache.
-    ///
-    /// The `file_type` corresponds to the type of the mapping that points to the given `old_path`.
-    /// We don't need this information to rename an entry from the cache, but we use it to perform
-    /// consistency checks.
-    pub fn rename(&self, old_path: &Path, new_path: PathBuf, file_type: fuse::FileType) {
-        let mut entries = self.entries.lock().unwrap();
-        if file_type == fuse::FileType::Directory {
-            debug_assert!(!entries.contains_key(old_path), "Directories are not currently cached");
-        } else {
-            let node = entries.remove(old_path).expect("Tried to rename unknown path in the cache");
-            entries.insert(new_path, node);
-        }
-    }
-}
-
 /// FUSE file system implementation of sandboxfs.
 struct SandboxFS {
     /// Monotonically-increasing generator of identifiers for this file system instance.
@@ -296,7 +191,7 @@ struct SandboxFS {
     handles: Arc<Mutex<HashMap<u64, nodes::ArcHandle>>>,
 
     /// Cache of sandboxfs nodes indexed by their underlying path.
-    cache: Arc<Cache>,
+    cache: nodes::ArcCache,
 
     /// How long to tell the kernel to cache file metadata for.
     ttl: Timespec,
@@ -318,15 +213,15 @@ struct ReconfigurableSandboxFS {
     ids: Arc<IdGenerator>,
 
     /// Cache of sandboxfs nodes indexed by their underlying path.
-    cache: Arc<Cache>,
+    cache: nodes::ArcCache,
 }
 
 /// Applies a mapping to the given root node.
 ///
 /// This code is shared by the application of `--mapping` flags and by the application of new
 /// mappings as part of a reconfiguration operation.  We want both processes to behave identically.
-fn apply_mapping(mapping: &Mapping, root: &dyn nodes::Node, ids: &IdGenerator, cache: &Cache)
-    -> Fallible<()> {
+fn apply_mapping(mapping: &Mapping, root: &dyn nodes::Node, ids: &IdGenerator,
+    cache: &dyn nodes::Cache) -> Fallible<()> {
     let all = mapping.path.components().collect::<Vec<_>>();
     debug_assert_eq!(Component::RootDir, all[0], "Paths in mappings are always absolute");
     let components = &all[1..];
@@ -335,11 +230,12 @@ fn apply_mapping(mapping: &Mapping, root: &dyn nodes::Node, ids: &IdGenerator, c
     // any path components in the given mapping, it means we are trying to remap that same node.
     ensure!(!components.is_empty(), "Root can be mapped at most once");
 
-    root.map(components, &mapping.underlying_path, mapping.writable, &ids, &cache)
+    root.map(components, &mapping.underlying_path, mapping.writable, &ids, cache)
 }
 
 /// Creates the initial node hierarchy based on a collection of `mappings`.
-fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &Cache) -> Fallible<nodes::ArcNode> {
+fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &dyn nodes::Cache)
+    -> Fallible<nodes::ArcNode> {
     let now = time::get_time();
 
     let (root, rest) = if mappings.is_empty() {
@@ -371,7 +267,7 @@ impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
     fn create(mappings: &[Mapping], ttl: Timespec, xattrs: bool) -> Fallible<SandboxFS> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
-        let cache = Cache::default();
+        let cache = nodes::PathCache::default();
 
         let mut nodes = HashMap::new();
         let root = create_root(mappings, &ids, &cache)?;
@@ -555,7 +451,7 @@ impl fuse::Filesystem for SandboxFS {
         }
 
         match dir_node.create(name, nix_uid(req), nix_gid(req), mode, flags, &self.ids,
-            &self.cache) {
+        self.cache.as_ref()) {
             Ok((node, handle, attr)) => {
                 self.insert_node(node);
                 let fh = self.insert_handle(handle);
@@ -581,7 +477,7 @@ impl fuse::Filesystem for SandboxFS {
 
     fn lookup(&mut self, _req: &fuse::Request, parent: u64, name: &OsStr, reply: fuse::ReplyEntry) {
         let dir_node = self.find_node(parent);
-        match dir_node.lookup(name, &self.ids, &self.cache) {
+        match dir_node.lookup(name, &self.ids, self.cache.as_ref()) {
             Ok((node, attr)) => {
                 {
                     let mut nodes = self.nodes.lock().unwrap();
@@ -603,7 +499,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.mkdir(name, nix_uid(req), nix_gid(req), mode, &self.ids, &self.cache) {
+        match dir_node.mkdir(name, nix_uid(req), nix_gid(req), mode, &self.ids,
+        self.cache.as_ref()) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -620,7 +517,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.mknod(name, nix_uid(req), nix_gid(req), mode, rdev, &self.ids, &self.cache) {
+        match dir_node.mknod(name, nix_uid(req), nix_gid(req), mode, rdev, &self.ids,
+            self.cache.as_ref()) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -650,7 +548,7 @@ impl fuse::Filesystem for SandboxFS {
     fn readdir(&mut self, _req: &fuse::Request, _inode: u64, handle: u64, offset: i64,
                mut reply: fuse::ReplyDirectory) {
         let handle = self.find_handle(handle);
-        match handle.readdir(&self.ids, &self.cache, offset, &mut reply) {
+        match handle.readdir(&self.ids, self.cache.as_ref(), offset, &mut reply) {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -683,14 +581,14 @@ impl fuse::Filesystem for SandboxFS {
         }
 
         let result = if parent == new_parent {
-            dir_node.rename(name, new_name, &self.cache)
+            dir_node.rename(name, new_name, self.cache.as_ref())
         } else {
             let new_dir_node = self.find_node(new_parent);
             if !new_dir_node.writable() {
                 reply.error(Errno::EPERM as i32);
                 return;
             }
-            dir_node.rename_and_move_source(name, new_dir_node, new_name, &self.cache)
+            dir_node.rename_and_move_source(name, new_dir_node, new_name, self.cache.as_ref())
         };
         match result {
             Ok(()) => reply.ok(),
@@ -705,7 +603,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.rmdir(name, &self.cache) {
+        match dir_node.rmdir(name, self.cache.as_ref()) {
             Ok(_) => reply.ok(),
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -743,7 +641,8 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.symlink(name, link, nix_uid(req), nix_gid(req), &self.ids, &self.cache) {
+        match dir_node.symlink(name, link, nix_uid(req), nix_gid(req), &self.ids,
+            self.cache.as_ref()) {
             Ok((node, attr)) => {
                 self.insert_node(node);
                 reply.entry(&self.ttl, &attr, IdGenerator::GENERATION);
@@ -759,7 +658,7 @@ impl fuse::Filesystem for SandboxFS {
             return;
         }
 
-        match dir_node.unlink(name, &self.cache) {
+        match dir_node.unlink(name, self.cache.as_ref()) {
             Ok(_) => reply.ok(),
             Err(e) => reply.error(e.errno_as_i32()),
         }
@@ -1009,60 +908,6 @@ mod tests {
         let ids = IdGenerator::new(std::u64::MAX);
         ids.next();  // OK, still at limit.
         ids.next();  // Should panic.
-    }
-
-    #[test]
-    fn cache_behavior() {
-        let root = tempdir().unwrap();
-
-        let dir1 = root.path().join("dir1");
-        fs::create_dir(&dir1).unwrap();
-        let dir1attr = fs::symlink_metadata(&dir1).unwrap();
-
-        let file1 = root.path().join("file1");
-        drop(fs::File::create(&file1).unwrap());
-        let file1attr = fs::symlink_metadata(&file1).unwrap();
-
-        let file2 = root.path().join("file2");
-        drop(fs::File::create(&file2).unwrap());
-        let file2attr = fs::symlink_metadata(&file2).unwrap();
-
-        let ids = IdGenerator::new(1);
-        let cache = Cache::default();
-
-        // Directories are not cached no matter what.
-        assert_eq!(1, cache.get_or_create(&ids, &dir1, &dir1attr, false).inode());
-        assert_eq!(2, cache.get_or_create(&ids, &dir1, &dir1attr, false).inode());
-        assert_eq!(3, cache.get_or_create(&ids, &dir1, &dir1attr, true).inode());
-
-        // Different files get different nodes.
-        assert_eq!(4, cache.get_or_create(&ids, &file1, &file1attr, false).inode());
-        assert_eq!(5, cache.get_or_create(&ids, &file2, &file2attr, true).inode());
-
-        // Files we queried before but with different writability get different nodes.
-        assert_eq!(6, cache.get_or_create(&ids, &file1, &file1attr, true).inode());
-        assert_eq!(7, cache.get_or_create(&ids, &file2, &file2attr, false).inode());
-
-        // We get cache hits when everything matches previous queries.
-        assert_eq!(6, cache.get_or_create(&ids, &file1, &file1attr, true).inode());
-        assert_eq!(7, cache.get_or_create(&ids, &file2, &file2attr, false).inode());
-
-        // We don't get cache hits for nodes whose writability changed.
-        assert_eq!(8, cache.get_or_create(&ids, &file1, &file1attr, false).inode());
-        assert_eq!(9, cache.get_or_create(&ids, &file2, &file2attr, true).inode());
-    }
-
-    #[test]
-    fn cache_nodes_support_all_file_types() {
-        let ids = IdGenerator::new(1);
-        let cache = Cache::default();
-
-        for (_fuse_type, path) in testutils::AllFileTypes::new().entries {
-            let fs_attr = fs::symlink_metadata(&path).unwrap();
-            // The following panics if it's impossible to represent the given file type, which is
-            // what we are testing.
-            cache.get_or_create(&ids, &path, &fs_attr, false);
-        }
     }
 
     fn do_create_as_ok_test(uid: unistd::Uid, gid: unistd::Gid) {
