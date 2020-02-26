@@ -1,8 +1,8 @@
 # Major changes between releases
 
-## Changes in version 0.1.1
+## Changes in version 0.2.0
 
-**Released 2019-10-24.**
+**STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
 
 * Issue #92: Fixed a bug in `readdir` where we would regenerate inodes for
   directory entries, causing later confusion when trying to access those directories.
@@ -10,16 +10,6 @@
 * Issues #94, #98: Fixed a bug in `rename` that caused moved directories to
   lose access to their contents (because the underlying paths for their
   descendents wouldn't be updated to point to their new locations).
-
-* Fixed the definition of `--input` and `--output` to require an argument,
-  which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to
-  break backwards compatibility but, in reality, it does not.  The previous
-  behavior was just broken: specifying `--foo bar` would cause `bar` to be
-  treated as an argument and `--foo` to use its default value, which meant
-  that these two flags would be ignored when supplied under this syntax.
-
-* Fixed `--input` and `--output` to handle stdin and stdout correctly when
-  running e.g. under `sudo`.
 
 * Fixed a bug where writes on a file descriptor that had been duplicated and
   closed did not update the file size, resulting in bad data being returned
@@ -30,10 +20,6 @@
 
 * Fixed hardlink counts so that they are zero for handles that point to
   deleted files or directories.
-
-* Make create operations honor the UID and GID of the caller user instead of
-  inheriting the permissions of whoever was running sandboxfs.  Only has an
-  effect when using `--allow=other` or `--allow=root`.
 
 * Added support for extended attributes.  Must be explicitly enabled by passing
   the `--xattrs` option.
@@ -46,6 +32,24 @@
   instance where the Java toolchain is mapped under multiple locations and
   the first mapped location vanishes. See [The OSXFUSE, hard links, and dladdr
   puzzle](https://jmmv.dev/2020/01/osxfuse-hardlinks-dladdr.html) for details.
+
+## Changes in version 0.1.1
+
+**Released 2019-10-24.**
+
+* Fixed the definition of `--input` and `--output` to require an argument,
+  which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to
+  break backwards compatibility but, in reality, it does not.  The previous
+  behavior was just broken: specifying `--foo bar` would cause `bar` to be
+  treated as an argument and `--foo` to use its default value, which meant
+  that these two flags would be ignored when supplied under this syntax.
+
+* Fixed `--input` and `--output` to handle stdin and stdout correctly when
+  running e.g. under `sudo`.
+
+* Make create operations honor the UID and GID of the caller user instead of
+  inheriting the permissions of whoever was running sandboxfs.  Only has an
+  effect when using `--allow=other` or `--allow=root`.
 
 ## Changes in version 0.1.0
 
