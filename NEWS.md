@@ -41,6 +41,12 @@
 * Added support to change the timestamps of a symlink on systems that have
   this feature.
 
+* Disabled the path-based node cache by default and added a `--node_cache`
+  flag to reenable it. This fixes crashes running Java within a sandboxfs
+  instance where the Java toolchain is mapped under multiple locations and
+  the first mapped location vanishes. See [The OSXFUSE, hard links, and dladdr
+  puzzle](https://jmmv.dev/2020/01/osxfuse-hardlinks-dladdr.html) for details.
+
 ## Changes in version 0.1.0
 
 **Released on 2019-02-05.**

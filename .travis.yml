@@ -42,6 +42,7 @@ env:
   - DO=package
   - DO=test
   - DO=test FEATURES=profiling
+  - DO=test FLAGS=--node_cache
 
 jobs:
   include:

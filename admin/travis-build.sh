@@ -18,6 +18,9 @@ set -e -u -x
 # Default to no features to avoid cluttering .travis.yml.
 : "${FEATURES:=}"
 
+# Default to no flags to avoid cluttering .travis.yml.
+: "${FLAGS:=}"
+
 rootenv=()
 rootenv+=(PATH="${PATH}")
 [ "${DO-unset}" = unset ] || rootenv+=(DO="${DO}")
@@ -109,13 +112,36 @@ do_package() {
 do_test() {
   ./configure --cargo="${HOME}/.cargo/bin/cargo" --features="${FEATURES}"
   make debug
-  make check
+
+  local sandboxfs_binary="$(pwd)/target/debug/sandboxfs"
+  if [ -n "${FLAGS}" ]; then
+    cat >sandboxfs-wrapper.sh <<EOF
+#! /bin/sh
+prepend=
+for f in ${FLAGS}; do
+  found=no
+  for arg in "\${@}"; do
+    if [ "\${f}" = "\${arg}" ]; then
+      found=yes
+    fi
+  done
+  if [ "\${found}" = no ]; then
+    prepend="\${prepend} \${f}"
+  fi
+done
+exec "${sandboxfs_binary}" \${prepend} "\${@}"
+EOF
+    chmod +x sandboxfs-wrapper.sh
+    sandboxfs_binary="$(pwd)/sandboxfs-wrapper.sh"
+  fi
+
+  make check SANDBOXFS_BINARY="${sandboxfs_binary}"
 
   # Now that we have built all of our unit tests (via "make check"), find
   # where those are and rerun them as root.  Note that we cannot simply
   # call cargo as sudo because it won't work with the user-specific
   # installation we performed.
-  local tests="$(find target/debug -maxdepth 1 -type f -name sandboxfs-* \
+  local tests="$(find target/debug -maxdepth 1 -type f -name 'sandboxfs-*' \
       -perm -0100)"
   if [ -z "${tests}" ]; then
     echo "Cannot find already-built unit tests"
@@ -127,7 +153,8 @@ do_test() {
   done
 
   sudo -H "${rootenv[@]}" -s make check-integration \
-      CHECK_INTEGRATION_FLAGS=-unprivileged_user="${USER}"
+      CHECK_INTEGRATION_FLAGS=-unprivileged_user="${USER}" \
+      SANDBOXFS_BINARY="${sandboxfs_binary}"
 }
 
 case "${DO}" in

@@ -62,6 +62,7 @@ mod profiling;
 mod reconfig;
 #[cfg(test)] mod testutils;
 
+pub use nodes::{ArcCache, NoCache, PathCache};
 pub use profiling::ScopedProfiler;
 pub use reconfig::{open_input, open_output};
 
@@ -191,7 +192,7 @@ struct SandboxFS {
     handles: Arc<Mutex<HashMap<u64, nodes::ArcHandle>>>,
 
     /// Cache of sandboxfs nodes indexed by their underlying path.
-    cache: nodes::ArcCache,
+    cache: ArcCache,
 
     /// How long to tell the kernel to cache file metadata for.
     ttl: Timespec,
@@ -213,7 +214,7 @@ struct ReconfigurableSandboxFS {
     ids: Arc<IdGenerator>,
 
     /// Cache of sandboxfs nodes indexed by their underlying path.
-    cache: nodes::ArcCache,
+    cache: ArcCache,
 }
 
 /// Applies a mapping to the given root node.
@@ -265,12 +266,12 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &dyn nodes::Cache
 
 impl SandboxFS {
     /// Creates a new `SandboxFS` instance.
-    fn create(mappings: &[Mapping], ttl: Timespec, xattrs: bool) -> Fallible<SandboxFS> {
+    fn create(mappings: &[Mapping], ttl: Timespec, cache: ArcCache, xattrs: bool)
+        -> Fallible<SandboxFS> {
         let ids = IdGenerator::new(fuse::FUSE_ROOT_ID);
-        let cache = nodes::PathCache::default();
 
         let mut nodes = HashMap::new();
-        let root = create_root(mappings, &ids, &cache)?;
+        let root = create_root(mappings, &ids, cache.as_ref())?;
         assert_eq!(fuse::FUSE_ROOT_ID, root.inode());
         nodes.insert(root.inode(), root);
 
@@ -278,7 +279,7 @@ impl SandboxFS {
             ids: Arc::from(ids),
             nodes: Arc::from(Mutex::from(nodes)),
             handles: Arc::from(Mutex::from(HashMap::new())),
-            cache: Arc::from(cache),
+            cache: cache,
             ttl: ttl,
             xattrs: xattrs,
         })
@@ -777,8 +778,9 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
+#[allow(clippy::too_many_arguments)]
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
-    xattrs: bool, input: fs::File, output: fs::File) -> Fallible<()> {
+    cache: ArcCache, xattrs: bool, input: fs::File, output: fs::File) -> Fallible<()> {
     let mut os_options = options.iter().map(AsRef::as_ref).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
@@ -786,7 +788,7 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
     os_options.push(OsStr::new("-o"));
     os_options.push(OsStr::new("default_permissions"));
 
-    let mut fs = SandboxFS::create(mappings, ttl, xattrs)?;
+    let mut fs = SandboxFS::create(mappings, ttl, cache, xattrs)?;
     let reconfigurable_fs = fs.reconfigurable();
     info!("Mounting file system onto {:?}", mount_point);
 

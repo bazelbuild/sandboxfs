@@ -38,6 +38,7 @@ Options:
     --input PATH        where to read reconfiguration data from (- for stdin)
     --mapping TYPE:PATH:UNDERLYING_PATH
                         type and locations of a mapping
+    --node_cache        enables the path-based node cache (known broken)
     --output PATH       where to write the reconfiguration status to (- for
                         stdout)
     --ttl TIMEs         how long the kernel is allowed to keep file metadata

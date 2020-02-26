@@ -44,6 +44,8 @@ check: check-unit check-integration
 check-unit: Cargo.toml $(RUST_SRCS)
 	RUST_BACKTRACE=full $(CARGO) test $(CARGO_FLAGS) --verbose
 
+SANDBOXFS_BINARY = $$(pwd)/target/debug/sandboxfs
+
 @IS_BMAKE@GO_SRCS != find integration -name "*.go"
 @IS_GNUMAKE@GO_SRCS = $(shell find integration -name "*.go")
 check-integration: target/debug/sandboxfs $(GO_SRCS)
@@ -53,7 +55,7 @@ check-integration: target/debug/sandboxfs $(GO_SRCS)
 	        -v -timeout=600s \
 	        github.com/bazelbuild/sandboxfs/integration \
 	        -features="$(FEATURES)" \
-	        -sandboxfs_binary="$$(pwd)/target/debug/sandboxfs" \
+	        -sandboxfs_binary="$(SANDBOXFS_BINARY)" \
 	        $(CHECK_INTEGRATION_FLAGS); \
 	else \
 	    echo "WARNING: Go not enabled; integration tests not run"; \
