@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd February 25, 2020
+.Dd February 26, 2020
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -24,6 +24,7 @@
 .Op Fl -input Ar path
 .Op Fl -help
 .Op Fl -mapping Ar type:mapping:target
+.Op Fl -node_cache
 .Op Fl -output Ar path
 .Op Fl -ttl Ar duration
 .Op Fl -version
@@ -117,6 +118,22 @@ is not repeated.
 See the
 .Sx Mapping specifications
 subsection for details on how a mapping is specified.
+.It Fl -node_cache
+Enables the path-based node cache, which causes nodes to be reused across
+reconfigurations when they map to the same underlying paths.
+This should offer a performance boost when the same set of files are mapped
+over and over again across different reconfiguration operations.
+.Pp
+This cache used to be enabled by default but it turned out to be problematic.
+For example, on macOS, OSXFUSE seems to keep track of the path where a node
+first appeared, which causes trouble if the node disappears and then reappears
+in a different location (for example,
+.Xr dladdr 3
+returns invalid paths).
+For this reason, the cache is now disabled by default but is still kept around
+in the code for experimentation.
+.Em The cache may be removed in a future release altogether if these problems
+.Em cannot be worked around.
 .It Fl -output Ar path
 Points to the file to which to write confirmations of reconfiguration, or
 .Sq -
@@ -359,13 +376,16 @@ The following are known limitations of
 .It
 Hard links are not supported.
 .It
-On macOS, mapping the same external file or directory under two different
-locations within the mount point results in undefined behavior.
+Mapping the same external file or directory under two different locations within
+the mount point results in undefined behavior.
 Writes may not be reflected at both mapped locations at the same time, which
 can lead to data corruption.
 This is true even for read-only mappings because each separate view within
 the mount point may have cached different contents, returning different data
 than what's truly on disk.
+Using
+.Fl -node_cache
+may help mitigate this issue but it doesn't always do.
 .It
 The
 .Fl -allow Ar root

@@ -19,6 +19,32 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// Node factory without any caching.
+#[derive(Default)]
+pub struct NoCache {
+}
+
+impl Cache for NoCache {
+    fn get_or_create(&self, ids: &IdGenerator, underlying_path: &Path, attr: &fs::Metadata,
+        writable: bool) -> ArcNode {
+        if attr.is_dir() {
+            Dir::new_mapped(ids.next(), underlying_path, attr, writable)
+        } else if attr.file_type().is_symlink() {
+            Symlink::new_mapped(ids.next(), underlying_path, attr, writable)
+        } else {
+            File::new_mapped(ids.next(), underlying_path, attr, writable)
+        }
+    }
+
+    fn delete(&self, _path: &Path, _file_type: fuse::FileType) {
+        // Nothing to do.
+    }
+
+    fn rename(&self, _old_path: &Path, _new_path: PathBuf, _file_type: fuse::FileType) {
+        // Nothing to do.
+    }
+}
+
 /// Cache of sandboxfs nodes indexed by their underlying path.
 ///
 /// This cache is critical to offer good performance during reconfigurations: if the identity of an
@@ -38,6 +64,9 @@ use std::sync::Mutex;
 /// promising (because then cache expiration would be delegated to the kernel)... but, on Linux, the
 /// kernel seems to be calling this very eagerly, rendering our cache useless.  I did not track down
 /// what exactly triggered the forget notifications though.
+///
+/// TODO(jmmv): This cache has proven to be problematic in some cases and should probably be
+/// removed.  See https://jmmv.dev/2020/01/osxfuse-hardlinks-dladdr.html for details.
 #[derive(Default)]
 pub struct PathCache {
     entries: Mutex<HashMap<PathBuf, ArcNode>>,

@@ -26,7 +26,7 @@ use std::result::Result;
 use std::sync::Arc;
 
 mod caches;
-pub use self::caches::PathCache;
+pub use self::caches::{NoCache, PathCache};
 pub mod conv;
 mod dir;
 pub use self::dir::Dir;

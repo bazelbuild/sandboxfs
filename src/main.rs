@@ -22,6 +22,7 @@
 extern crate env_logger;
 #[macro_use] extern crate failure;
 extern crate getopts;
+#[macro_use] extern crate log;
 extern crate sandboxfs;
 extern crate time;
 
@@ -31,6 +32,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::result::Result;
+use std::sync::Arc;
 use time::Timespec;
 
 /// Default value of the `--input` and `--output` flags.
@@ -206,6 +208,7 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
         &format!("where to read reconfiguration data from ({} for stdin)", DEFAULT_INOUT),
         "PATH");
     opts.optmulti("", "mapping", "type and locations of a mapping", "TYPE:PATH:UNDERLYING_PATH");
+    opts.optflag("", "node_cache", "enables the path-based node cache (known broken)");
     opts.optopt("", "output",
         &format!("where to write the reconfiguration status to ({} for stdout)", DEFAULT_INOUT),
         "PATH");
@@ -263,12 +266,20 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
         return Err(UsageError { message: "invalid number of arguments".to_string() }.into());
     };
 
+    let node_cache: sandboxfs::ArcCache = if matches.opt_present("node_cache") {
+        warn!("Using --node_cache is known to be broken under certain scenarios; see the manpage");
+        Arc::from(sandboxfs::PathCache::default())
+    } else {
+        Arc::from(sandboxfs::NoCache::default())
+    };
+
     let _profiler;
     if let Some(path) = matches.opt_str("cpu_profile") {
         _profiler = sandboxfs::ScopedProfiler::start(&path).context("Failed to start CPU profile")?;
     };
     sandboxfs::mount(
-        mount_point, &options, &mappings, ttl, matches.opt_present("xattrs"), input, output)
+        mount_point, &options, &mappings, ttl, node_cache, matches.opt_present("xattrs"),
+        input, output)
         .context(format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }

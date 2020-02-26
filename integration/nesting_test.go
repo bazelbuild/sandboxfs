@@ -87,7 +87,7 @@ func TestNesting_ReadWriteWithinReadOnly(t *testing.T) {
 }
 
 func TestNesting_SameTarget(t *testing.T) {
-	state := utils.MountSetup(t, "--mapping=ro:/:%ROOT%", "--mapping=rw:/dir1:%ROOT%/same", "--mapping=rw:/dir2/dir3/dir4:%ROOT%/same")
+	state := utils.MountSetup(t, "--node_cache", "--mapping=ro:/:%ROOT%", "--mapping=rw:/dir1:%ROOT%/same", "--mapping=rw:/dir2/dir3/dir4:%ROOT%/same")
 	defer state.TearDown(t)
 
 	utils.MustWriteFile(t, state.MountPath("dir1/file"), 0644, "old contents")
