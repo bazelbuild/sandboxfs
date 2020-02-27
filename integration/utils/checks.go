@@ -140,6 +140,13 @@ func runAs(user *UnixUser, arg ...string) error {
 	return cmd.Run()
 }
 
+// runAsSilent starts the given command as the given user and suppresses stdout/stderr output.
+func runAsSilent(user *UnixUser, arg ...string) error {
+	cmd := exec.Command(arg[0], arg[1:]...)
+	SetCredential(cmd, user)
+	return cmd.Run()
+}
+
 // CreateFileAsUser creates the given file, running the operation as the given user.
 func CreateFileAsUser(path string, user *UnixUser) error {
 	return runAs(user, "touch", path)
@@ -177,7 +184,7 @@ func FileExistsAsUser(path string, user *UnixUser) error {
 	// not been granted access through the allow_other/allow_root options.  Therefore, we must
 	// read file contents to really validate the access control.  Note that this might be a bug
 	// in OSXFUSE.
-	return runAs(user, "cat", path)
+	return runAsSilent(user, "cat", path)
 }
 
 // MatchesRegexp returns true if the given string s matches the pattern.
