@@ -13,6 +13,7 @@
 // under the License.
 
 use failure::Fallible;
+use nix::errno::Errno;
 use nix::unistd;
 use nix::sys::{self, signal};
 use signal_hook;
@@ -102,7 +103,17 @@ impl Drop for ShareableFile {
                 // This write to a pipe we control really should not have failed.  If it did there
                 // is not much we can do other than log an error.  We may get stuck threads on exit
                 // though...
-                warn!("Failed to tell ShareableFileReader with handle {} of close: {}", *watcher, e)
+                //
+                // TODO(jmmv): We expect the write to fail if we had any ShareableFileReader that
+                // has already been dropped, as that drop would have closed the read end of the
+                // pipe.  Note that this means that, if we create/drop ShareableFileReaders non-stop
+                // for this ShareableFile, we'll exhaust the open file descriptors because we are
+                // leaking the write ends of these pipes.  This should be fixed, but it's not a big
+                // deal because we don't do this in sandboxfs.
+                if e.as_errno().expect("Must have been a system error") != Errno::EPIPE {
+                    warn!("Failed to tell ShareableFileReader with handle {} of close: {}",
+                        *watcher, e)
+                }
             }
             if let Err(e) = unistd::close(*watcher) {
                 // Closing should really not have failed, but if it did, it does not hurt and there
