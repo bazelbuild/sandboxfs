@@ -189,6 +189,12 @@ type MountState struct {
 	// with the sandboxfs process via stdin, so it's fine to just ignore this.
 	Stdin io.WriteCloser
 
+	// stdout contains the output of sandboxfs if the caller didn't capture it.
+	stdout *bytes.Buffer
+
+	// stderr contains the error output of sandboxfs if the caller didn't capture it.
+	stderr *bytes.Buffer
+
 	// tempDir points to the base directory where the test places any files it creates.
 	tempDir string
 
@@ -312,8 +318,8 @@ func MountSetupWithUser(t *testing.T, user *UnixUser, args ...string) *MountStat
 // temporary directory created here in which they can place files to be exposed in the sandbox.
 //
 // The stdout and stderr of the sandboxfs process are redirected to the objects given to the
-// function.  Any of these objects can be set to nil, which causes the corresponding output to be
-// discarded.
+// function.  If these objects are os.Stdout or os.Stderr, respectively, the corresponding output
+// is captured and dumped at the end of the test on error.
 //
 // The sandboxfs process is started with the credentials of the calling user, unless the user field
 // is not nil, in which case those credentials are used.
@@ -385,6 +391,18 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 		}
 	}
 
+	var storedStdout *bytes.Buffer
+	if stdout == os.Stdout {
+		storedStdout = new(bytes.Buffer)
+		stdout = storedStdout
+	}
+
+	var storedStderr *bytes.Buffer
+	if stderr == os.Stderr {
+		storedStderr = new(bytes.Buffer)
+		stderr = storedStderr
+	}
+
 	var cmd *exec.Cmd
 	var stdin io.WriteCloser
 	if !hasRootMapping(realArgs...) {
@@ -421,6 +439,8 @@ func mountSetupFull(t *testing.T, stdout io.Writer, stderr io.Writer, user *Unix
 	state := &MountState{
 		Cmd:        cmd,
 		Stdin:      stdin,
+		stdout:     storedStdout,
+		stderr:     storedStderr,
 		tempDir:    tempDir,
 		root:       root,
 		mountPoint: mountPoint,
@@ -495,6 +515,15 @@ func (s *MountState) TearDown(t *testing.T) error {
 		}
 
 		s.Cmd = nil
+	}
+
+	if t.Failed() {
+		if s.stdout != nil {
+			fmt.Fprintf(os.Stderr, "sandboxfs stdout was:\n%s", s.stdout.String())
+		}
+		if s.stderr != nil {
+			fmt.Fprintf(os.Stderr, "sandboxfs stderr was:\n%s", s.stderr.String())
+		}
 	}
 
 	if err := os.RemoveAll(s.tempDir); err != nil {
