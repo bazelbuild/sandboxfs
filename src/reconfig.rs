@@ -40,26 +40,43 @@ pub trait ReconfigurableFS {
 /// External representation of a mapping in the JSON reconfiguration data.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct JsonMapping {
+    #[serde(alias = "x", default)]
     path_prefix: u32,
+
+    #[serde(alias = "p")]
     path: String,
+
+    #[serde(alias = "y", default)]
     underlying_path_prefix: u32,
+
+    #[serde(alias = "u")]
     underlying_path: String,
+
+    #[serde(alias = "w", default)]
     writable: bool,
 }
 
 /// External representation of a reconfiguration map request.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct CreateSandboxRequest {
+    #[serde(alias = "i")]
     id: String,
+
+    #[serde(alias = "m", default)]
     mappings: Vec<JsonMapping>,
+
     // The keys here should be u32s but JSON doesn't support non-string object keys.
+    #[serde(alias = "q", default)]
     prefixes: HashMap<String, PathBuf>,
 }
 
 /// External representation of a reconfiguration request.
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 enum Request {
+    #[serde(alias = "C")]
     CreateSandbox(CreateSandboxRequest),
+
+    #[serde(alias = "D")]
     DestroySandbox(String),
 }
 

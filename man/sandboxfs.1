@@ -330,6 +330,50 @@ field, which is empty if the request was successful and contains an error
 message otherwise.
 Responses with a missing identifier indicate fatal failures during the
 reconfiguration (e.g. due to a syntax error) and are not recoverable.
+.Pp
+To minimize the size of the requests, all fields support aliases and default
+values as follows:
+.Pp
+.Bl -tag -offset XXXXXX -width underlyingXpathXprefixXX -compact
+.It Sq CreateSandbox
+Alias:
+.Sq C .
+.It Sq DestroySandbox
+Alias:
+.Sq D .
+.It Sq id
+Alias:
+.Sq i .
+.It Sq mappings
+Alias:
+.Sq m .
+Default value: empty array.
+.It Sq prefixes
+Alias:
+.Sq q .
+Default value: empty object.
+.It Sq path
+Alias:
+.Sq p .
+.It Sq path_prefix
+Alias:
+.Sq x .
+Default value:
+.Sq 0 .
+.It Sq underlying_path
+Alias:
+.Sq u .
+.It Sq underlying_path_prefix
+Alias:
+.Sq y .
+Default value:
+.Sq 0 .
+.It Sq writable
+Alias:
+.Sq w .
+Default value:
+.Sq false .
+.El
 .Sh EXIT STATUS
 .Nm
 exits with 0 if the file system was both mounted and unmounted cleanly; 1 on a
@@ -442,6 +486,32 @@ This example is the same as above, but this time using prefix-encoded paths:
              "writable": false}
         ],
         "prefixes": {
+            "2": "/foo"
+        }
+    }}
+]
+.Ed
+.Ss Minimized reconfiguraton request
+This example is the same as above, but this time using field aliases and
+default values to minimize the message:
+.Bd -literal -offset indent
+[
+    {"C": {
+        "i": "first",
+        "m": [
+            {"p": "", "x": 1, "u": "abc", "y": 1, "w": true}
+        ],
+        "q": {
+            "1": "/tmp"
+        }
+    }},
+    {"D": "first"}
+    {"C": {
+        "i": "second",
+        "m": [
+            {"p": "bar", "x": 2, "u": "x/y", "y": 1}
+        ],
+        "q": {
             "2": "/foo"
         }
     }}

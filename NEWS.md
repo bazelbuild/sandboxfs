@@ -32,6 +32,10 @@
     during a build, as the size of the reconfiguration messages is
     drastically smaller.
 
+*   Changed the reconfiguration protocol to accept short aliases for all
+    fields, thus further minimizing the size of reconfiguration requests,
+    and also to accept omitting optional fields.
+
 *   Made sandboxfs process reconfiguration requests in parallel, which has a
     significant performance impact when those requests are large.
 

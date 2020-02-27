@@ -418,6 +418,50 @@ func TestReconfiguration_Prefixes(t *testing.T) {
 	}
 }
 
+func TestReconfiguration_Minimized(t *testing.T) {
+	stdoutReader, stdoutWriter := io.Pipe()
+	state := utils.MountSetupWithOutputs(t, stdoutWriter, os.Stderr)
+	defer stdoutReader.Close() // Just in case the test fails half-way through.
+	defer state.TearDown(t)
+	defer stdoutWriter.Close() // Just in case the test fails half-way through.
+
+	utils.MustMkdirAll(t, state.RootPath("dir"), 0755)
+
+	doOne := func(config string) {
+		t.Helper()
+		resp, err := tryRawReconfigure(state.Stdin, stdoutReader, state.RootPath(), config)
+		if err != nil {
+			t.Fatal(err)
+		} else if resp.Error != nil {
+			t.Fatal(*resp.Error)
+		}
+	}
+
+	doOne(`{"C":{"i":"empty","q":{"1":"%ROOT%"}}}`)
+	if _, err := os.Lstat(state.MountPath("empty")); err != nil {
+		t.Errorf("Failed to stat mount path %s: %v", "empty", err)
+	}
+
+	doOne(`{"C":{"i":"sb1","m":[{"p":"/a","u":"%ROOT%"}]}}`)
+	if _, err := os.Lstat(state.MountPath("sb1/a")); err != nil {
+		t.Errorf("Failed to stat mount path %s: %v", "empty", err)
+	}
+
+	doOne(`{"C":{"i":"sb2","m":[{"p":"a","x":2,"u":"dir","y":1,"w":true}],"q":{"2":"/x"}}}`)
+	if err := os.Mkdir(state.MountPath("sb2/x/a/test"), 0755); err != nil {
+		t.Errorf("Failed to create mount path %s: %v", "sb2/x/a/test", err)
+	}
+	if _, err := os.Lstat(state.MountPath("sb2/x/a")); err != nil {
+		t.Errorf("Failed to stat mount path %s: %v", "sb2/x/a", err)
+	}
+	if _, err := os.Lstat(state.RootPath("dir/test")); err != nil {
+		t.Errorf("Failed to stat underlying path %s: %v", "dir/test", err)
+	}
+
+	doOne(`{"D":"empty"}`)
+	errorIfNotUnmapped(t, state.MountPath(), "empty")
+}
+
 func TestReconfiguration_RecoverableErrors(t *testing.T) {
 	// checkBadConfig applies the set of reconfiguration requests in configs and checks that the
 	// last one fails with the error provided in wantError.  All requests but the last one are
