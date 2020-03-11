@@ -29,6 +29,7 @@ osx_image: xcode8.3
 language:
   - go  # For ourselves.
   - java  # For Bazel.
+  - python  # For Bazel.
 
 go:
   - "1.13"
@@ -51,15 +52,13 @@ jobs:
     # works.  We had cases where this test passed but sandboxfs had obvious
     # bugs in it which were only triggered by running Bazel against more
     # complex projects.  Therefore, it's OK to compromise and run this as a
-    # periodic job only.
+    # periodic job only.  We skip osx because I haven't been able to fit the
+    # runtime of this job within Travis' limits.
     - if: type = cron
       env: DO=bazel
       os: linux
-    - if: type = cron
-      env: DO=bazel
-      os: osx
 
-install: ./admin/travis-install.sh
+install: travis_wait 30 ./admin/travis-install.sh
 script: ./admin/travis-build.sh
 
 matrix:
