@@ -41,7 +41,7 @@ extern crate threadpool;
 extern crate time;
 extern crate xattr;
 
-use failure::{Fallible, Error, ResultExt};
+use failure::{Fallible, ResultExt};
 use nix::errno::Errno;
 use nix::{sys, unistd};
 use std::collections::HashMap;
@@ -57,45 +57,16 @@ use std::thread;
 use time::Timespec;
 
 mod concurrent;
+mod errors;
 mod nodes;
 mod profiling;
 mod reconfig;
 #[cfg(test)] mod testutils;
 
+pub use errors::{flatten_causes, MappingError};
 pub use nodes::{ArcCache, NoCache, PathCache};
 pub use profiling::ScopedProfiler;
 pub use reconfig::{open_input, open_output};
-
-/// An error indicating that a mapping specification (coming from the command line or from a
-/// reconfiguration operation) is invalid.
-#[derive(Debug, Eq, Fail, PartialEq)]
-pub enum MappingError {
-    /// A path was required to be absolute but wasn't.
-    #[fail(display = "path {:?} is not absolute", path)]
-    PathNotAbsolute {
-        /// The invalid path.
-        path: PathBuf,
-    },
-
-    /// A path contains non-normalized components (like "..").
-    #[fail(display = "path {:?} is not normalized", path)]
-    PathNotNormalized {
-        /// The invalid path.
-        path: PathBuf,
-    },
-}
-
-/// Flattens all causes of an error into a single string.
-pub fn flatten_causes(err: &Error) -> String {
-    err.iter_chain().fold(String::new(), |flattened, cause| {
-        let flattened = if flattened.is_empty() {
-            flattened
-        } else {
-            flattened + ": "
-        };
-        flattened + &format!("{}", cause)
-    })
-}
 
 /// Mapping describes how an individual path within the sandbox is connected to an external path
 /// in the underlying file system.
@@ -868,20 +839,6 @@ mod tests {
     use super::*;
     use std::os::unix::fs::MetadataExt;
     use tempfile::tempdir;
-
-    #[test]
-    fn flatten_causes_one() {
-        let err = Error::from(format_err!("root cause"));
-        assert_eq!("root cause", flatten_causes(&err));
-    }
-
-    #[test]
-    fn flatten_causes_multiple() {
-        let err = Error::from(format_err!("root cause"));
-        let err = Error::from(err.context("intermediate"));
-        let err = Error::from(err.context("top"));
-        assert_eq!("top: intermediate: root cause", flatten_causes(&err));
-    }
 
     #[test]
     fn test_mapping_new_ok() {

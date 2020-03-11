@@ -13,6 +13,7 @@
 // under the License.
 
 use IdGenerator;
+use errors::KernelError;
 use failure::Fallible;
 use fuse;
 use nix;
@@ -20,7 +21,6 @@ use nix::errno::Errno;
 use nix::{sys, unistd};
 use std::ffi::OsStr;
 use std::fs;
-use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
 use std::sync::Arc;
@@ -34,49 +34,6 @@ mod file;
 pub use self::file::File;
 mod symlink;
 pub use self::symlink::Symlink;
-
-/// Type that represents an error understood by the kernel.
-#[derive(Debug, Fail)]
-#[fail(display = "errno={}", errno)]
-pub struct KernelError {
-    errno: Errno,
-}
-
-impl KernelError {
-    /// Constructs a new error given a raw errno code.
-    fn from_errno(errno: Errno) -> KernelError {
-        KernelError { errno }
-    }
-
-    /// Obtains the errno code contained in this error as an integer.
-    pub fn errno_as_i32(&self) -> i32 {
-        self.errno as i32
-    }
-}
-
-impl From<io::Error> for KernelError {
-    fn from(e: io::Error) -> Self {
-        match e.raw_os_error() {
-            Some(errno) => KernelError::from_errno(Errno::from_i32(errno)),
-            None => {
-                warn!("Got io::Error without an errno; propagating as EIO: {}", e);
-                KernelError::from_errno(Errno::EIO)
-            },
-        }
-    }
-}
-
-impl From<nix::Error> for KernelError {
-    fn from(e: nix::Error) -> Self {
-        match e {
-            nix::Error::Sys(errno) => KernelError::from_errno(errno),
-            _ => {
-                warn!("Got nix::Error without an errno; propagating as EIO: {}", e);
-                KernelError::from_errno(Errno::EIO)
-            }
-        }
-    }
-}
 
 /// Node factory with possible reuse of previously-created nodes.
 pub trait Cache {
