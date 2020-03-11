@@ -14,6 +14,7 @@
 
 extern crate fuse;
 
+use failure::Fallible;
 use nix::errno;
 use nodes::{
     ArcHandle, ArcNode, AttrDelta, Cache, Handle, KernelError, Node, NodeResult, conv, setattr};
@@ -166,6 +167,11 @@ impl Node for File {
         cache.rename(
             state.underlying_path.as_ref().unwrap(), path.to_owned(), state.attr.kind);
         state.underlying_path = Some(PathBuf::from(path));
+    }
+
+    fn unmap(&self, inodes: &mut Vec<u64>) -> Fallible<()> {
+        inodes.push(self.inode);
+        Ok(())
     }
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {

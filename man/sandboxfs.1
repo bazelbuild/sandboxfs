@@ -11,7 +11,7 @@
 .\" WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
 .\" License for the specific language governing permissions and limitations
 .\" under the License.
-.Dd February 26, 2020
+.Dd March 11, 2020
 .Dt SANDBOXFS 1
 .Os
 .Sh NAME
@@ -574,7 +574,9 @@ While it could be possible to implement some different behavior, this is what
 currently exposes.
 You may or may not consider this to be a bug.
 .It
-Node data is cached in-memory for all files accessed through a
+If
+.Fl -node_cache
+is enabled, node data is cached in-memory for all files accessed through a
 .Nm
 instance in order to offer good performance across reconfigurations.
 However, this cache does not currently implement any expiration policy, which

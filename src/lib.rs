@@ -185,6 +185,9 @@ struct ReconfigurableSandboxFS {
     /// Monotonically-increasing generator of identifiers for this file system instance.
     ids: Arc<IdGenerator>,
 
+    /// Mapping of inode numbers to in-memory nodes that tracks all files known by sandboxfs.
+    nodes: Arc<Mutex<HashMap<u64, nodes::ArcNode>>>,
+
     /// Cache of sandboxfs nodes indexed by their underlying path.
     cache: ArcCache,
 }
@@ -274,26 +277,25 @@ impl SandboxFS {
     /// Creates a reconfigurable view of this file system, to safely pass across threads.
     fn reconfigurable(&mut self) -> ReconfigurableSandboxFS {
         ReconfigurableSandboxFS {
-            root: self.find_node(fuse::FUSE_ROOT_ID),
+            root: self.find_node(fuse::FUSE_ROOT_ID).expect("Root node must always exist"),
             ids: self.ids.clone(),
+            nodes: self.nodes.clone(),
             cache: self.cache.clone(),
         }
     }
 
     /// Gets a node given its `inode`.
-    ///
-    /// We assume that the inode number is valid and that we have a known node for it; otherwise,
-    /// we crash.  The rationale for this is that this function is always called on inode numbers
-    /// requested by the kernel, and we can trust that the kernel will only ever ask us for inode
-    /// numbers we have previously told it about.
-    fn find_node(&mut self, inode: u64) -> nodes::ArcNode {
+    fn find_node(&mut self, inode: u64) -> nodes::NodeResult<nodes::ArcNode> {
         let nodes = self.nodes.lock().unwrap();
-        nodes.get(&inode).expect("Kernel requested unknown inode").clone()
+        match nodes.get(&inode) {
+            Some(node) => Ok(node.clone()),
+            None => Err(KernelError::from_errno(Errno::ENOENT)),
+        }
     }
 
     /// Gets a node given its `inode` and ensures it is writable.
     fn find_writable_node(&mut self, inode: u64) -> nodes::NodeResult<nodes::ArcNode> {
-        let node = self.find_node(inode);
+        let node = self.find_node(inode)?;
         if !node.writable() {
             Err(KernelError::from_errno(Errno::EPERM))
         } else {
@@ -340,13 +342,13 @@ impl SandboxFS {
 
     /// Same as `getattr` but leaves the handling of the `fuse::Reply` to the caller.
     fn getattr2(&mut self, inode: u64) -> nodes::NodeResult<fuse::FileAttr> {
-        let node = self.find_node(inode);
+        let node = self.find_node(inode)?;
         node.getattr()
     }
 
     /// Same as `lookup` but leaves the handling of the `fuse::Reply` to the caller.
     fn lookup2(&mut self, parent: u64, name: &OsStr) -> nodes::NodeResult<fuse::FileAttr> {
-        let dir_node = self.find_node(parent);
+        let dir_node = self.find_node(parent)?;
         let (node, attr) = dir_node.lookup(name, &self.ids, self.cache.as_ref())?;
         let mut nodes = self.nodes.lock().unwrap();
         if !nodes.contains_key(&node.inode()) {
@@ -378,14 +380,14 @@ impl SandboxFS {
 
     /// Same as `open` and `opendir` but leaves the handling of the `fuse::Reply` to the caller.
     fn open2(&mut self, inode: u64, flags: u32) -> nodes::NodeResult<u64> {
-        let node = self.find_node(inode);
+        let node = self.find_node(inode)?;
         let handle = node.open(flags)?;
         Ok(self.insert_handle(handle))
     }
 
     /// Same as `readlink` but leaves the handling of the `fuse::Reply` to the caller.
     fn readlink2(&mut self, inode: u64) -> nodes::NodeResult<PathBuf> {
-        let node = self.find_node(inode);
+        let node = self.find_node(inode)?;
         node.readlink()
     }
 
@@ -455,7 +457,7 @@ impl SandboxFS {
 
     /// Same as `getxattr` but leaves the handling of the `fuse::Reply` to the caller.
     fn getxattr2(&mut self, inode: u64, name: &OsStr) -> nodes::NodeResult<Vec<u8>> {
-        let node = self.find_node(inode);
+        let node = self.find_node(inode)?;
         match node.getxattr(name) {
             Ok(None) => {
                 #[cfg(target_os = "linux")]
@@ -476,7 +478,7 @@ impl SandboxFS {
 
     /// Same as `listxattr` but leaves the handling of the `fuse::Reply` to the caller.
     fn listxattr2(&mut self, inode: u64) -> nodes::NodeResult<Option<xattr::XAttrs>> {
-        let node = self.find_node(inode);
+        let node = self.find_node(inode)?;
         node.listxattr()
     }
 
@@ -812,8 +814,15 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
     }
 
     fn destroy_sandbox(&self, id: &str) -> Fallible<()> {
-        self.root.unmap(&[Component::Normal(OsStr::new(id))])?;
-        Ok(())
+        let mut inodes = vec!();
+        let result = self.root.unmap_subdir(OsStr::new(id), &mut inodes);
+
+        let mut nodes = self.nodes.lock().unwrap();
+        for inode in inodes {
+            nodes.remove(&inode);
+        }
+
+        result
     }
 }
 

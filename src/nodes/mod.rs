@@ -335,11 +335,20 @@ pub trait Node {
         panic!("Not implemented")
     }
 
-    /// Unmaps a path.
+    /// Unmaps this entry.
     ///
-    /// `_components` is the path to map, broken down into components, and relative to the current
-    /// node.
-    fn unmap(&self, _components: &[Component]) -> Fallible<()> {
+    /// `_inodes` is extended on a successful unmap to contain the inode number that was unmapped.
+    /// The caller must then clear this inode from whichever data structures it has.
+    fn unmap(&self, _inodes: &mut Vec<u64>) -> Fallible<()> {
+        panic!("Not implemented")
+    }
+
+    /// Unmaps the given `_name` entry, which has to be an explicit mapping (and assumes that this
+    /// is called on a directory).
+    ///
+    /// `_inodes` is extended on a successful unmap to contain the inode number that was unmapped.
+    /// The caller must then clear this inode from whichever data structures it has.
+    fn unmap_subdir(&self, _name: &OsStr, __inodes: &mut Vec<u64>) -> Fallible<()> {
         panic!("Not implemented")
     }
 
