@@ -119,13 +119,13 @@ impl Mapping {
         let is_normalized = {
             let mut components = path.components();
             assert_eq!(components.next(), Some(Component::RootDir), "Path expected to be absolute");
-            let is_normal: fn(&Component) -> bool = |c| match c {
+            let is_not_normal: fn(&Component) -> bool = |c| match c {
                 Component::CurDir => panic!("Dot components ought to have been skipped"),
-                Component::Normal(_) => true,
-                Component::ParentDir | Component::Prefix(_) => false,
+                Component::Normal(_) => false,
+                Component::ParentDir | Component::Prefix(_) => true,
                 Component::RootDir => panic!("Root directory should have already been handled"),
             };
-            components.skip_while(is_normal).next().is_none()
+            components.find(is_not_normal).is_none()
         };
         if !is_normalized {
             return Err(MappingError::PathNotNormalized{ path });
