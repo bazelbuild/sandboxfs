@@ -41,7 +41,13 @@ func isBlacklisted(candidate string) bool {
 	}
 
 	// Only worry about non-generated files.
-	if filepath.Base(candidate) == "Makefile" {
+	if filepath.Base(candidate) == "Makefile" || filepath.Base(candidate) == "Cargo.lock" {
+		return true
+	}
+
+	// Skip plist files, which even though are manually written, they have quite a few
+	// exceptions.
+	if filepath.Ext(candidate) == ".plist" {
 		return true
 	}
 
