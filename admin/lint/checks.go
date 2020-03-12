@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // grep checks whether the given file's contents match the pattern.
@@ -56,6 +57,37 @@ func checkLicense(workspaceDir string, file string) error {
 		if !matched {
 			return fmt.Errorf("license check failed for %s: %s not found", file, pattern)
 		}
+	}
+
+	return nil
+}
+
+// checkLineLength checks if the given file contains any lines longer than the given maximum and, if
+// it does, returns an error.
+func checkLineLength(workspaceDir string, file string, max int) error {
+	input, err := os.OpenFile(file, os.O_RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("failed to open %s for read: %v", file, err)
+	}
+	defer input.Close()
+
+	reader := bufio.NewReader(input)
+	lineNo := 1
+	done := false
+	for !done {
+		line, err := reader.ReadString('\n')
+		if err == io.EOF {
+			done = true
+			// Fall through to process the last line in case it's not empty (when the
+			// file didn't end with a newline).
+		} else if err != nil {
+			return fmt.Errorf("line length check failed for %s: %v", file, err)
+		}
+		line = strings.TrimRight(line, "\n\r")
+		if len(line) > max {
+			return fmt.Errorf("line length check failed for %s: line %d exceeds length %d with %d characters", file, lineNo, max, len(line))
+		}
+		lineNo++
 	}
 
 	return nil
@@ -174,17 +206,29 @@ func checkAll(workspaceDir string, file string) bool {
 		}
 	}
 
-	if !isDocumentation && filepath.Base(file) != "settings.json.in" && filepath.Ext(file) != ".plist" {
+	checkLineLength80 := func(workspaceDir string, file string) error {
+		return checkLineLength(workspaceDir, file, 80)
+	}
+	checkLineLength100 := func(workspaceDir string, file string) error {
+		return checkLineLength(workspaceDir, file, 100)
+	}
+
+	if !isDocumentation && filepath.Base(file) != "settings.json.in" {
 		runCheck(checkLicense, file)
 	}
 
 	if filepath.Ext(file) == ".go" {
 		runCheck(checkGofmt, file)
 		runCheck(checkGolint, file)
+	} else if filepath.Ext(file) == ".rs" {
+		runCheck(checkNoTabs, file)
+		runCheck(checkLineLength100, file)
 	} else if mustMatch("^\\.[0-9]$", filepath.Ext(file)) {
 		runCheck(checkManpage, file)
+		runCheck(checkLineLength80, file)
 	} else if !isBuildFile {
 		runCheck(checkNoTabs, file)
+		runCheck(checkLineLength80, file)
 	}
 
 	return ok

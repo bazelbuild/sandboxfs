@@ -115,7 +115,7 @@ script and sandboxfs's `--cpu_profile` flag will become functional.
 In order to run system binaries within a sandboxfs mount point (which is
 the primary goal of using sandboxfs), you must enable OSXFUSE's "allow
 other" support; otherwise, necessary core macOS security services [will deny
-executions](http://julio.meroh.net/2017/10/fighting-execs-sandboxfs-macos.html).
+executions](https://jmmv.dev/2017/10/fighting-execs-sandboxfs-macos.html).
 
 To do this, run the following for a one-time change:
 
