@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "sandboxfs"
 readme = "README.md"
 repository = "https://github.com/bazelbuild/sandboxfs"
-version = "0.1.1"
+version = "0.2.0"
 
 [badges]
 travis-ci = { repository = "bazelbuild/sandboxfs", branch = "master" }
@@ -25,10 +25,12 @@ fuse = "0.3"
 getopts = "0.2"
 log = "0.4"
 nix = "0.12"
+num_cpus = "1.11"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
 signal-hook = "0.1"
+threadpool = "1.0"
 time = "0.1"
 xattr = "0.2.2"
 

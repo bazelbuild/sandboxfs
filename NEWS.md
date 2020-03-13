@@ -4,13 +4,40 @@
 
 **STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
 
-*   Issue #92: Fixed a bug in `readdir` where we would regenerate inodes for
-    directory entries, causing later confusion when trying to access those
-    directories.
+*   Changed the reconfiguration protocol to use JSON streams for both the
+    requests and the responses, instead of the previous ad-hoc line-oriented
+    protocol.
 
-*   Issues #94, #98: Fixed a bug in `rename` that caused moved directories to
-    lose access to their contents (because the underlying paths for their
-    descendents wouldn't be updated to point to their new locations).
+*   Changed the reconfiguration protocol so that each map and unmap request
+    carries a list of mappings to map and unmap, respectively, along with the
+    "root" path where all those mappings start.  This is to allow sandboxfs to
+    process the requests more efficiently.
+
+*   Changed the reconfiguration protocol so that each request contains a tag,
+    which is then propagated to the response for that request.  This is to
+    allow sandboxfs to process requests in parallel.
+
+*   Changed the reconfiguration protocol to work at the level of sandboxes,
+    not paths, where a sandbox is defined as a top-level directory with a
+    collection of mappings beneath it.
+
+    This essentially makes reconfigurations less powerful than they were, but
+    also makes them infinitely simpler to understand and manage.  Furthermore,
+    this lines up better with the needs of Bazel, our primary customer, and
+    with sandboxfs' own name.
+
+*   Changed the reconfiguration protocol to take prefix-encoded paths to
+    minimize the size of the reconfiguration requests.  This has shown to
+    significantly reduce the CPU consumption of both sandboxfs and Bazel
+    during a build, as the size of the reconfiguration messages is
+    drastically smaller.
+
+*   Changed the reconfiguration protocol to accept short aliases for all
+    fields, thus further minimizing the size of reconfiguration requests,
+    and also to accept omitting optional fields.
+
+*   Made sandboxfs process reconfiguration requests in parallel, which has a
+    significant performance impact when those requests are large.
 
 *   Fixed a bug where writes on a file descriptor that had been duplicated and
     closed did not update the file size, resulting in bad data being returned

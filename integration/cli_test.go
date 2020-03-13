@@ -15,6 +15,8 @@
 package integration
 
 import (
+	"fmt"
+	"runtime"
 	"testing"
 
 	"github.com/bazelbuild/sandboxfs/integration/utils"
@@ -26,7 +28,7 @@ var (
 )
 
 func TestCli_Help(t *testing.T) {
-	wantStdout := `Usage: sandboxfs [options] MOUNT_POINT
+	wantStdout := fmt.Sprintf(`Usage: sandboxfs [options] MOUNT_POINT
 
 Options:
     --allow other|root|self
@@ -41,11 +43,13 @@ Options:
     --node_cache        enables the path-based node cache (known broken)
     --output PATH       where to write the reconfiguration status to (- for
                         stdout)
+    --reconfig_threads COUNT
+                        number of reconfiguration threads (default: %d)
     --ttl TIMEs         how long the kernel is allowed to keep file metadata
                         (default: 60s)
     --version           prints version information and exits
     --xattrs            enables support for extended attributes
-`
+`, runtime.NumCPU())
 
 	stdout, stderr, err := utils.RunAndWait(0, "--help")
 	if err != nil {
@@ -182,6 +186,11 @@ func TestCli_Syntax(t *testing.T) {
 			"MappingBadType",
 			[]string{"--mapping=row:/foo:/bar"},
 			`bad mapping row:/foo:/bar: type was row but should be ro or rw`,
+		},
+		{
+			"ReconfigThreadsBadValue",
+			[]string{"--reconfig_threads=-1"},
+			`invalid thread count -1: .*invalid digit`,
 		},
 	}
 	for _, d := range testData {

@@ -24,19 +24,18 @@ install_bazel() {
     osx) osname=darwin ;;
     *) osname="${TRAVIS_OS_NAME}" ;;
   esac
-
-  local tag=0.21.0  # Keep version in sync with travis-build.sh.
-  local github="https://github.com/bazelbuild/bazel/releases/download/${tag}"
-  local url="${github}/bazel-${tag}-${osname}-x86_64"
+  local tag=release-3.0.0rc2
+  local baseurl="https://releases.bazel.build"
+  local url="${baseurl}/3.0.0/rc2/bazel-3.0.0rc2-${osname}-x86_64"
   mkdir -p ~/bin
   wget -O ~/bin/bazel "${url}"
   chmod +x ~/bin/bazel
-  PATH="${HOME}/bin:${PATH}"
 
   git clone https://github.com/bazelbuild/bazel.git
   cd bazel
   git pull --tags
   git checkout "${tag}"
+  bazel fetch //src:bazel
   cd -
 }
 

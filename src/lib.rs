@@ -37,6 +37,7 @@ extern crate serde_derive;
 extern crate signal_hook;
 #[cfg(test)] extern crate tempfile;
 #[cfg(test)] extern crate users;
+extern crate threadpool;
 extern crate time;
 extern crate xattr;
 
@@ -47,7 +48,6 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
-use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::result::Result;
@@ -206,6 +206,7 @@ struct SandboxFS {
 /// This structure exists because `fuse::mount` takes ownership of the file system so there is no
 /// way for us to share that instance across threads.  Instead, we construct a reduced view of the
 /// fields we need for reconfiguration and pass those across threads.
+#[derive(Clone)]
 struct ReconfigurableSandboxFS {
     /// The root node of the file system, on which to apply all reconfiguration operations.
     root: nodes::ArcNode,
@@ -217,21 +218,35 @@ struct ReconfigurableSandboxFS {
     cache: ArcCache,
 }
 
+/// Splits an absolute path into components, stripping the first root component.
+///
+/// If the input path was the root directory, the result is an empty set of components.  Otherwise,
+/// the first returned component is always a `Component::Normal` component.
+// TODO(jmmv): The callers of this function should be able to operate on the iterator alone,
+// without having to materialize the components into a vector.  Doing so requires changing all
+// directory traversal functions to also operate on a `Components` iterator (possibly a `Peekable`
+// one) so it's not clear to me that that's going to be faster; need to measure.
+fn split_abs_path(path: &Path) -> Vec<Component> {
+    let mut components = path.components();
+    let root = components.next().expect("Should have been called on an absolute path only");
+    debug_assert_eq!(Component::RootDir, root,
+        "Paths in mappings are always absolute but got {:?}", path);
+    components.collect::<Vec<_>>()
+}
+
 /// Applies a mapping to the given root node.
 ///
 /// This code is shared by the application of `--mapping` flags and by the application of new
 /// mappings as part of a reconfiguration operation.  We want both processes to behave identically.
 fn apply_mapping(mapping: &Mapping, root: &dyn nodes::Node, ids: &IdGenerator,
-    cache: &dyn nodes::Cache) -> Fallible<()> {
-    let all = mapping.path.components().collect::<Vec<_>>();
-    debug_assert_eq!(Component::RootDir, all[0], "Paths in mappings are always absolute");
-    let components = &all[1..];
+    cache: &dyn nodes::Cache) -> Fallible<nodes::ArcNode> {
+    let components = split_abs_path(&mapping.path);
 
     // The input `root` node is an existing node that corresponds to the root.  If we don't find
     // any path components in the given mapping, it means we are trying to remap that same node.
     ensure!(!components.is_empty(), "Root can be mapped at most once");
 
-    root.map(components, &mapping.underlying_path, mapping.writable, &ids, cache)
+    root.map(&components, &mapping.underlying_path, mapping.writable, &ids, cache)
 }
 
 /// Creates the initial node hierarchy based on a collection of `mappings`.
@@ -760,27 +775,49 @@ impl fuse::Filesystem for SandboxFS {
 }
 
 impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
-    fn map(&self, mapping: &Mapping) -> Fallible<()> {
-        apply_mapping(mapping, self.root.as_ref(), self.ids.as_ref(), self.cache.as_ref())
-            .context(format!("Cannot map '{}'", mapping))?;
+    fn create_sandbox(&self, id: &str, mut mappings: &[Mapping]) -> Fallible<()> {
+        // Special-case the first mapping if it is for the "root" directory.  We know that this
+        // mapping, if present, must come first (as otherwise it will fail when applied later on
+        // anyway).  But if it is first, we must treat it as if we were mapping the "root" itself.
+        let root_node = match mappings.get(0) {
+            Some(mapping) => {
+                if mapping.path.as_path() == Path::new(&"/") {
+                    let path = reconfig::make_path(id, mapping.path.clone())?;
+                    mappings = &mappings[1..];
+                    let m = Mapping::from_parts(
+                        path, mapping.underlying_path.clone(), mapping.writable)?;
+                    apply_mapping(&m, self.root.as_ref(), self.ids.as_ref(), self.cache.as_ref())
+                        .context(format!("Cannot map '{}'", mapping))?
+                } else {
+                    self.root.find_subdir(OsStr::new(id), self.ids.as_ref())?
+                }
+            },
+            None => self.root.find_subdir(OsStr::new(id), self.ids.as_ref())?,
+        };
+
+        // TODO(jmmv): Even though we don't hold the root lock any longer, this *still* is very
+        // inefficient because keep locking/unlocking the top directory for every mapping.  Should
+        // pass the list of mappings down to the `map` operation... but that'd only fix this issue
+        // for the top-level directory; what about all intermediate directories for all mappings?
+        for mapping in mappings {
+            apply_mapping(
+                mapping, root_node.clone().as_ref(), self.ids.as_ref(), self.cache.as_ref())
+                .context(format!("Cannot map '{}'", mapping))?;
+        }
         Ok(())
     }
 
-    fn unmap<P: AsRef<Path>>(&self, path: P) -> Fallible<()> {
-        let all = path.as_ref().components().collect::<Vec<_>>();
-        debug_assert_eq!(Component::RootDir, all[0], "Paths to unmap are always absolute");
-        let components = &all[1..];
-
-        ensure!(!components.is_empty(), "Root cannot be unmapped");
-
-        self.root.unmap(components)
+    fn destroy_sandbox(&self, id: &str) -> Fallible<()> {
+        self.root.unmap(&[Component::Normal(OsStr::new(id))])?;
+        Ok(())
     }
 }
 
 /// Mounts a new sandboxfs instance on the given `mount_point` and maps all `mappings` within it.
 #[allow(clippy::too_many_arguments)]
 pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Timespec,
-    cache: ArcCache, xattrs: bool, input: fs::File, output: fs::File) -> Fallible<()> {
+    cache: ArcCache, xattrs: bool, input: fs::File, output: fs::File, threads: usize)
+    -> Fallible<()> {
     let mut os_options = options.iter().map(AsRef::as_ref).collect::<Vec<&OsStr>>();
 
     // Delegate permissions checks to the kernel for efficiency and to avoid having to implement
@@ -801,10 +838,13 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
 
     let config_handler = {
         let mut input = concurrent::ShareableFile::from(input);
-        let reader = io::BufReader::new(input.reader()?);
-        let writer = io::BufWriter::new(output);
+        let reader = input.reader()?;
         let handler = thread::spawn(move || {
-            reconfig::run_loop(reader, writer, &reconfigurable_fs);
+            match reconfig::run_loop(reader, output, threads, &reconfigurable_fs) {
+                Ok(()) => info!(
+                    "Reached end of reconfiguration input; file system mappings are now frozen"),
+                Err(e) => warn!("Reconfigurations stopped due to internal error: {}", e),
+            }
         });
 
         session.run()?;
@@ -812,8 +852,8 @@ pub fn mount(mount_point: &Path, options: &[&str], mappings: &[Mapping], ttl: Ti
     };
     // The input must be closed to let the reconfiguration thread to exit, which then lets the join
     // operation below complete, hence the scope above.
-
     if let Some(signo) = signals.caught() {
+        info!("Caught signal {}", signo);
         return Err(format_err!("Caught signal {}", signo));
     }
 
@@ -910,6 +950,20 @@ mod tests {
         let ids = IdGenerator::new(std::u64::MAX);
         ids.next();  // OK, still at limit.
         ids.next();  // Should panic.
+    }
+
+    #[test]
+    fn test_split_abs_path() {
+        let empty: [Component; 0] = [];
+        assert_eq!(
+            &empty,
+            split_abs_path(&Path::new("/")).as_slice());
+        assert_eq!(
+            &[Component::Normal(OsStr::new("foo"))],
+            split_abs_path(&Path::new("/foo")).as_slice());
+        assert_eq!(
+            &[Component::Normal(OsStr::new("foo")), Component::Normal(OsStr::new("bar"))],
+            split_abs_path(&Path::new("/foo/bar")).as_slice());
     }
 
     fn do_create_as_ok_test(uid: unistd::Uid, gid: unistd::Gid) {

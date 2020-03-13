@@ -157,6 +157,9 @@ EOF
       SANDBOXFS_BINARY="${sandboxfs_binary}"
 }
 
+# Remove logs from the install phase.  They confuse some of our operations.
+rm travis_wait_*.log
+
 case "${DO}" in
   bazel|install|lint|linux_pkg|macos_pkg|package|test)
     "do_${DO}"

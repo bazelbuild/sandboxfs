@@ -500,9 +500,28 @@ impl Node for Dir {
         }
     }
 
+    fn find_subdir(&self, name: &OsStr, ids: &IdGenerator) -> Fallible<ArcNode> {
+        let mut state = self.state.lock().unwrap();
+
+        match state.children.get(name) {
+            Some(dirent) => {
+                ensure!(dirent.explicit_mapping, "Not a mapping");
+                Ok(dirent.node.clone())
+            },
+            None => {
+                let child = self.new_scaffold_child(None, name, ids, time::get_time());
+                let dirent = Dirent { node: child.clone(), explicit_mapping: true };
+                state.children.insert(name.to_os_string(), dirent);
+                Ok(child)
+            },
+        }
+    }
+
     fn map(&self, components: &[Component], underlying_path: &Path, writable: bool,
-        ids: &IdGenerator, cache: &dyn Cache) -> Fallible<()> {
-        ensure!(!components.is_empty(), "Already mapped");
+        ids: &IdGenerator, cache: &dyn Cache) -> Fallible<ArcNode> {
+        debug_assert!(
+            !components.is_empty(),
+            "Must not be reached because we don't have the containing ArcNode to return it");
         let (name, remainder) = split_components(components);
 
         let mut state = self.state.lock().unwrap();
@@ -527,7 +546,7 @@ impl Node for Dir {
         state.children.insert(name.to_os_string(), dirent);
 
         if remainder.is_empty() {
-            Ok(())
+            Ok(child)
         } else {
             ensure!(child.file_type_cached() == fuse::FileType::Directory, "Already mapped");
             child.map(remainder, underlying_path, writable, ids, cache)
