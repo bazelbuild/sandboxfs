@@ -553,30 +553,30 @@ impl Node for Dir {
         }
     }
 
-    fn unmap(&self, components: &[Component]) -> Fallible<()> {
-        let (name, remainder) = split_components(components);
-
+    fn unmap(&self, inodes: &mut Vec<u64>) -> Fallible<()> {
         let mut state = self.state.lock().unwrap();
+        for dirent in state.children.values() {
+            dirent.node.unmap(inodes)?;
+        }
+        state.children.clear();
 
-        if remainder.is_empty() {
-            match state.children.remove_entry(name) {
-                Some((name, dirent)) => {
-                    if dirent.explicit_mapping {
-                        // TODO(jmmv): Invalidate kernel dirent once the FUSE crate supports it.
-                        Ok(())
-                    } else {
-                        let err = format_err!("{:?} is not a mapping", &name);
-                        state.children.insert(name, dirent);
-                        Err(err)
-                    }
-                },
-                None => Err(format_err!("Unknown entry")),
-            }
-        } else {
-            match state.children.get(name) {
-                Some(dirent) => dirent.node.unmap(remainder),
-                None => Err(format_err!("Unknown component in entry")),
-            }
+        inodes.push(self.inode);
+        Ok(())
+    }
+
+    fn unmap_subdir(&self, name: &OsStr, inodes: &mut Vec<u64>) -> Fallible<()> {
+        let mut state = self.state.lock().unwrap();
+        match state.children.remove_entry(name) {
+            Some((name, dirent)) => {
+                if dirent.explicit_mapping {
+                    dirent.node.unmap(inodes)
+                } else {
+                    let err = format_err!("{:?} is not a mapping", &name);
+                    state.children.insert(name, dirent);
+                    Err(err)
+                }
+            },
+            None => Err(format_err!("Unknown entry")),
         }
     }
 

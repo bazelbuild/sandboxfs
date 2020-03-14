@@ -12,7 +12,8 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-use {flatten_causes, Mapping, MappingError};
+use {Mapping, MappingError};
+use errors::flatten_causes;
 use failure::{Fallible, ResultExt};
 use nix::unistd;
 use serde_derive::{Deserialize, Serialize};

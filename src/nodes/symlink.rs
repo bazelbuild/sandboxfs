@@ -14,6 +14,7 @@
 
 extern crate fuse;
 
+use failure::Fallible;
 use nix::errno;
 use nodes::{ArcNode, AttrDelta, Cache, KernelError, Node, NodeResult, conv, setattr};
 use std::ffi::OsStr;
@@ -106,6 +107,11 @@ impl Node for Symlink {
         state.underlying_path = Some(PathBuf::from(path));
         debug_assert!(state.attr.nlink >= 1);
         state.attr.nlink -= 1;
+    }
+
+    fn unmap(&self, inodes: &mut Vec<u64>) -> Fallible<()> {
+        inodes.push(self.inode);
+        Ok(())
     }
 
     fn getattr(&self) -> NodeResult<fuse::FileAttr> {
