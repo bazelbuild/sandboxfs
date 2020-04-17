@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"bazil.org/fuse"
 	"github.com/bazelbuild/sandboxfs/integration/utils"
 )
 
@@ -38,7 +37,7 @@ func checkSignalHandled(state *utils.MountState) error {
 		return fmt.Errorf("exit status of sandboxfs returned success, want an error")
 	}
 
-	if err := fuse.Unmount(state.MountPath()); err == nil {
+	if err := utils.Unmount(state.MountPath()); err == nil {
 		return fmt.Errorf("mount point should have been released during signal handling but wasn't")
 	}
 

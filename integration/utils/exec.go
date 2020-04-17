@@ -27,7 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"bazil.org/fuse"
 	"golang.org/x/sys/unix"
 )
 
@@ -169,7 +168,7 @@ func startBackground(cookie string, stdout io.Writer, stderr io.Writer, user *Un
 			stdin.Close()
 			cmd.Process.Kill()
 			cmd.Wait()
-			fuse.Unmount(mountPoint)
+			Unmount(mountPoint)
 			return nil, nil, fmt.Errorf("file system failed to come up: %s not found", cookiePath)
 		}
 	}
@@ -485,8 +484,8 @@ func (s *MountState) TearDown(t *testing.T) error {
 	}
 
 	if s.Cmd != nil {
-		// Calling fuse.Unmount on the mount point causes the running sandboxfs process to
-		// stop serving and to exit cleanly.  Note that fuse.Unmount is not an unmount(2)
+		// Calling Unmount on the mount point causes the running sandboxfs process to
+		// stop serving and to exit cleanly.  Note that Unmount is not an unmount(2)
 		// system call: this can be run as an unprivileged user, so we needn't check for
 		// root privileges.
 		//
@@ -498,7 +497,7 @@ func (s *MountState) TearDown(t *testing.T) error {
 		// example, on macOS, the Finder may decide to obtain information about the mount
 		// point and, if it does that while we try to unmount it, we get an unexpected
 		// error.
-		unmount := func() error { return fuse.Unmount(s.mountPoint) }
+		unmount := func() error { return Unmount(s.mountPoint) }
 		if err := retry(unmount, "waiting for file system to be unmounted", shutdownDeadlineSeconds); err != nil {
 			t.Errorf("Failed to unmount sandboxfs instance during teardown: %v", err)
 			setFirstErr(err)
