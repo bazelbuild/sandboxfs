@@ -44,6 +44,24 @@
     "editor.quickSuggestions": false
   },
 
+  "markdownlint.config": {
+    "MD007": {
+      "indent": 4
+    },
+    "MD025": {
+      "level": 7
+    },
+    "MD026": {
+      "punctuation":  ".,:;'"
+    },
+    "MD030": {
+      "ol_single": 2,
+      "ol_multi": 2,
+      "ul_single": 3,
+      "ul_multi": 3
+    }
+  },
+
   "[rust]": {
     "editor.rulers": [100],
     "editor.wordWrapColumn": 100
