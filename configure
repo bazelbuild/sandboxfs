@@ -27,7 +27,7 @@ GOROOT=
 IS_BMAKE=
 IS_GNUMAKE=
 PREFIX=
-DISTCLEANFILES="Makefile ${GOPATH}"
+DISTCLEANFILES="Makefile go.sum ${GOPATH}"
 
 # List of variables exposed to the Makefile.
 MK_VARS="CARGO CLEANFILES DISTCLEANFILES FEATURES GOPATH GOROOT PREFIX"
@@ -117,20 +117,8 @@ setup_go() {
     info "Go not found; cannot run integration tests"
   else
     info "Using Go with GOROOT: ${GOROOT}"
-
-    mkdir -p .gopath/src/github.com/bazelbuild
-    rm -f .gopath/src/github.com/bazelbuild/sandboxfs
-    ln -s ../../../.. .gopath/src/github.com/bazelbuild/sandboxfs
-
-    for dep in \
-        bazil.org/fuse \
-        golang.org/x/lint/golint \
-        golang.org/x/net/context \
-        golang.org/x/sys/unix
-    do
-      info "Fetching Go dependency ${dep}"
-      GOPATH="${GOPATH}" "${GOROOT}/bin/go" get "${dep}"
-    done
+    GOPATH="${GOPATH}" "${GOROOT}/bin/go" mod download
+    GOPATH="${GOPATH}" "${GOROOT}/bin/go" install golang.org/x/lint/golint
   fi
 }
 
