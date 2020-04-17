@@ -32,7 +32,7 @@ language:
   - python  # For Bazel.
 
 go:
-  - "1.13"
+  - "1.12"
 go_import_path: github.com/bazelbuild/sandboxfs
 
 env:

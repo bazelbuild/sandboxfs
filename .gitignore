@@ -7,4 +7,5 @@
 /bazel-*
 Cargo.lock
 Makefile
+go.sum
 target
