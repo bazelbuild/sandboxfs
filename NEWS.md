@@ -2,39 +2,12 @@
 
 ## Changes in version 0.2.0
 
-**STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
+**Released on 2020-04-20.**
 
-*   Changed the reconfiguration protocol to use JSON streams for both the
-    requests and the responses, instead of the previous ad-hoc line-oriented
-    protocol.
-
-*   Changed the reconfiguration protocol so that each map and unmap request
-    carries a list of mappings to map and unmap, respectively, along with the
-    "root" path where all those mappings start.  This is to allow sandboxfs to
-    process the requests more efficiently.
-
-*   Changed the reconfiguration protocol so that each request contains a tag,
-    which is then propagated to the response for that request.  This is to
-    allow sandboxfs to process requests in parallel.
-
-*   Changed the reconfiguration protocol to work at the level of sandboxes,
-    not paths, where a sandbox is defined as a top-level directory with a
-    collection of mappings beneath it.
-
-    This essentially makes reconfigurations less powerful than they were, but
-    also makes them infinitely simpler to understand and manage.  Furthermore,
-    this lines up better with the needs of Bazel, our primary customer, and
-    with sandboxfs' own name.
-
-*   Changed the reconfiguration protocol to take prefix-encoded paths to
-    minimize the size of the reconfiguration requests.  This has shown to
-    significantly reduce the CPU consumption of both sandboxfs and Bazel
-    during a build, as the size of the reconfiguration messages is
-    drastically smaller.
-
-*   Changed the reconfiguration protocol to accept short aliases for all
-    fields, thus further minimizing the size of reconfiguration requests,
-    and also to accept omitting optional fields.
+*   The reconfiguration protocol has completely changed in order to support
+    more efficient reconfigurations.  If you are using sandboxfs with Bazel,
+    you will need to upgrade to Bazel 3.0.0 to use this version.  See below for
+    more details on how the protocol has changed.
 
 *   Made sandboxfs process reconfiguration requests in parallel, which has a
     significant performance impact when those requests are large.
@@ -56,15 +29,48 @@
     this feature.
 
 *   Disabled the path-based node cache by default and added a `--node_cache`
-    flag to reenable it.  This fixes crashes running Java within a sandboxfs
-    instance where the Java toolchain is mapped under multiple locations and
-    the first mapped location vanishes.  See [The OSXFUSE, hard links, and
-    dladdr puzzle](https://jmmv.dev/2020/01/osxfuse-hardlinks-dladdr.html) for
+    flag to reenable it.  This fixes crashes when running Java within a
+    sandboxfs instance where the Java toolchain is mapped under multiple
+    locations and the first mapped location vanishes.  See [The OSXFUSE, hard
+    links, and dladdr
+    puzzle](https://jmmv.dev/2020/01/osxfuse-hardlinks-dladdr.html) for
     details.
+
+The following are the highlights of the changes to the reconfiguration protocol
+in this release.  You can read the full specification in the `sandboxfs(1)`
+manual page:
+
+*   Use JSON streams for both the requests and the responses, instead of
+    the previous ad-hoc line-oriented protocol.
+
+*   Each map and unmap request carries a list of mappings to map and
+    unmap, respectively, along with the "root" path where all those mappings
+    start.  This is to allow sandboxfs to process the requests more
+    efficiently.
+
+*   Each request contains a tag, which is then propagated to the response
+    for that request.  This is to allow sandboxfs to process requests in
+    parallel.
+
+*   Work at the level of sandboxes, not paths, where a sandbox is defined
+    as a top-level directory with a collection of mappings beneath it.
+
+    This essentially makes reconfigurations less powerful than they were, but
+    also makes them infinitely simpler to understand and manage.  Furthermore,
+    this lines up better with the needs of Bazel, our primary customer, and
+    with sandboxfs' own name.
+
+*   Take prefix-encoded paths to minimize the size of the reconfiguration
+    requests.  This has shown to significantly reduce the CPU consumption of
+    both sandboxfs and Bazel during a build, as the size of the reconfiguration
+    messages is drastically smaller.
+
+*   Accept short aliases for all fields, thus further minimizing the size
+    of reconfiguration requests, and also to accept omitting optional fields.
 
 ## Changes in version 0.1.1
 
-**Released 2019-10-24.**
+**Released on 2019-10-24.**
 
 *   Fixed the definition of `--input` and `--output` to require an argument,
     which makes `--foo bar` and `--foo=bar` equivalent.  This can be thought to
