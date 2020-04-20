@@ -24,9 +24,9 @@ install_bazel() {
     osx) osname=darwin ;;
     *) osname="${TRAVIS_OS_NAME}" ;;
   esac
-  local tag=release-3.0.0rc2
-  local baseurl="https://releases.bazel.build"
-  local url="${baseurl}/3.0.0/rc2/bazel-3.0.0rc2-${osname}-x86_64"
+  local tag=3.0.0
+  local github="https://github.com/bazelbuild/bazel/releases/download/${tag}"
+  local url="${github}/bazel-${tag}-${osname}-x86_64"
   mkdir -p ~/bin
   wget -O ~/bin/bazel "${url}"
   chmod +x ~/bin/bazel
