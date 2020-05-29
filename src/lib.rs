@@ -234,8 +234,8 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &dyn nodes::Cache
         let first = &mappings[0];
         if first.is_root() {
             let fs_attr = fs::symlink_metadata(&first.underlying_path)
-                .context(format!("Failed to map root: stat failed for {:?}",
-                                 &first.underlying_path))?;
+                .with_context(|_| format!("Failed to map root: stat failed for {:?}",
+                    &first.underlying_path))?;
             ensure!(fs_attr.is_dir(), "Failed to map root: {:?} is not a directory",
                     &first.underlying_path);
             (nodes::Dir::new_mapped(ids.next(), &first.underlying_path, &fs_attr, first.writable),
@@ -247,7 +247,7 @@ fn create_root(mappings: &[Mapping], ids: &IdGenerator, cache: &dyn nodes::Cache
 
     for mapping in rest {
         apply_mapping(mapping, root.as_ref(), ids, cache)
-            .context(format!("Cannot map '{}'", mapping))?;
+            .with_context(|_| format!("Cannot map '{}'", mapping))?;
     }
 
     Ok(root)
@@ -793,7 +793,7 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
                     let m = Mapping::from_parts(
                         path, mapping.underlying_path.clone(), mapping.writable)?;
                     apply_mapping(&m, self.root.as_ref(), self.ids.as_ref(), self.cache.as_ref())
-                        .context(format!("Cannot map '{}'", mapping))?
+                        .with_context(|_| format!("Cannot map '{}'", mapping))?
                 } else {
                     self.root.find_subdir(OsStr::new(id), self.ids.as_ref())?
                 }
@@ -808,7 +808,7 @@ impl reconfig::ReconfigurableFS for ReconfigurableSandboxFS {
         for mapping in mappings {
             apply_mapping(
                 mapping, root_node.clone().as_ref(), self.ids.as_ref(), self.cache.as_ref())
-                .context(format!("Cannot map '{}'", mapping))?;
+                    .with_context(|_| format!("Cannot map '{}'", mapping))?;
         }
         Ok(())
     }

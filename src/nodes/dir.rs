@@ -536,7 +536,7 @@ impl Node for Dir {
 
         let child = if remainder.is_empty() {
             let fs_attr = fs::symlink_metadata(underlying_path)
-                .context(format!("Stat failed for {:?}", underlying_path))?;
+                .with_context(|_| format!("Stat failed for {:?}", underlying_path))?;
             cache.get_or_create(ids, underlying_path, &fs_attr, writable)
         } else {
             self.new_scaffold_child(state.underlying_path.as_ref(), name, ids, time::get_time())
