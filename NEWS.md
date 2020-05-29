@@ -1,5 +1,12 @@
 # Major changes between releases
 
+## Changes in version X.Y.Z
+
+**STILL UNDER DEVELOPMENT; NOT RELEASED YET.**
+
+*   Issue #111: Optimized map operations, cutting down their CPU time by
+    about 15%.
+
 ## Changes in version 0.2.0
 
 **Released on 2020-04-20.**

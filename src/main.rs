@@ -253,14 +253,14 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     let input = {
         let input_flag = matches.opt_str("input");
         sandboxfs::open_input(file_flag(&input_flag))
-            .context(format!("Failed to open reconfiguration input '{}'",
+            .with_context(|_| format!("Failed to open reconfiguration input '{}'",
                 input_flag.unwrap_or_else(|| DEFAULT_INOUT.to_owned())))?
     };
 
     let output = {
         let output_flag = matches.opt_str("output");
         sandboxfs::open_output(file_flag(&output_flag))
-            .context(format!("Failed to open reconfiguration output '{}'",
+            .with_context(|_| format!("Failed to open reconfiguration output '{}'",
                 output_flag.unwrap_or_else(|| DEFAULT_INOUT.to_owned())))?
     };
 
@@ -296,7 +296,7 @@ fn safe_main(program: &str, args: &[String]) -> Fallible<()> {
     sandboxfs::mount(
         mount_point, &options, &mappings, ttl, node_cache, matches.opt_present("xattrs"),
         input, output, reconfig_threads)
-        .context(format!("Failed to mount {}", mount_point.display()))?;
+        .with_context(|_| format!("Failed to mount {}", mount_point.display()))?;
     Ok(())
 }
 
