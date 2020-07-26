@@ -19,14 +19,14 @@
 #![warn(unused, unused_extern_crates, unused_import_braces, unused_qualifications)]
 #![warn(unsafe_code)]
 
-// For portability reasons, we need to be able to cast integer values to system-level opaque
-// types such as "mode_t".  Because we don't know the size of those integers on the platform we
-// are building for, sometimes the casts do widen the values but other times they are no-ops.
-#![allow(clippy::identity_conversion)]
-
 // We construct complex structures in multiple places, and allowing for redundant field names
 // increases readability.
 #![allow(clippy::redundant_field_names)]
+
+// For portability reasons, we need to be able to cast integer values to system-level opaque
+// types such as "mode_t".  Because we don't know the size of those integers on the platform we
+// are building for, sometimes the casts do widen the values but other times they are no-ops.
+#![allow(clippy::useless_conversion)]
 
 #[cfg(feature = "profiling")] extern crate cpuprofiler;
 #[macro_use] extern crate failure;
