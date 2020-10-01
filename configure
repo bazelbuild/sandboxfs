@@ -110,7 +110,7 @@ setup_go() {
     [ "${user_override}" = none ] || GOROOT="${user_override}"
   else
     local go="$(find_progs go)"
-    [ -n "${go}" ] && GOROOT="$(dirname "$(dirname "${go}")")"
+    [ -n "${go}" ] && GOROOT="$("${go}" env GOROOT)"
   fi
 
   if [ -z "${GOROOT}" ]; then
