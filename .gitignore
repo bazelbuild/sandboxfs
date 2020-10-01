@@ -5,7 +5,6 @@
 /.gopath
 /.gopath-tools
 /bazel-*
-Cargo.lock
 Makefile
 go.sum
 target
