@@ -169,11 +169,11 @@ fn setattr_size(attr: &mut fuse::FileAttr, path: Option<&PathBuf>, size: Option<
     }
     let size = size.unwrap();
 
-    let result = if size > ::std::i64::MAX as u64 {
-        warn!("truncate request got size {}, which is too large (exceeds i64's MAX)", size);
+    let result = if size > ::nix::libc::off_t::max_value() as u64 {
+        warn!("truncate request got size {}, which is too large (exceeds off_t's MAX)", size);
         Err(nix::Error::invalid_argument())
     } else {
-        try_path(path, |p| unistd::truncate(p, size as i64))
+        try_path(path, |p| unistd::truncate(p, size as nix::libc::off_t))
     };
     if result.is_ok() {
         attr.size = size;
